@@ -1,20 +1,25 @@
 # CI — Cross-bridge performance regression gate (S7-P2)
 #
-# Runs the benchmark suite (raw FFI vs Nitro paths vs MethodChannel) on the
-# macOS desktop embedder and enforces machine-independent bridge-tier ratios:
+# Runs one benchmark suite (raw FFI vs Nitro paths vs MethodChannel) across
+# every embedder: macOS, Linux, Windows, Android, iOS — and the browser, where
+# the same harness goes through the WASM bridge under both web compilers.
+#
+# Machine-independent bridge-tier ratios are enforced where the tiers exist:
 #   * Nitro leaf call stays within 2.5× of the raw FFI floor
 #   * Nitro checked call stays within 4× of the raw FFI floor
 #   * Nitro stays ≥5× faster than MethodChannel
+# A platform that lacks a tier auto-skips that ratio rather than failing — web
+# has neither raw FFI nor MethodChannel — while the core Nitro cases stay
+# mandatory everywhere, which is what catches a broken bridge.
 #
 # Absolute-µs baselines are NOT gated here — shared runners are too noisy.
 # Record/gate those on dedicated hardware via:
 #   benchmark/tool/bench.sh --mode full --gate all
 #
-# Trigger: push to main + manual dispatch (not PRs — a full macOS desktop
-# build per PR is slow, and the ratio gate on main catches regressions
-# before release).
+# Trigger: push to main + manual dispatch (not PRs — a full desktop build per
+# PR is slow, and the ratio gate on main catches regressions before release).
 
-name: Benchmark (macOS) CI
+name: Benchmark CI
 
 on:
   push:
@@ -73,6 +78,95 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-report-macos
+          path: benchmark/results/
+          if-no-files-found: ignore
+
+  # ── Web: the same harness through the WASM bridge, in a real browser ──────
+  # Runs the identical regression test the native jobs use, driven over
+  # chromedriver against a profile build. There is no raw-FFI tier and no
+  # MethodChannel on web, so the ratio gates auto-skip; the core Nitro cases
+  # stay mandatory, which is what catches a broken web bridge.
+  #
+  # Both compilers are measured because they differ enormously at the bridge
+  # boundary — dart2js `.toDart` is a cast, dart2wasm's is a copy — so a
+  # single number would hide a regression in whichever one it did not run.
+  bench-web:
+    name: Web — Nitro C++ via WASM (dart2js + dart2wasm)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: dart2js
+            wasm_flag: ''
+          - compiler: dart2wasm
+            wasm_flag: '--wasm'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.74
+          actions-cache-folder: emsdk-cache
+
+      - uses: browser-actions/setup-chrome@v1
+        with:
+          install-chromedriver: true
+
+      - name: Get workspace dependencies
+        run: flutter pub get
+
+      # The harness calls into benchmark_cpp.wasm; without it the app boots
+      # into a startup error and every Nitro case would be "skipped".
+      - name: Build benchmark_cpp.wasm
+        working-directory: benchmark
+        run: bash web/build_web.sh
+
+      - name: Start chromedriver
+        run: |
+          chromedriver --port=4444 &
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:4444/status >/dev/null && exit 0
+            sleep 1
+          done
+          echo "chromedriver did not become ready" >&2
+          exit 1
+
+      # --profile, never debug: a DDC/debug build measures the compiler, not
+      # the bridge. The driver writes build/integration_response_data.json.
+      - name: Run benchmark + regression gate (${{ matrix.compiler }})
+        working-directory: benchmark/example
+        run: >
+          flutter drive --profile ${{ matrix.wasm_flag }}
+          --driver=test_driver/integration_test.dart
+          --target=integration_test/benchmark_regression_test.dart
+          -d web-server --browser-name=chrome --headless
+          --dart-define=NITRO_BENCH_MODE=${{ github.event.inputs.mode || 'quick' }}
+          --dart-define=NITRO_BENCH_GATE=relative
+
+      - name: Publish analysis to job summary
+        if: always()
+        run: |
+          if [ -f benchmark/example/build/integration_response_data.json ]; then
+            dart run benchmark/tool/format_report.dart \
+              benchmark/example/build/integration_response_data.json \
+              --baselines-dir benchmark/example/assets/baselines \
+              --compare-dir benchmark/results \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-report-web-${{ matrix.compiler }}
           path: benchmark/results/
           if-no-files-found: ignore
 

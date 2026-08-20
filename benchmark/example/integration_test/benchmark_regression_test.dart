@@ -24,7 +24,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'package:benchmark_example/harness/bench_harness.dart';
-import 'package:benchmark_example/core/nitro_init_native.dart';
+// Conditional so the SAME gate runs on web, where startup must first
+// instantiate the benchmark_cpp WASM module. Mirrors main.dart's import.
+import 'package:benchmark_example/core/nitro_init.dart'
+    if (dart.library.io) 'package:benchmark_example/core/nitro_init_native.dart';
 
 const _mode = String.fromEnvironment('NITRO_BENCH_MODE', defaultValue: 'quick');
 const _gate = String.fromEnvironment(
@@ -115,94 +118,120 @@ void main() {
 
       double? optionalMin(String id) => report.caseById(id)?.stats?.minUs;
 
-      final rawFfi = requiredMin('raw_ffi_add');
+      // The raw-FFI floor is the yardstick for the ratio gates, but it only
+      // exists where dart:ffi does. On web there is no raw-FFI tier (and no
+      // MethodChannel), so those comparisons are skipped rather than failed —
+      // the core Nitro cases below still have to run everywhere.
+      final rawFfi = optionalMin('raw_ffi_add');
       final leaf = requiredMin('nitro_leaf_add');
       final cpp = requiredMin('nitro_cpp_add');
       final channel = optionalMin('method_channel_add');
 
-      expect(rawFfi, greaterThan(0), reason: 'raw FFI floor measured as 0 µs');
-      expect(
-        leaf,
-        lessThanOrEqualTo(rawFfi * _maxLeafOverRawFfi + _leafOverheadBudgetUs),
-        reason:
-            'Nitro leaf call drifted from the raw FFI floor '
-            '(leaf=${leaf.toStringAsFixed(3)}µs, '
-            'rawFfi=${rawFfi.toStringAsFixed(3)}µs). '
-            'Did a binding lose isLeaf or gain an allocation?',
-      );
-      expect(
-        cpp,
-        lessThanOrEqualTo(rawFfi * _maxCppOverRawFfi + _cppOverheadBudgetUs),
-        reason:
-            'Nitro checked call overhead vs raw FFI regressed '
-            '(cpp=${cpp.toStringAsFixed(3)}µs, '
-            'rawFfi=${rawFfi.toStringAsFixed(3)}µs).',
-      );
-      if (channel != null) {
-        expect(
-          channel / cpp,
-          greaterThanOrEqualTo(_minChannelOverCpp),
-          reason:
-              'Nitro should be ≥${_minChannelOverCpp.toStringAsFixed(0)}× '
-              'faster than MethodChannel but measured only '
-              '${(channel / cpp).toStringAsFixed(1)}× '
-              '(cpp=${cpp.toStringAsFixed(3)}µs, '
-              'channel=${channel.toStringAsFixed(3)}µs).',
+      expect(leaf, greaterThan(0), reason: 'Nitro leaf call measured as 0 µs');
+      expect(cpp, greaterThan(0), reason: 'Nitro C++ call measured as 0 µs');
+
+      if (rawFfi == null) {
+        debugPrint(
+          '[BenchGate] no raw-FFI tier on this platform — ratio gates skipped; '
+          'core Nitro cases verified.',
         );
-
-        final asyncRecord = optionalMin('nitro_async_record');
-        if (asyncRecord != null) {
+      } else {
+        expect(
+          rawFfi,
+          greaterThan(0),
+          reason: 'raw FFI floor measured as 0 µs',
+        );
+        expect(
+          leaf,
+          lessThanOrEqualTo(
+            rawFfi * _maxLeafOverRawFfi + _leafOverheadBudgetUs,
+          ),
+          reason:
+              'Nitro leaf call drifted from the raw FFI floor '
+              '(leaf=${leaf.toStringAsFixed(3)}µs, '
+              'rawFfi=${rawFfi.toStringAsFixed(3)}µs). '
+              'Did a binding lose isLeaf or gain an allocation?',
+        );
+        expect(
+          cpp,
+          lessThanOrEqualTo(rawFfi * _maxCppOverRawFfi + _cppOverheadBudgetUs),
+          reason:
+              'Nitro checked call overhead vs raw FFI regressed '
+              '(cpp=${cpp.toStringAsFixed(3)}µs, '
+              'rawFfi=${rawFfi.toStringAsFixed(3)}µs).',
+        );
+        if (channel != null) {
           expect(
-            asyncRecord,
-            lessThanOrEqualTo(channel * _maxAsyncOverChannel + _asyncOverheadBudgetUs),
-            reason: '@nitroAsync dispatch overhead regressed vs MethodChannel '
-                '(async=${asyncRecord.toStringAsFixed(1)}µs, '
-                'channel=${channel.toStringAsFixed(1)}µs). Did the persistent '
-                'IsolatePool regress to per-call ReceivePort/Isolate.spawn?',
-          );
-        }
-
-        // Sieve workload (second algorithm): the bridge adds a fixed
-        // ~sub-µs cost to a multi-µs compute body, so every native tier must
-        // stay within a small factor of the raw-FFI sieve — a blowout means
-        // the bridge started copying/allocating per call. Budget absorbs
-        // shared-runner noise on the µs scale.
-        final ffiSieve = optionalMin('raw_ffi_sieve');
-        final cppSieve = optionalMin('nitro_cpp_sieve');
-        if (ffiSieve != null && cppSieve != null) {
-          expect(
-            cppSieve,
-            lessThanOrEqualTo(ffiSieve * 2 + 2.0),
+            channel / cpp,
+            greaterThanOrEqualTo(_minChannelOverCpp),
             reason:
-                'Nitro C++ sieve drifted from the raw-FFI sieve '
-                '(cpp=${cppSieve.toStringAsFixed(2)}µs, '
-                'ffi=${ffiSieve.toStringAsFixed(2)}µs) — bridge overhead on an '
-                'int-only signature should be fixed and small.',
+                'Nitro should be ≥${_minChannelOverCpp.toStringAsFixed(0)}× '
+                'faster than MethodChannel but measured only '
+                '${(channel / cpp).toStringAsFixed(1)}× '
+                '(cpp=${cpp.toStringAsFixed(3)}µs, '
+                'channel=${channel.toStringAsFixed(3)}µs).',
           );
-        }
-        final chanSieve = optionalMin('channel_sieve');
-        if (chanSieve != null && cppSieve != null) {
-          expect(
-            chanSieve,
-            greaterThanOrEqualTo(cppSieve),
-            reason:
-                'MethodChannel sieve should never beat the Nitro C++ sieve '
-                '(channel=${chanSieve.toStringAsFixed(2)}µs, '
-                'cpp=${cppSieve.toStringAsFixed(2)}µs).',
-          );
-        }
 
-        final nativeAsyncRecord = optionalMin('nitro_native_async_record');
-        if (nativeAsyncRecord != null) {
-          expect(
-            nativeAsyncRecord,
-            lessThanOrEqualTo(channel * _maxAsyncOverChannel + _asyncOverheadBudgetUs),
-            reason: '@nitroNativeAsync dispatch overhead regressed vs '
-                'MethodChannel (nativeAsync=${nativeAsyncRecord.toStringAsFixed(1)}µs, '
-                'channel=${channel.toStringAsFixed(1)}µs).',
-          );
+          final asyncRecord = optionalMin('nitro_async_record');
+          if (asyncRecord != null) {
+            expect(
+              asyncRecord,
+              lessThanOrEqualTo(
+                channel * _maxAsyncOverChannel + _asyncOverheadBudgetUs,
+              ),
+              reason:
+                  '@nitroAsync dispatch overhead regressed vs MethodChannel '
+                  '(async=${asyncRecord.toStringAsFixed(1)}µs, '
+                  'channel=${channel.toStringAsFixed(1)}µs). Did the persistent '
+                  'IsolatePool regress to per-call ReceivePort/Isolate.spawn?',
+            );
+          }
+
+          // Sieve workload (second algorithm): the bridge adds a fixed
+          // ~sub-µs cost to a multi-µs compute body, so every native tier must
+          // stay within a small factor of the raw-FFI sieve — a blowout means
+          // the bridge started copying/allocating per call. Budget absorbs
+          // shared-runner noise on the µs scale.
+          final ffiSieve = optionalMin('raw_ffi_sieve');
+          final cppSieve = optionalMin('nitro_cpp_sieve');
+          if (ffiSieve != null && cppSieve != null) {
+            expect(
+              cppSieve,
+              lessThanOrEqualTo(ffiSieve * 2 + 2.0),
+              reason:
+                  'Nitro C++ sieve drifted from the raw-FFI sieve '
+                  '(cpp=${cppSieve.toStringAsFixed(2)}µs, '
+                  'ffi=${ffiSieve.toStringAsFixed(2)}µs) — bridge overhead on an '
+                  'int-only signature should be fixed and small.',
+            );
+          }
+          final chanSieve = optionalMin('channel_sieve');
+          if (chanSieve != null && cppSieve != null) {
+            expect(
+              chanSieve,
+              greaterThanOrEqualTo(cppSieve),
+              reason:
+                  'MethodChannel sieve should never beat the Nitro C++ sieve '
+                  '(channel=${chanSieve.toStringAsFixed(2)}µs, '
+                  'cpp=${cppSieve.toStringAsFixed(2)}µs).',
+            );
+          }
+
+          final nativeAsyncRecord = optionalMin('nitro_native_async_record');
+          if (nativeAsyncRecord != null) {
+            expect(
+              nativeAsyncRecord,
+              lessThanOrEqualTo(
+                channel * _maxAsyncOverChannel + _asyncOverheadBudgetUs,
+              ),
+              reason:
+                  '@nitroNativeAsync dispatch overhead regressed vs '
+                  'MethodChannel (nativeAsync=${nativeAsyncRecord.toStringAsFixed(1)}µs, '
+                  'channel=${channel.toStringAsFixed(1)}µs).',
+            );
+          }
         }
-      }
+      } // end raw-FFI ratio gates
 
       // ── Absolute gate: compare vs the checked-in platform baseline ───────
       if (_gate == 'all') {

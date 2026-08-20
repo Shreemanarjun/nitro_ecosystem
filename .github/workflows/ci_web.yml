@@ -93,6 +93,29 @@ jobs:
         run: flutter pub run test -p chrome -c dart2wasm
         working-directory: e2e/nitro_web_e2e
 
+      # package:nitro's own web-edge tests otherwise only ever run on the VM,
+      # where the dart2js/dart2wasm-specific hazards cannot appear: ByteData
+      # .getInt64 throws under dart2js, and out-of-range typed-data indices
+      # wrap to 0 under dart2wasm's i32 indexing instead of trapping. Both are
+      # exactly the failure modes the indexed-list codec has to survive.
+      #
+      # Only the genuinely web-side files are listed. The rest of the suite is
+      # VM-only by design — shared_codec_parity_test, for instance, compares
+      # the web codec against the dart:ffi pointer path.
+      - name: runtime web-edge tests (dart2js)
+        run: >
+          flutter pub run test -p chrome
+          test/indexed_list_codec_web_test.dart
+          test/web_port_registry_test.dart
+        working-directory: packages/nitro
+
+      - name: runtime web-edge tests (dart2wasm)
+        run: >
+          flutter pub run test -p chrome -c dart2wasm
+          test/indexed_list_codec_web_test.dart
+          test/web_port_registry_test.dart
+        working-directory: packages/nitro
+
   # The flagship app builds for the web with the real WASM assets bundled.
   flutter-build:
     name: flutter build web (js + wasm)

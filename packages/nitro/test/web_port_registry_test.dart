@@ -83,8 +83,14 @@ void main() {
     test('dispose settles stragglers with a StateError; submit-after throws', () async {
       final c = web.NitroCoalescer();
       final f = c.submit((id, port) {});
+      // Attach the expectation BEFORE disposing: dispose() completes the
+      // straggler with its StateError, and if no listener is attached by then
+      // that becomes an unhandled async error rather than a caught one. The
+      // VM and dart2js happen to drain late enough to hide it; dart2wasm does
+      // not, which is exactly why this file runs on both compilers.
+      final settled = expectLater(f, throwsStateError);
       await c.dispose(drainTurns: 1);
-      await expectLater(f, throwsStateError);
+      await settled;
       expect(() => c.submit((id, port) {}), throwsStateError);
     });
   });
