@@ -116,8 +116,15 @@ jobs:
           version: 3.1.74
           actions-cache-folder: emsdk-cache
 
+      # Chrome and chromedriver MUST come from the same install, and both must
+      # be addressed by the action's output paths. A bare `chromedriver` on
+      # PATH resolves to the runner image's copy, which is a different major
+      # version than the Chrome this action fetches — webdriver then refuses
+      # the session with "only supports Chrome version N".
       - uses: browser-actions/setup-chrome@v1
+        id: chrome
         with:
+          chrome-version: stable
           install-chromedriver: true
 
       - name: Get workspace dependencies
@@ -131,9 +138,11 @@ jobs:
 
       - name: Start chromedriver
         run: |
-          chromedriver --port=4444 &
+          "${{ steps.chrome.outputs.chrome-path }}" --version
+          "${{ steps.chrome.outputs.chromedriver-path }}" --version
+          "${{ steps.chrome.outputs.chromedriver-path }}" --port=4444 &
           for i in $(seq 1 20); do
-            curl -sf http://localhost:4444/status >/dev/null && exit 0
+            if curl -sf http://localhost:4444/status >/dev/null; then exit 0; fi
             sleep 1
           done
           echo "chromedriver did not become ready" >&2
@@ -143,6 +152,8 @@ jobs:
       # the bridge. The driver writes build/integration_response_data.json.
       - name: Run benchmark + regression gate (${{ matrix.compiler }})
         working-directory: benchmark/example
+        env:
+          CHROME_EXECUTABLE: ${{ steps.chrome.outputs.chrome-path }}
         run: >
           flutter drive --profile ${{ matrix.wasm_flag }}
           --driver=test_driver/integration_test.dart
