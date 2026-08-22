@@ -20,6 +20,10 @@ export 'src/web/ffi_utils_web.dart';
 export 'src/web/record_codec_web.dart';
 export 'src/web/native_handle_web.dart';
 export 'src/web/nitro_coalescer_web.dart';
+// Marker types only (Void, Int32, …). A generated `NativeHandle<Void>` return
+// needs `Void` to name a real type on web, exactly as it does on native — the
+// stub carries no dart:ffi dependency.
+export 'src/ffi_stub.dart' show NativeType, Void, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64, Float, Double;
 
 // Platform-neutral pieces the generated code references.
 export 'src/annotations.dart';

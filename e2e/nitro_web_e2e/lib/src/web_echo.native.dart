@@ -54,6 +54,14 @@ abstract class WebEcho extends HybridObject {
   EchoLevel echoEnum(EchoLevel v);
   @zeroCopy
   Uint8List echoBytes(Uint8List data);
+
+  /// A typed-data element WIDER than a byte. `Uint8List` alone cannot catch a
+  /// length-unit regression: the C side takes `(const T*, size_t length)` in
+  /// ELEMENTS and multiplies by `sizeof(T)`, so passing a byte length there is
+  /// invisible when `length == lengthInBytes` and returns 4x the elements
+  /// (plus heap garbage) as soon as it isn't.
+  @zeroCopy
+  Int32List echoInt32s(Int32List data);
   EchoStat echoStat(EchoStat v);
   Map<String, int> incrementValues(Map<String, int> m);
 

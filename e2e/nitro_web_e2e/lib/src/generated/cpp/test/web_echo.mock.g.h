@@ -18,6 +18,7 @@ class MockWebEcho : public HybridWebEcho {
     MOCK_METHOD(int64_t, echoNullableInt, (int64_t v), (override));
     MOCK_METHOD(EchoLevel, echoEnum, (EchoLevel v), (override));
     MOCK_METHOD(NitroCppBuffer, echoBytes, (const uint8_t* data, size_t data_length), (override));
+    MOCK_METHOD(NitroCppBuffer, echoInt32s, (const int32_t* data, size_t data_length), (override));
     MOCK_METHOD(NitroCppBuffer, echoStat, (NitroCppBuffer v), (override));
     MOCK_METHOD(NitroCppBuffer, incrementValues, (NitroCppBuffer m), (override));
     MOCK_METHOD(NitroCppBuffer, echoStats, (NitroCppBuffer v), (override));

@@ -138,7 +138,7 @@ class _WebEchoImpl extends WebEcho {
     }
     NitroRuntime.checkLinkChecksum(
       'web_echo',
-      'b395a68dbf9f0561',
+      '28cfdae9d434005e',
       () => _dylib
           .lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>(
             'web_echo_nitro_bridge_checksum',
@@ -280,6 +280,27 @@ class _WebEchoImpl extends WebEcho {
           Pointer<NitroErrorFfi>,
         )
       >('web_echo_echo_bytes');
+  late final Pointer<Uint8> Function(
+    int,
+    Pointer<Int32>,
+    int,
+    Pointer<NitroErrorFfi>,
+  )
+  _echoInt32sPtr = _dylib
+      .lookupFunction<
+        Pointer<Uint8> Function(
+          Int64,
+          Pointer<Int32>,
+          Size,
+          Pointer<NitroErrorFfi>,
+        ),
+        Pointer<Uint8> Function(
+          int,
+          Pointer<Int32>,
+          int,
+          Pointer<NitroErrorFfi>,
+        )
+      >('web_echo_echo_int32s');
   late final Pointer<Uint8> Function(
     int,
     Pointer<Uint8>,
@@ -522,6 +543,34 @@ class _WebEchoImpl extends WebEcho {
         );
       }),
       methodName: 'echoBytes',
+    );
+  }
+
+  @override
+  Int32List echoInt32s(Int32List data) {
+    checkDisposed();
+    return NitroRuntime.callSync(
+      () => withArena((arena) {
+        final res = _echoInt32sPtr(
+          _instanceId,
+          data.toPointer(arena),
+          data.length,
+          _nitroErr,
+        );
+        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        if (res == nullptr) {
+          throw StateError('Native Int32List return was null');
+        }
+        final byteLength = res.cast<Int64>().value;
+        final dataAddress = Pointer<Int64>.fromAddress(res.address + 8).value;
+        final payloadPtr = Pointer<Int32>.fromAddress(dataAddress);
+        return payloadPtr.asTypedList(
+          byteLength ~/ 4,
+          finalizer: _typedDataReturnFinalizer,
+          token: res.cast<Void>(),
+        );
+      }),
+      methodName: 'echoInt32s',
     );
   }
 

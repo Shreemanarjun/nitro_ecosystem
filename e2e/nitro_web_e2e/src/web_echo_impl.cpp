@@ -41,6 +41,14 @@ class HybridWebEchoImpl final : public HybridWebEcho {
     return {out, data_length};
   }
 
+  NitroCppBuffer echoInt32s(const int32_t* data, size_t data_length) override {
+    // data_length is ELEMENTS; NitroCppBuffer.size is BYTES.
+    size_t bytes = data_length * sizeof(int32_t);
+    int32_t* out = (int32_t*)::malloc(bytes ? bytes : 1);
+    for (size_t i = 0; i < data_length; i++) out[i] = data[i] + 1;
+    return {(uint8_t*)out, bytes};
+  }
+
   NitroCppBuffer echoStat(NitroCppBuffer v) override {
     // Decode the record payload, tweak every field, re-encode.
     NitroRecordReader r(v);

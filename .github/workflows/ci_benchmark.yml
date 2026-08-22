@@ -134,6 +134,18 @@ jobs:
         working-directory: benchmark
         run: bash web/build_web.sh
 
+      # Correctness before speed. These assert the RESULTS of the very calls
+      # the benchmark below times, so a web marshalling bug cannot masquerade
+      # as a good number. Nothing ran them before, which is how the file was
+      # able to stop compiling entirely without anyone noticing.
+      - name: Web bridge correctness (dart2js)
+        working-directory: benchmark
+        run: flutter pub run test test/benchmark_cpp_web_test.dart -p chrome
+
+      - name: Web bridge correctness (dart2wasm)
+        working-directory: benchmark
+        run: flutter pub run test test/benchmark_cpp_web_test.dart -p chrome -c dart2wasm
+
       - name: Start chromedriver
         run: |
           google-chrome --version

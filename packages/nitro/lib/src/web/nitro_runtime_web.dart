@@ -128,6 +128,23 @@ class NitroRuntime {
     return module;
   }
 
+  /// Takes a reference to an already-loaded [libName], balancing the
+  /// [releaseLib] a generated bridge performs in `dispose()`.
+  ///
+  /// Native takes one lib reference per hybrid instance (`loadLib` in the FFI
+  /// impl's constructor). On web the module is loaded once by
+  /// `ensure<Class>Ready()`, so without this every instance disposed would
+  /// decrement a count nobody incremented — the first `dispose()` dropped the
+  /// count to zero and evicted the module, and every later call in the program
+  /// failed with "WASM module not loaded yet".
+  ///
+  /// A no-op when the module is not loaded: the bridge constructor throws on
+  /// its own with a better message.
+  static void retainLib(String libName) {
+    if (!_moduleCache.containsKey(libName)) return;
+    _libRefCount[libName] = (_libRefCount[libName] ?? 0) + 1;
+  }
+
   /// Decrements the reference count for [libName]; drops the cached module at
   /// zero. The browser has no dlclose — dropping references lets the JS GC
   /// collect the instance once generated bridges release theirs.

@@ -25,7 +25,7 @@ em++ -O2 --no-entry -fwasm-exceptions \
   -sMODULARIZE=1 -sEXPORT_NAME=createBenchmarkCppModule \
   -sALLOW_MEMORY_GROWTH=1 -sALLOW_TABLE_GROWTH=1 \
   -sWASM_BIGINT=1 -sENVIRONMENT=web \
-  -sEXPORTED_RUNTIME_METHODS=addFunction,wasmExports,wasmMemory,HEAPU8 \
+  -sEXPORTED_RUNTIME_METHODS=addFunction,removeFunction,wasmExports,wasmMemory,HEAPU8 \
   -sEXPORTED_FUNCTIONS=_malloc,_free \
   -o "$OUT/benchmark_cpp.js"
 echo "built $OUT/benchmark_cpp.js + $OUT/benchmark_cpp.wasm"

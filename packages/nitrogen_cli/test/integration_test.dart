@@ -463,6 +463,14 @@ void main() {
       expect(File(p.join(incl.path, 'dart_api.h')).existsSync(), isTrue);
       expect(File(p.join(incl.path, 'dart_api_dl.h')).existsSync(), isTrue);
       expect(File(p.join(incl.path, 'nitro.h')).existsSync(), isTrue);
+      // SwiftPM compiles EVERY header in a C++ target's include/ dir, and this
+      // one starts with an #error guard for non-Emscripten builds — shipping
+      // it here failed the whole macOS/iOS build.
+      expect(
+        File(p.join(incl.path, 'nitro_wasm_compat.h')).existsSync(),
+        isFalse,
+        reason: 'the Emscripten-only compat header must never reach an SPM target',
+      );
     });
 
     test('ios/Classes/SwiftTestingProjectPlugin.swift registers impl', () {

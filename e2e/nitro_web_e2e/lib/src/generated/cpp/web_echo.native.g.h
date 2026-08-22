@@ -349,25 +349,27 @@ public:
     virtual EchoLevel echoEnum(EchoLevel v) = 0;
     // source: web_echo.native.dart:56
     virtual NitroCppBuffer echoBytes(const uint8_t* data, size_t data_length) = 0;
-    // source: web_echo.native.dart:57
+    // source: web_echo.native.dart:64
+    virtual NitroCppBuffer echoInt32s(const int32_t* data, size_t data_length) = 0;
+    // source: web_echo.native.dart:65
     virtual NitroCppBuffer echoStat(NitroCppBuffer v) = 0;
-    // source: web_echo.native.dart:58
+    // source: web_echo.native.dart:66
     virtual NitroCppBuffer incrementValues(NitroCppBuffer m) = 0;
-    // source: web_echo.native.dart:63
-    virtual NitroCppBuffer echoStats(NitroCppBuffer v) = 0;
-    // source: web_echo.native.dart:68
-    virtual NitroCppBuffer echoInts(NitroCppBuffer v) = 0;
     // source: web_echo.native.dart:71
+    virtual NitroCppBuffer echoStats(NitroCppBuffer v) = 0;
+    // source: web_echo.native.dart:76
+    virtual NitroCppBuffer echoInts(NitroCppBuffer v) = 0;
+    // source: web_echo.native.dart:79
     virtual NitroCppBuffer echoMaybeStats(NitroCppBuffer v) = 0;
-    // source: web_echo.native.dart:75
+    // source: web_echo.native.dart:83
     virtual NitroCppBuffer echoBag(NitroCppBuffer v) = 0;
-    // source: web_echo.native.dart:78
-    virtual void alwaysThrows() = 0;
-    // source: web_echo.native.dart:82
-    virtual int64_t sumTo(int64_t n) = 0;
     // source: web_echo.native.dart:86
-    virtual void nativeAsyncEcho(int64_t value, NitroError* _nitro_err, int64_t dartPort) = 0;
+    virtual void alwaysThrows() = 0;
     // source: web_echo.native.dart:90
+    virtual int64_t sumTo(int64_t n) = 0;
+    // source: web_echo.native.dart:94
+    virtual void nativeAsyncEcho(int64_t value, NitroError* _nitro_err, int64_t dartPort) = 0;
+    // source: web_echo.native.dart:98
     virtual void emitTicks(int64_t count) = 0;
 
     // ── Properties ───────────────────────────────────────────────────────

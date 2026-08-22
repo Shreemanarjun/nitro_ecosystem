@@ -30,15 +30,43 @@ extension type EmscriptenModule(JSObject _) implements JSObject {
 final JSFunction _jsNumber = globalContext.getProperty('Number'.toJS)! as JSFunction;
 final JSFunction _jsBigInt = globalContext.getProperty('BigInt'.toJS)! as JSFunction;
 
+/// Largest magnitude a JS number represents exactly (2^53 - 1). Beyond this,
+/// `Number(aBigInt)` silently rounds.
+const int _maxExactInJsNumber = 9007199254740991;
+
 /// Dart int → JS BigInt, for `int64_t` parameters.
-JSAny jsI64(int v) => _jsBigInt.callAsFunction(null, v.toJS)!;
+///
+/// Exact across the whole int64 range on dart2wasm. `v.toJS` makes a JS
+/// NUMBER, so `BigInt(v.toJS)` rounds anything past 2^53 BEFORE the BigInt
+/// exists — Int64.max became 2^63 and wrapped to Int64.min on the way OUT,
+/// before the return trip could even be blamed. Decimal text carries the
+/// value exactly, so large magnitudes go through `BigInt("…")`.
+JSAny jsI64(int v) {
+  if (v >= -_maxExactInJsNumber && v <= _maxExactInJsNumber) {
+    return _jsBigInt.callAsFunction(null, v.toJS)!;
+  }
+  return _jsBigInt.callAsFunction(null, v.toString().toJS)!;
+}
 
 /// JS BigInt (or number) → Dart int, for `int64_t` returns and callback args.
-/// 53-bit fidelity on dart2js (where Dart ints are already 53-bit).
+///
+/// Exact for the full int64 range on dart2wasm, where a Dart int really is
+/// 64 bits. Still 53-bit on dart2js, where Dart ints ARE JS doubles and no
+/// amount of care can represent Int64.max.
 int dartI64(JSAny? v) {
   if (v == null) return 0;
   if (v.typeofEquals('number')) return (v as JSNumber).toDartDouble.toInt();
-  return (_jsNumber.callAsFunction(null, v)! as JSNumber).toDartDouble.toInt();
+
+  // Fast path: values inside the exact-double range convert losslessly.
+  final asDouble = (_jsNumber.callAsFunction(null, v)! as JSNumber).toDartDouble;
+  if (asDouble >= -_maxExactInJsNumber && asDouble <= _maxExactInJsNumber) {
+    return asDouble.toInt();
+  }
+
+  // Slow, exact path. `Number(9223372036854775807n)` rounds UP to 2^63, which
+  // then wraps to Int64.MIN — Int64.max came back as Int64.min. Decimal text
+  // is a lossless carrier for a BigInt, so parse that instead.
+  return BigInt.parse(v.toString()).toSigned(64).toInt();
 }
 
 /// A loaded nitro WASM module: the Emscripten Module object plus typed heap
@@ -194,5 +222,15 @@ final class NitroWasmModule {
   int addFunction(JSFunction f, String signature) => module.addFunction(f, signature);
 
   /// Releases a function-table entry created by [addFunction].
-  void removeFunction(int fnPtr) => module.removeFunction(fnPtr);
+  ///
+  /// A no-op when the module was linked without `removeFunction` in
+  /// `EXPORTED_RUNTIME_METHODS` (build scripts generated before that flag was
+  /// added). Leaking one table slot per replaced callback is recoverable;
+  /// throwing out of the release microtask is not — it surfaces as an
+  /// unhandled `NoSuchMethodError` in whichever test happens to run next,
+  /// nowhere near the callback that caused it.
+  void removeFunction(int fnPtr) {
+    if (!module.has('removeFunction')) return;
+    module.removeFunction(fnPtr);
+  }
 }

@@ -84,7 +84,7 @@ final class _WebEchoWebImpl extends WebEcho {
     );
     NitroRuntime.checkLinkChecksum(
       _libName,
-      'b395a68dbf9f0561',
+      '28cfdae9d434005e',
       () => _m.readCString(
         dartI64(_m.call('web_echo_nitro_bridge_checksum', const [])),
       ),
@@ -250,7 +250,7 @@ final class _WebEchoWebImpl extends WebEcho {
         final _res = _m.call('web_echo_echo_bytes', [
           jsI64(_instanceId),
           arena.copyIn(data).toJS,
-          data.lengthInBytes.toJS,
+          data.length.toJS,
           _err.ptr.toJS,
         ]);
         NitroRuntime.throwIfOutParamError(_err);
@@ -262,6 +262,36 @@ final class _WebEchoWebImpl extends WebEcho {
         return _bytes;
       });
     }, methodName: 'echoBytes');
+  }
+
+  @override
+  Int32List echoInt32s(Int32List data) {
+    checkDisposed();
+    return NitroRuntime.callSync(() {
+      return withWasmArena(_m, (arena) {
+        final _res = _m.call('web_echo_echo_int32s', [
+          jsI64(_instanceId),
+          arena
+              .copyIn(
+                data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+              )
+              .toJS,
+          data.length.toJS,
+          _err.ptr.toJS,
+        ]);
+        NitroRuntime.throwIfOutParamError(_err);
+        final _ptr = dartI64(_res);
+        final _byteLen = _m.readI64(_ptr);
+        final _dataAddr = _m.readI64(_ptr + 8);
+        final _bytes = _m.readBytes(_dataAddr, _byteLen);
+        _m.call('web_echo_release_typed_data_return', [_ptr.toJS]);
+        return Int32List.view(
+          _bytes.buffer,
+          _bytes.offsetInBytes,
+          _bytes.lengthInBytes ~/ 4,
+        );
+      });
+    }, methodName: 'echoInt32s');
   }
 
   @override

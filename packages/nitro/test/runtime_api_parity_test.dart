@@ -38,7 +38,12 @@ void main() {
 
     // Web-only additions (module loading is async on the web; callbacks live
     // in the module function table).
-    const webOnly = {'loadWebModule', 'webModule', 'deferredCloseWebFunction'};
+    // `retainLib` is web-only by nature: native's loadLib both opens the
+    // library AND takes the per-instance reference in one step, so there is
+    // nothing to port. Web splits them — the module loads asynchronously in
+    // ensure<Class>Ready(), long before any instance exists — so the bridge
+    // constructor needs a separate way to take its reference.
+    const webOnly = {'loadWebModule', 'webModule', 'deferredCloseWebFunction', 'retainLib'};
 
     final missingOnWeb = native.difference(web);
     expect(

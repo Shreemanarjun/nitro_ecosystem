@@ -479,4 +479,47 @@ void main() {
       expect(out, contains('RecordReader.decodeNullableListBytes(_framed, (r) => r.readInt().toLevel())'));
     });
   });
+
+  group('TypedData length argument', () {
+    BridgeSpec typedSpec(String typeName, {bool nullable = false}) {
+      final t = BridgeType(name: nullable ? '$typeName?' : typeName);
+      return BridgeSpec(
+        dartClassName: 'Buf',
+        lib: 'buf',
+        namespace: 'buf',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        webImpl: NativeImpl.wasm,
+        sourceUri: 'buf.native.dart',
+        functions: [
+          BridgeFunction(
+            dartName: 'echo',
+            cSymbol: 'buf_echo',
+            isAsync: false,
+            returnType: t,
+            params: [BridgeParam(name: 'v', type: t)],
+          ),
+        ],
+      );
+    }
+
+    // The C signature is `const int32_t* v, size_t v_length` and every impl
+    // multiplies that length by sizeof(T) to get bytes — so the length must be
+    // ELEMENTS, exactly as the FFI emitter passes `value.length`. Passing
+    // lengthInBytes made the native side read (and return) 4x too much for
+    // Int32List; Uint8List hid it because there the two are equal.
+    test('passes the element count, not the byte length', () {
+      for (final type in ['Int32List', 'Float64List', 'Int16List', 'Uint8List']) {
+        final out = WebBridgeGenerator.generate(typedSpec(type));
+        expect(out, contains('v.length.toJS'), reason: type);
+        expect(out, isNot(contains('v.lengthInBytes.toJS')), reason: type);
+      }
+    });
+
+    test('nullable typed data falls back to 0, still in elements', () {
+      final out = WebBridgeGenerator.generate(typedSpec('Int32List', nullable: true));
+      expect(out, contains('(v?.length ?? 0).toJS'));
+      expect(out, isNot(contains('lengthInBytes ?? 0')));
+    });
+  });
 }

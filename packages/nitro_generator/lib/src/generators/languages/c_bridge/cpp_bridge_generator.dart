@@ -1089,10 +1089,36 @@ class CppBridgeGenerator {
       trueRet = 'int64_t'; // int, double (bits), bool, enum (nativeValue), DateTime, uint64
     }
 
+    // Emscripten needs the NATURAL types instead. Widening every scalar to
+    // int64_t works on native because a reinterpret_cast'd call just reuses
+    // the GP register, but wasm type-checks `call_indirect` against the
+    // function-table signature — a double-as-bits `j` where the table entry
+    // says `d` aborts with "function signature mismatch", which is why web
+    // callbacks never fired. Natural types also keep doubles off the
+    // int64-bits path entirely: dart2js ints are 53-bit, so a round-trip
+    // through one would corrupt most double payloads.
+    String trueRetWeb;
+    if (retBase == 'void') {
+      trueRetWeb = 'void';
+    } else if (retBase == 'String') {
+      trueRetWeb = 'const char*';
+    } else if (retBase == 'double' || retBase == 'float') {
+      trueRetWeb = 'double';
+    } else if (retBase == 'bool') {
+      trueRetWeb = 'int32_t';
+    } else {
+      trueRetWeb = 'int64_t'; // int, enum (nativeValue), DateTime, uint64
+    }
+
     final trueParams = <String>[];
     final implParams = <String>[];
     final argConversions = <String>[];
     final rawArgs = <String>[];
+    // Parallel Emscripten plan; `implParams` is shared (the impl-facing
+    // std::function signature is identical on both).
+    final trueParamsWeb = <String>[];
+    final argConversionsWeb = <String>[];
+    final rawArgsWeb = <String>[];
     var supported = true;
 
     for (var i = 0; i < callback.functionParams.length; i++) {
@@ -1136,6 +1162,13 @@ class CppBridgeGenerator {
             rawArgs.add('(int64_t)_a$i.${f.name}');
           }
         }
+        // Web takes the struct as ONE pointer to a malloc'd copy in native
+        // layout — the same packed shape the sync struct path already proves
+        // out — and Dart frees it with <lib>_nitro_free after reading. A
+        // per-field expansion would have to bit-cast the doubles again.
+        trueParamsWeb.add('const void*');
+        argConversionsWeb.add('void* _sp$i = malloc(sizeof($base)); memcpy(_sp$i, &_a$i, sizeof($base));');
+        rawArgsWeb.add('_sp$i');
       } else if (recordNames.contains(base) || variantNames.contains(base) || cp.isRecord) {
         trueParams.add('const uint8_t*');
         // The impl passes a SELF-DESCRIBING heap [4B len][payload] block
@@ -1148,19 +1181,30 @@ class CppBridgeGenerator {
         // the variant tag ("Unknown TcEvent tag: 17") — and leaked the
         // impl's block on every invocation.
         rawArgs.add('_a$i.data');
+        // Pointers are i32 on wasm32 — already natural, nothing to widen.
+        trueParamsWeb.add('const uint8_t*');
+        rawArgsWeb.add('_a$i.data');
       } else if (base == 'double') {
         trueParams.add('int64_t');
         argConversions.add('int64_t _b$i; { double _d = _a$i; memcpy(&_b$i, &_d, 8); }');
         rawArgs.add('_b$i');
+        trueParamsWeb.add('double');
+        rawArgsWeb.add('_a$i');
       } else if (base == 'bool') {
         trueParams.add('int64_t');
         rawArgs.add('(_a$i ? (int64_t)1 : (int64_t)0)');
+        trueParamsWeb.add('int32_t');
+        rawArgsWeb.add('(_a$i ? 1 : 0)');
       } else if (enumNames.contains(base)) {
         trueParams.add('int64_t');
         rawArgs.add('static_cast<int64_t>(_a$i)');
+        trueParamsWeb.add('int64_t');
+        rawArgsWeb.add('static_cast<int64_t>(_a$i)');
       } else if (base == 'int' || base == 'DateTime' || base == 'uint64') {
         trueParams.add('int64_t');
         rawArgs.add('(int64_t)_a$i');
+        trueParamsWeb.add('int64_t');
+        rawArgsWeb.add('(int64_t)_a$i');
       } else {
         supported = false;
         break;
@@ -1174,36 +1218,57 @@ class CppBridgeGenerator {
     }
 
     final implRet = CppInterfaceGenerator.cppCallbackReturnType(retDart, enumNames);
-    final trueSig = '$trueRet (*)(${trueParams.isEmpty ? 'void' : trueParams.join(', ')})';
     final rawName = '_rawfn_${p.name}';
     final fnName = '_fn_${p.name}';
+    final implSig = '$implRet(${implParams.map((s) => s.substring(0, s.lastIndexOf(' '))).join(', ')})';
 
-    writer.line('        auto $rawName = reinterpret_cast<$trueSig>(${p.name});');
-    writer.line('        std::function<$implRet(${implParams.map((s) => s.substring(0, s.lastIndexOf(' '))).join(', ')})> $fnName =');
-    writer.line('            [$rawName](${implParams.join(', ')}) -> $implRet {');
-    for (final c in argConversions) {
-      writer.line('            $c');
+    // Emits one lambda per ABI. Both bind the same `_fn_<name>`, so the
+    // g_impl->... call site below is identical either way.
+    void emitLambda({required bool web}) {
+      final ret = web ? trueRetWeb : trueRet;
+      final params = web ? trueParamsWeb : trueParams;
+      final convs = web ? argConversionsWeb : argConversions;
+      final args = web ? rawArgsWeb : rawArgs;
+      final trueSig = '$ret (*)(${params.isEmpty ? 'void' : params.join(', ')})';
+
+      writer.line('        auto $rawName = reinterpret_cast<$trueSig>(${p.name});');
+      writer.line('        std::function<$implSig> $fnName =');
+      writer.line('            [$rawName](${implParams.join(', ')}) -> $implRet {');
+      for (final c in convs) {
+        writer.line('            $c');
+      }
+      final callExpr = '$rawName(${args.join(', ')})';
+      if (retBase == 'void') {
+        writer.line('            $callExpr;');
+      } else if (retBase == 'String') {
+        writer.line('            const char* _rp = $callExpr;');
+        writer.line('            std::string _rs = _rp ? std::string(_rp) : std::string();');
+        writer.line('            if (_rp) { free((void*)_rp); }');
+        writer.line('            return _rs;');
+      } else if (retBase == 'double') {
+        if (web) {
+          // Already a real double — no bit reinterpretation on this path.
+          writer.line('            return $callExpr;');
+        } else {
+          writer.line('            int64_t _rb = $callExpr;');
+          writer.line('            double _rd; memcpy(&_rd, &_rb, 8);');
+          writer.line('            return _rd;');
+        }
+      } else if (retBase == 'bool') {
+        writer.line('            return $callExpr != 0;');
+      } else if (enumNames.contains(retBase)) {
+        writer.line('            return static_cast<$retBase>($callExpr);');
+      } else {
+        writer.line('            return $callExpr;');
+      }
+      writer.line('            };');
     }
-    final callExpr = '$rawName(${rawArgs.join(', ')})';
-    if (retBase == 'void') {
-      writer.line('            $callExpr;');
-    } else if (retBase == 'String') {
-      writer.line('            const char* _rp = $callExpr;');
-      writer.line('            std::string _rs = _rp ? std::string(_rp) : std::string();');
-      writer.line('            if (_rp) { free((void*)_rp); }');
-      writer.line('            return _rs;');
-    } else if (retBase == 'double') {
-      writer.line('            int64_t _rb = $callExpr;');
-      writer.line('            double _rd; memcpy(&_rd, &_rb, 8);');
-      writer.line('            return _rd;');
-    } else if (retBase == 'bool') {
-      writer.line('            return $callExpr != 0;');
-    } else if (enumNames.contains(retBase)) {
-      writer.line('            return static_cast<$retBase>($callExpr);');
-    } else {
-      writer.line('            return $callExpr;');
-    }
-    writer.line('            };');
+
+    writer.line('#ifdef __EMSCRIPTEN__');
+    emitLambda(web: true);
+    writer.line('#else');
+    emitLambda(web: false);
+    writer.line('#endif');
     return fnName;
   }
 

@@ -243,7 +243,7 @@ final class _BenchmarkCppWebImpl extends BenchmarkCpp {
         final _res = _m.call('benchmark_cpp_hash_buffer', [
           jsI64(_instanceId),
           arena.copyIn(data).toJS,
-          data.lengthInBytes.toJS,
+          data.length.toJS,
           jsI64(rounds),
           _err.ptr.toJS,
         ]);
@@ -505,7 +505,7 @@ final class _BenchmarkCppWebImpl extends BenchmarkCpp {
         final _res = _m.call('benchmark_cpp_send_large_buffer_fast', [
           jsI64(_instanceId),
           arena.copyIn(buffer).toJS,
-          buffer.lengthInBytes.toJS,
+          buffer.length.toJS,
           _err.ptr.toJS,
         ]);
         NitroRuntime.throwIfOutParamError(_err);
@@ -522,7 +522,7 @@ final class _BenchmarkCppWebImpl extends BenchmarkCpp {
         final _res = _m.call('benchmark_cpp_send_large_buffer_noop', [
           jsI64(_instanceId),
           arena.copyIn(buffer).toJS,
-          buffer.lengthInBytes.toJS,
+          buffer.length.toJS,
           _err.ptr.toJS,
         ]);
         NitroRuntime.throwIfOutParamError(_err);
@@ -539,7 +539,7 @@ final class _BenchmarkCppWebImpl extends BenchmarkCpp {
         final _res = _m.call('benchmark_cpp_send_large_buffer_noop_fast', [
           jsI64(_instanceId),
           arena.copyIn(buffer).toJS,
-          buffer.lengthInBytes.toJS,
+          buffer.length.toJS,
           _err.ptr.toJS,
         ]);
         NitroRuntime.throwIfOutParamError(_err);

@@ -98,6 +98,11 @@ class WebBridgeGenerator {
     w.blankLine();
     w.line('  _${className}WebImpl._(this._key) {');
     w.line('    _m = _module;');
+    w.line('    // One lib reference per instance, balancing the releaseLib in');
+    w.line('    // dispose() — mirrors the FFI impl taking a loadLib per instance.');
+    w.line('    // Without it the first dispose() dropped the count to zero and');
+    w.line('    // evicted the module out from under every remaining instance.');
+    w.line('    NitroRuntime.retainLib(_libName);');
     w.line("    NitroRuntime.checkAbiVersion(_libName, () => (_m.call('${libStem}_nitro_abi_version', const []) as JSNumber).toDartInt);");
     w.line("    NitroRuntime.checkLinkChecksum(_libName, '$checksum', () => _m.readCString(dartI64(_m.call('${libStem}_nitro_bridge_checksum', const []))));");
     w.line('    _err = WebNitroErrorSlot.alloc(_m);');
@@ -114,24 +119,27 @@ class WebBridgeGenerator {
     w.line('  late final NitroWasmModule _m;');
     w.line('  late final WebNitroErrorSlot _err;');
     w.line('  late final int _instanceId;');
-    w.line('  bool _disposed = false;');
     w.blankLine();
+    w.line('  // Disposal state lives in HybridObject, NOT in a private field here.');
+    w.line('  // A local `_disposed` SHADOWED the base state: dispose() set the copy,');
+    w.line('  // `isDisposed` kept reading the base and stayed false forever.');
     w.line('  @override');
     w.line('  void checkDisposed() {');
-    w.line('    if (_disposed) {');
+    w.line('    if (isDisposed) {');
     w.line("      throw StateError('$className (web) was disposed — create a new instance');");
     w.line('    }');
     w.line('  }');
     w.blankLine();
     w.line('  @override');
     w.line('  void dispose() {');
-    w.line('    if (_disposed) return;');
-    w.line('    _disposed = true;');
+    w.line('    if (isDisposed) return;');
     w.line("    _m.call('${libStem}_destroy_instance', [jsI64(_instanceId)]);");
     w.line('    _err.free();');
     w.line('    _instances.remove(_key);');
     w.line('    NitroRuntime.releaseLib(_libName);');
     w.line("    NitroRuntime.logLifecycle('$className', 'web instance disposed (key=\$_key)');");
+    w.line('    // Last: flips isDisposed and runs onDestroy(), matching the FFI impl.');
+    w.line('    super.dispose();');
     w.line('  }');
     w.blankLine();
     w.line('  // Legacy two-call error protocol — used by @nitroAsync methods, whose C');
@@ -163,13 +171,37 @@ class WebBridgeGenerator {
     w.line('}');
   }
 
-  /// The Dart type used in @override signatures. Raw Pointer / NativeHandle
-  /// resolve to DIFFERENT classes on native vs web, so overrides type them
-  /// `dynamic` (a legal override in both directions); everything else keeps
-  /// the spec's type.
+  /// The Dart type used in @override signatures.
+  ///
+  /// A raw `Pointer<T>` is a different class on each side — dart:ffi natively,
+  /// the address-only marker in ffi_stub on web — and the stub deliberately
+  /// omits most of the pointer API, so overrides type it `dynamic`.
+  ///
+  /// `NativeHandle<T>` does NOT need that escape hatch: package:nitro's
+  /// conditional exports resolve both the handle class and the `Void`-style
+  /// markers to their web twins, so the spec's declared type and the generated
+  /// override name the same class. Typing it `dynamic` produced an invalid
+  /// override, since `dynamic` is not a subtype of the declared return.
   static String _dartTypeFor(BridgeType t) {
-    if (t.isPointer || t.isNativeHandle) return 'dynamic';
+    if (t.isPointer) return 'dynamic';
     return t.name;
+  }
+
+
+  /// `NativeHandle<T>` and `Pointer<T>` name different classes per platform —
+  /// dart:ffi natively, the web twins here — so `dart analyze`, which resolves
+  /// the SPEC natively and this file for web, reports a false invalid_override.
+  /// The mismatch is an artefact of analysing one file under the other
+  /// platform's resolution; the ignore is scoped to those members only, so a
+  /// genuine override break anywhere else still fails the analyzer.
+  static void _emitOverride(CodeWriter w, BridgeType returnType) {
+    w.line('  @override');
+    // The ignore has to sit immediately above the DECLARATION line, which the
+    // caller emits next — a comment above `@override` would apply to the
+    // annotation instead and leave the error unsuppressed.
+    if (returnType.isNativeHandle || returnType.isPointer) {
+      w.line('  // ignore: invalid_override');
+    }
   }
 
   static String _dartParams(List<BridgeParam> params) => params.map((p) => '${_dartTypeFor(p.type)} ${p.name}').join(', ');
@@ -178,7 +210,11 @@ class WebBridgeGenerator {
 
   static void _emitMethod(CodeWriter w, BridgeSpec spec, BridgeFunction func) {
     final params = _dartParams(func.params);
-    final rt = _dartTypeFor(func.returnType);
+    // @NitroResult widens the declared return to NitroResultValue<T>; the C
+    // symbol still returns a pointer to [1B tag][framed payload].
+    final rt = func.isResult
+        ? 'NitroResultValue<${_dartTypeFor(func.returnType)}>'
+        : _dartTypeFor(func.returnType);
 
     if (func.isNativeAsync) {
       _emitNativeAsyncMethod(w, spec, func, params, rt);
@@ -186,15 +222,20 @@ class WebBridgeGenerator {
     }
 
     final needsArena = func.params.any((p) => _paramNeedsArena(spec, p.type));
-    final callArgs = _buildCallArgs(spec, func.params, includeErr: !func.isAsync);
+    final callArgs = _buildCallArgs(spec, func.params, includeErr: !func.isAsync, ownerFn: func.dartName);
     final call = "_m.call('${func.cSymbol}', [${callArgs.join(', ')}])";
 
     if (func.isAsync) {
       // @nitroAsync on web runs inline (no isolates); the legacy get/clear
       // error protocol matches the C signature (no NitroError* out-param).
       // Async returns are OWNED (malloc'd by native) — decode then free.
-      w.line('  @override');
-      w.line('  Future<$rt> ${func.dartName}($params) {');
+      _emitOverride(w, func.returnType);
+      // `async` so a synchronous throw from checkDisposed() surfaces as a
+      // REJECTED future rather than blowing up at the call site — the FFI
+      // emitter declares these `async` for the same reason. Callers write
+      // `await expectLater(api.asyncX(), throwsA(...))`, which never sees the
+      // error if the method throws before returning a Future.
+      w.line('  Future<$rt> ${func.dartName}($params) async {');
       w.line('    checkDisposed();');
       w.line('    return NitroRuntime.callAsync<$rt>(() {');
       _openArena(w, needsArena, '      ');
@@ -210,7 +251,7 @@ class WebBridgeGenerator {
     }
 
     // Sync: NitroError* out-param; borrowed framed/string returns.
-    w.line('  @override');
+    _emitOverride(w, func.returnType);
     w.line('  $rt ${func.dartName}($params) {');
     w.line('    checkDisposed();');
     w.line('    return NitroRuntime.callSync(() {');
@@ -228,12 +269,15 @@ class WebBridgeGenerator {
   static void _emitNativeAsyncMethod(CodeWriter w, BridgeSpec spec, BridgeFunction func, String params, String rt) {
     final needsArena = func.params.any((p) => _paramNeedsArena(spec, p.type));
     // Native-async: per-call error slot + dart_port, posted result.
-    final callArgs = _buildCallArgs(spec, func.params, includeErr: false);
-    w.line('  @override');
+    final callArgs = _buildCallArgs(spec, func.params, includeErr: false, ownerFn: func.dartName);
+    _emitOverride(w, func.returnType);
     w.line('  Future<$rt> ${func.dartName}($params) {');
     w.line('    checkDisposed();');
     w.line('    final _slot = WebNitroErrorSlot.alloc(_m);');
-    if (needsArena) w.line('    final _arena = WasmArena(_m);');
+    // Named `arena`, not `_arena`: _buildCallArgs emits `arena.cString(...)`
+    // / `arena.copyIn(...)` for every param that needs scratch memory, the
+    // same identifier the sync path binds via withWasmArena(_m, (arena) {…}).
+    if (needsArena) w.line('    final arena = WasmArena(_m);');
     w.line('    return NitroRuntime.openNativeAsync<$rt>(');
     w.line("      call: (dartPort) => _m.call('${func.cSymbol}', [${callArgs.join(', ')}, _slot.ptr.toJS, jsI64(dartPort)]),");
     w.line('      unpack: (raw) {');
@@ -241,7 +285,7 @@ class WebBridgeGenerator {
     _emitNativeAsyncUnpack(w, spec, func, '        ');
     w.line('      },');
     if (needsArena) {
-      w.line('      cleanup: () { _slot.free(); _arena.releaseAll(); },');
+      w.line('      cleanup: () { _slot.free(); arena.releaseAll(); },');
     } else {
       w.line('      cleanup: _slot.free,');
     }
@@ -382,7 +426,9 @@ class WebBridgeGenerator {
     }
     if (prop.hasSetter) {
       final needsArena = _paramNeedsArena(spec, prop.type);
-      final arg = _jsArgExpr(spec, prop.type, 'value');
+      // Property setters cannot take a callback, so the owner name is only
+      // used for uniqueness and never reaches a helper.
+      final arg = _jsArgExpr(spec, prop.type, 'value', 'set_${prop.dartName}');
       w.line('  @override');
       w.line('  set ${prop.dartName}($rt value) {');
       w.line('    checkDisposed();');
@@ -508,12 +554,17 @@ class WebBridgeGenerator {
     if (needsArena) w.line('$indent});');
   }
 
-  static List<String> _buildCallArgs(BridgeSpec spec, List<BridgeParam> params, {required bool includeErr}) {
+  static List<String> _buildCallArgs(BridgeSpec spec, List<BridgeParam> params, {required bool includeErr, required String ownerFn}) {
     final args = <String>['jsI64(_instanceId)'];
     for (final p in params) {
-      args.add(_jsArgExpr(spec, p.type, p.name));
+      args.add(_jsArgExpr(spec, p.type, p.name, ownerFn));
       if (p.type.isTypedData) {
-        args.add(p.type.name.endsWith('?') ? '(${p.name}?.lengthInBytes ?? 0).toJS' : '${p.name}.lengthInBytes.toJS');
+        // ELEMENT count, matching the FFI emitter and the C++ signature
+        // (`const int32_t* v, size_t v_length`) which multiplies by sizeof to
+        // get bytes. Passing lengthInBytes here made the native side read and
+        // return sizeof(T)x too much for every element wider than a byte —
+        // invisible for Uint8List/Int8List, corrupt for all the rest.
+        args.add(p.type.name.endsWith('?') ? '(${p.name}?.length ?? 0).toJS' : '${p.name}.length.toJS');
       }
     }
     if (includeErr) args.add('_err.ptr.toJS');
@@ -533,11 +584,11 @@ class WebBridgeGenerator {
   }
 
   /// The JS argument expression for one parameter, mirroring the C signature.
-  static String _jsArgExpr(BridgeSpec spec, BridgeType t, String name) {
+  static String _jsArgExpr(BridgeSpec spec, BridgeType t, String name, String ownerFn) {
     final base = t.name.replaceFirst('?', '');
     final nullable = t.name.endsWith('?');
 
-    if (t.isFunction) return _callbackArgExpr(spec, t, name);
+    if (t.isFunction) return _callbackArgExpr(spec, t, name, ownerFn);
     // Pointer/NativeHandle params are typed `dynamic` in the override — cast
     // the duck-typed .address back to int so the .toJS extension applies.
     if (t.isNativeHandle || t.isPointer) {
@@ -610,7 +661,11 @@ class WebBridgeGenerator {
       return nullable ? '($name == null ? 0 : arena.copyIn(_nitroEncodeFramed($name.writeTo))).toJS' : 'arena.copyIn(_nitroEncodeFramed($name.writeTo)).toJS';
     }
     if (t.isTuple) {
-      return 'arena.copyIn(_nitroEncodeTuple_$base($name)).toJS';
+      // A nullable tuple passes 0 for "absent" like every other framed param;
+      // the encoder itself declares the non-null record type.
+      return nullable
+          ? '($name == null ? 0 : arena.copyIn(_nitroEncodeTuple_$base($name))).toJS'
+          : 'arena.copyIn(_nitroEncodeTuple_$base($name)).toJS';
     }
     if (t.isMap) {
       final suffix = _mapHelperSuffix(spec, base);
@@ -684,6 +739,51 @@ class WebBridgeGenerator {
 
   // ══ Return decoding ═════════════════════════════════════════════════════
 
+  /// Web twin of the FFI `_emitResultDecode`. Same wire format —
+  /// `[1B tag: 0=ok, 1=err][framed payload]` — read out of the module heap
+  /// instead of off a pointer. The buffer is malloc'd by native, so it is
+  /// freed on both branches.
+  static void _emitResultDecode(
+    CodeWriter w,
+    BridgeSpec spec,
+    BridgeType type,
+    String resVar,
+    String indent,
+  ) {
+    final base = type.name.replaceFirst('?', '');
+    w.line('${indent}final _p = dartI64($resVar);');
+    w.line('${indent}try {');
+    final i2 = '$indent  ';
+    w.line('${i2}final _tag = _m.readBytes(_p, 1)[0];');
+    w.line('${i2}if (_tag != 0) {');
+    // Explicit type argument, not a bare `NitroErr(...)`. The enclosing method
+    // signature gives the native emitter's inference enough context, but here
+    // the value flows through an untyped closure into callSync/callAsync —
+    // Dart then infers NitroErr<Object?>, and callAsync's `as T` blew up with
+    // "NitroErr<Object?> is not a subtype of NitroResultValue<double>".
+    w.line('$i2  return NitroErr<${type.name}>(RecordReader.fromFramedBytes(_m.readFramed(_p + 1)).readString());');
+    w.line('$i2}');
+    if (type.isRecord) {
+      final decode = _framedDecodeExpr(spec, type, '_m.readFramed(_p + 1)');
+      w.line('${i2}return NitroOk($decode);');
+    } else {
+      w.line('${i2}final _r = RecordReader.fromFramedBytes(_m.readFramed(_p + 1));');
+      final valueExpr = switch (base) {
+        'int' || 'uint64' => '_r.readInt()',
+        'double' || 'float' => '_r.readDouble()',
+        'bool' => '_r.readBool()',
+        'String' => '_r.readString()',
+        _ => spec.isEnumName(base)
+            ? '_r.readInt().to$base()'
+            : (spec.isStructName(base) ? '${base}StructExt.fromReader(_r)' : '${base}RecordExt.fromReader(_r)'),
+      };
+      w.line('${i2}return NitroOk($valueExpr);');
+    }
+    w.line('$indent} finally {');
+    w.line('$indent  _m.nitroFree(_p);');
+    w.line('$indent}');
+  }
+
   static void _emitReturnDecode(
     CodeWriter w,
     BridgeSpec spec,
@@ -694,6 +794,13 @@ class WebBridgeGenerator {
     required bool zeroCopy,
     BridgeFunction? func,
   }) {
+    // @NitroResult: the C symbol returns [1B tag: 0=ok, 1=err][framed payload].
+    // Errors travel in the tag, not the error slot, so this decode replaces the
+    // ordinary return path entirely.
+    if (func?.isResult ?? false) {
+      _emitResultDecode(w, spec, type, resVar, indent);
+      return;
+    }
     final rt = type.name;
     final rtBase = rt.replaceFirst('?', '');
     final nullable = rt.endsWith('?');
@@ -957,9 +1064,20 @@ class WebBridgeGenerator {
   /// A callback parameter: register a Dart closure in the module function
   /// table (cached per parameter slot; replaced closures release their table
   /// entry on the next microtask, mirroring the native deferredClose).
-  static String _callbackArgExpr(BridgeSpec spec, BridgeType t, String name) {
-    return '_nitroWebCallback_$name($name)';
+  static String _callbackArgExpr(BridgeSpec spec, BridgeType t, String name, String ownerFn) {
+    // The helper returns the function-table index as a Dart int; the call
+    // argument list is List<JSAny?>, so it needs converting like any other
+    // scalar. A bare int here does not compile.
+    return '${_callbackHelperName(ownerFn, name)}($name).toJS';
   }
+
+  /// Callback helpers are keyed by owning method AND parameter name, mirroring
+  /// the native emitter's `_nativeCallbackOnBoolTransformBoolCb`. Keying on the
+  /// parameter alone collides when two methods share a callback parameter name
+  /// with different signatures — the second method then silently reuses the
+  /// first one's conversion.
+  static String _callbackHelperName(String ownerFn, String paramName) =>
+      '_nitroWebCallback_${ownerFn}_$paramName';
 
   // ══ Helper section (module-level, emitted once per file) ═════════════════
 
@@ -1435,13 +1553,15 @@ class WebBridgeGenerator {
     for (final func in spec.functions) {
       for (final p in func.params) {
         if (!p.type.isFunction) continue;
-        if (!seen.add(p.name)) continue;
-        _emitOneCallbackHelper(w, spec, p);
+        // Keyed by method + param: two methods may each take a callback named
+        // e.g. `boolCb` with different signatures.
+        if (!seen.add('${func.dartName}.${p.name}')) continue;
+        _emitOneCallbackHelper(w, spec, p, func.dartName);
       }
     }
   }
 
-  static void _emitOneCallbackHelper(CodeWriter w, BridgeSpec spec, BridgeParam p) {
+  static void _emitOneCallbackHelper(CodeWriter w, BridgeSpec spec, BridgeParam p, String ownerFn) {
     final cb = p.type;
     final cbParams = cb.functionParams;
     final retName = cb.functionReturnType ?? 'void';
@@ -1527,9 +1647,10 @@ class WebBridgeGenerator {
       );
     }
 
-    w.line('int? _nitroWebCallbackSlot_${p.name};');
-    w.line('int _nitroWebCallback_${p.name}(${cb.name} cb) {');
-    w.line('  final _old = _nitroWebCallbackSlot_${p.name};');
+    final hn = _callbackHelperName(ownerFn, p.name);
+    w.line('int? ${hn}_slot;');
+    w.line('int $hn(${cb.name} cb) {');
+    w.line('  final _old = ${hn}_slot;');
     final closureParams = jsParams.join(', ');
     if (retName == 'void') {
       w.line('  void _js($closureParams) {');
@@ -1542,7 +1663,7 @@ class WebBridgeGenerator {
       w.line('  }');
     }
     w.line("  final _slot = _module.addFunction(_js.toJS, '$sig');");
-    w.line('  _nitroWebCallbackSlot_${p.name} = _slot;');
+    w.line('  ${hn}_slot = _slot;');
     w.line('  NitroRuntime.deferredCloseWebFunction(_module, _old);');
     w.line('  return _slot;');
     w.line('}');

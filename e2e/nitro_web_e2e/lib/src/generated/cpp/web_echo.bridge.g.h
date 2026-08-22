@@ -67,6 +67,7 @@ NITRO_EXPORT const char* web_echo_concat(int64_t instanceId, const char* a, cons
 NITRO_EXPORT uint8_t* web_echo_echo_nullable_int(int64_t instanceId, const uint8_t* v, NitroError* _nitro_err);
 NITRO_EXPORT int64_t web_echo_echo_enum(int64_t instanceId, int64_t v, NitroError* _nitro_err);
 NITRO_EXPORT uint8_t* web_echo_echo_bytes(int64_t instanceId, uint8_t* data, size_t data_length, NitroError* _nitro_err);
+NITRO_EXPORT uint8_t* web_echo_echo_int32s(int64_t instanceId, int32_t* data, size_t data_length, NitroError* _nitro_err);
 NITRO_EXPORT void* web_echo_echo_stat(int64_t instanceId, void* v, NitroError* _nitro_err);
 NITRO_EXPORT uint8_t* web_echo_increment_values(int64_t instanceId, uint8_t* m, NitroError* _nitro_err);
 NITRO_EXPORT void* web_echo_echo_stats(int64_t instanceId, void* v, NitroError* _nitro_err);

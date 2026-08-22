@@ -62,6 +62,17 @@ void main() {
       expect(out, [1, 2, 3, 251, 0]); // C++ increments every byte (mod 256)
     });
 
+    test('typed data wider than a byte keeps its element count', () {
+      // The length argument crosses in ELEMENTS while NitroCppBuffer.size is
+      // BYTES. Uint8List cannot tell the two apart, so a regression to
+      // lengthInBytes only shows up here — as 4x the elements, tailed by heap
+      // garbage. Assert the length explicitly, not just the leading values.
+      final out = echo.echoInt32s(Int32List.fromList([-2147483648, 0, 2147483646]));
+      expect(out, hasLength(3));
+      expect(out, [-2147483647, 1, 2147483647]);
+      expect(echo.echoInt32s(Int32List(0)), isEmpty);
+    });
+
     test('record round-trip: every field transformed by C++', () {
       final out = echo.echoStat(
         const EchoStat(count: 41, mean: 1.5, label: 'run', ok: false),

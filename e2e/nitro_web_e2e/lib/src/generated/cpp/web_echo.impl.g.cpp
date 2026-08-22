@@ -79,6 +79,12 @@ public:
         // return { nullptr, 0 };
     }
 
+    NitroCppBuffer echoInt32s(const int32_t* data, size_t data_length) override {
+        // TODO: implement echoInt32s
+        throw std::runtime_error("Not implemented: echoInt32s");
+        // return { nullptr, 0 };
+    }
+
     NitroCppBuffer echoStat(NitroCppBuffer v) override {
         // TODO: implement echoStat
         throw std::runtime_error("Not implemented: echoStat");

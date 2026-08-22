@@ -21,7 +21,7 @@ NITRO_EXPORT uint32_t web_echo_nitro_abi_version(void) {
     return 1;
 }
 NITRO_EXPORT const char* web_echo_nitro_bridge_checksum(void) {
-    return "b395a68dbf9f0561";
+    return "28cfdae9d434005e";
 }
 NITRO_EXPORT intptr_t web_echo_init_dart_api_dl(void* data) {
     return Dart_InitializeApiDL(data);
@@ -302,6 +302,34 @@ uint8_t* web_echo_echo_bytes(int64_t instanceId, uint8_t* data, size_t data_leng
         int64_t* _env = (int64_t*)malloc(sizeof(int64_t) * 3);
         if (_env == nullptr) {
             nitro_report_error("OutOfMemoryError", "echoBytes: failed to allocate zero-copy return envelope", nullptr, nullptr);
+            return nullptr;
+        }
+        _env[0] = (int64_t)_res.size;
+        _env[1] = (int64_t)(intptr_t)(_res.data != nullptr ? _res.data : (const uint8_t*)_env);
+        _env[2] = 0;
+        return (uint8_t*)_env;
+    } catch (const std::exception& e) {
+        _nitro_out_err(_nitro_err, "CppException", e.what());
+        return nullptr;
+    } catch (...) {
+        _nitro_out_err(_nitro_err, "CppException", "Unknown C++ exception");
+        return nullptr;
+    }
+}
+
+uint8_t* web_echo_echo_int32s(int64_t instanceId, int32_t* data, size_t data_length, NitroError* _nitro_err) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot
+    auto _impl = _nitro_get_instance(instanceId);
+    if (!_impl) { _nitro_out_err(_nitro_err, "NotInitialized", "No C++ implementation registered. Call web_echo_register_factory() or web_echo_register_impl()."); return nullptr; }
+    try {
+        NitroCppBuffer _res = _impl->echoInt32s(data, static_cast<size_t>(data_length));
+        if (_res.size > (size_t)INT64_MAX || (_res.size > 0 && _res.data == nullptr)) {
+            nitro_report_error("ArgumentError", "echoInt32s: @zeroCopy return buffer has invalid data/size", nullptr, nullptr);
+            return nullptr;
+        }
+        int64_t* _env = (int64_t*)malloc(sizeof(int64_t) * 3);
+        if (_env == nullptr) {
+            nitro_report_error("OutOfMemoryError", "echoInt32s: failed to allocate zero-copy return envelope", nullptr, nullptr);
             return nullptr;
         }
         _env[0] = (int64_t)_res.size;
