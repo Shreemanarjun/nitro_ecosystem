@@ -248,13 +248,16 @@ class SpecValidator {
           ),
         );
       }
-      // E017: struct fields beyond prim/enum/bool are not yet packed by the
-      // web bridge (pointer-carrying packed layouts differ on wasm32).
+      // E017: catch-all for struct field kinds the web layout cannot place
+      // (records, variants, maps). Prims, enums, DateTime, String, TypedData
+      // and nested structs are supported.
       for (final st in spec.structs) {
         final unsupported = st.fields.where((f) {
           final base = f.type.name.replaceFirst('?', '');
-          final isEnum = spec.isEnumName(base);
-          return !isEnum && base != 'int' && base != 'uint64' && base != 'double' && base != 'bool' && base != 'DateTime';
+          // Mirrors _fieldSlot in web_bridge_generator.dart — keep in sync.
+          if (spec.isEnumName(base) || spec.isStructName(base) || f.type.isTypedData) return false;
+          if (base == 'String') return false;
+          return base != 'int' && base != 'uint64' && base != 'double' && base != 'bool' && base != 'DateTime';
         }).toList();
         if (unsupported.isNotEmpty) {
           issues.add(
@@ -263,7 +266,7 @@ class SpecValidator {
               code: 'E017',
               message:
                   '${spec.dartClassName}: @HybridStruct ${st.name} has field(s) '
-                  '${unsupported.map((f) => f.name).join(', ')} whose packed wasm32 layout is not yet supported on web.',
+                  '${unsupported.map((f) => f.name).join(', ')} of a type that has no wasm32 struct layout on web.',
               hint: 'Use an @HybridRecord instead (framed binary — full type support on web), or keep the struct off web-targeting specs.',
             ),
           );

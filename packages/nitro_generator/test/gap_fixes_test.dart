@@ -514,7 +514,31 @@ void main() {
       expect(issues.where((i) => i.code == 'W009'), hasLength(1));
     });
 
-    test('struct with a String field on web is E017 (unsupported packed layout)', () {
+    test('struct with String / TypedData / nested-struct fields passes (all pointer slots)', () {
+      final spec = BridgeSpec(
+        dartClassName: 'WebStruct',
+        lib: 'web_struct',
+        namespace: 'web_struct',
+        webImpl: NativeImpl.wasm,
+        sourceUri: 'web_struct.native.dart',
+        structs: [
+          BridgeStruct(name: 'Inner', packed: false, fields: [BridgeField(name: 'n', type: BridgeType(name: 'int'))]),
+          BridgeStruct(
+            name: 'Tagged',
+            packed: true,
+            fields: [
+              BridgeField(name: 'id', type: BridgeType(name: 'int')),
+              BridgeField(name: 'label', type: BridgeType(name: 'String')),
+              BridgeField(name: 'bytes', type: BridgeType(name: 'Uint8List')),
+              BridgeField(name: 'inner', type: BridgeType(name: 'Inner')),
+            ],
+          ),
+        ],
+      );
+      expect(SpecValidator.validate(spec).where((i) => i.code == 'E017'), isEmpty);
+    });
+
+    test('struct with a field kind that has no wasm32 layout is still E017', () {
       final spec = BridgeSpec(
         dartClassName: 'WebStruct',
         lib: 'web_struct',
@@ -527,16 +551,15 @@ void main() {
             packed: true,
             fields: [
               BridgeField(name: 'id', type: BridgeType(name: 'int')),
-              BridgeField(name: 'label', type: BridgeType(name: 'String')),
+              BridgeField(name: 'blob', type: BridgeType(name: 'Map<String, int>')),
             ],
           ),
         ],
       );
-      final issues = SpecValidator.validate(spec);
-      final e017 = issues.where((i) => i.code == 'E017').toList();
+      final e017 = SpecValidator.validate(spec).where((i) => i.code == 'E017').toList();
       expect(e017, hasLength(1));
       expect(e017.single.isError, isTrue);
-      expect(e017.single.message, contains('label'));
+      expect(e017.single.message, contains('blob'));
       expect(e017.single.hint, contains('@HybridRecord'));
     });
 

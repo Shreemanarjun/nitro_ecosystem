@@ -522,4 +522,211 @@ void main() {
       expect(out, isNot(contains('lengthInBytes ?? 0')));
     });
   });
+
+  group('struct codecs — wasm32 C layout', () {
+    // uint8_t* bytes; int64_t bytesLength; int64_t requestId;
+    // C alignment (NOT pack(1)): the 4-byte pointer is followed by 4 bytes of
+    // padding so the int64 lands on 8. Packing them tight silently misreads
+    // every field after the pointer.
+    BridgeSpec structSpec(List<BridgeField> fields) => BridgeSpec(
+      dartClassName: 'Buf',
+      lib: 'buf',
+      namespace: 'buf',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      webImpl: NativeImpl.wasm,
+      sourceUri: 'buf.native.dart',
+      structs: [BridgeStruct(name: 'RawChunk', packed: false, fields: fields)],
+      functions: [
+        BridgeFunction(
+          dartName: 'echo',
+          cSymbol: 'buf_echo',
+          isAsync: false,
+          returnType: BridgeType(name: 'RawChunk'),
+          params: [BridgeParam(name: 'v', type: BridgeType(name: 'RawChunk'))],
+        ),
+      ],
+    );
+
+    test('TypedData field packs as pointer + synthesized int64 count', () {
+      final out = WebBridgeGenerator.generate(structSpec([
+        BridgeField(name: 'bytes', type: BridgeType(name: 'Uint8List')),
+        BridgeField(name: 'requestId', type: BridgeType(name: 'int')),
+      ]));
+
+      // pointer at 0 (u32), synthetic length at 8, next int64 at 16, size 24.
+      expect(out, contains('final out = Uint8List(24)'));
+      expect(out, contains('bd.setUint32(0, arena.copyIn(v.bytes), Endian.little)'));
+      expect(out, contains('setInt64LE(bd, 8, v.bytes.length)'));
+      expect(out, contains('setInt64LE(bd, 16, v.requestId)'));
+
+      // Read side must use the same offsets and size the copy by element count.
+      expect(out, contains('m.readBytes(ptr, 24)'));
+      expect(out, contains('final _pbytes = bd.getUint32(0, Endian.little)'));
+      expect(out, contains('final _nbytes = getInt64LE(bd, 8)'));
+      expect(out, contains('m.readBytes(_pbytes, _nbytes * 1)'));
+      expect(out, contains('getInt64LE(bd, 16)'));
+    });
+
+    test('a declared companion length field replaces the synthesized one', () {
+      final out = WebBridgeGenerator.generate(structSpec([
+        BridgeField(name: 'bytes', type: BridgeType(name: 'Uint8List')),
+        BridgeField(name: 'length', type: BridgeType(name: 'int')),
+      ]));
+      // No synthesized slot: pointer at 0, the declared `length` at 8, size 16.
+      expect(out, contains('final out = Uint8List(16)'));
+      expect(out, isNot(contains('setInt64LE(bd, 8, v.bytes.length)')));
+      expect(out, contains('setInt64LE(bd, 8, v.length)'));
+      expect(out, contains('final _nbytes = getInt64LE(bd, 8)'));
+    });
+
+    test('bool is 1 byte but the next int64 still aligns to 8', () {
+      final out = WebBridgeGenerator.generate(structSpec([
+        BridgeField(name: 'ok', type: BridgeType(name: 'bool')),
+        BridgeField(name: 'count', type: BridgeType(name: 'int')),
+      ]));
+      expect(out, contains('bd.setUint8(0, v.ok ? 1 : 0)'));
+      expect(out, contains('setInt64LE(bd, 8, v.count)'), reason: 'padded to 8, not 1');
+      expect(out, contains('final out = Uint8List(16)'));
+    });
+
+    test('wider elements size the payload copy by sizeof(T)', () {
+      final out = WebBridgeGenerator.generate(structSpec([
+        BridgeField(name: 'samples', type: BridgeType(name: 'Float64List')),
+      ]));
+      expect(out, contains('m.readBytes(_psamples, _nsamples * 8)'));
+    });
+
+    test('String and nested struct fields are pointer slots', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Buf',
+        lib: 'buf',
+        namespace: 'buf',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        webImpl: NativeImpl.wasm,
+        sourceUri: 'buf.native.dart',
+        structs: [
+          BridgeStruct(name: 'Inner', packed: false, fields: [
+            BridgeField(name: 'n', type: BridgeType(name: 'int')),
+          ]),
+          BridgeStruct(name: 'Outer', packed: false, fields: [
+            BridgeField(name: 'label', type: BridgeType(name: 'String')),
+            BridgeField(name: 'inner', type: BridgeType(name: 'Inner')),
+            BridgeField(name: 'count', type: BridgeType(name: 'int')),
+          ]),
+        ],
+        functions: [
+          BridgeFunction(
+            dartName: 'echo',
+            cSymbol: 'buf_echo',
+            isAsync: false,
+            returnType: BridgeType(name: 'Outer'),
+            params: [BridgeParam(name: 'v', type: BridgeType(name: 'Outer'))],
+          ),
+        ],
+      );
+      final out = WebBridgeGenerator.generate(spec);
+
+      // const char* at 0, Inner* at 4, then int64 padded to 8 => size 16.
+      expect(out, contains('final out = Uint8List(16)'));
+      expect(out, contains('bd.setUint32(0, arena.cString(v.label), Endian.little)'));
+      expect(out, contains('bd.setUint32(4, arena.copyIn(_nitroPackStructInner(m, arena, v.inner)), Endian.little)'));
+      expect(out, contains('setInt64LE(bd, 8, v.count)'));
+      expect(out, contains('_nitroReadStructInner(m, bd.getUint32(4, Endian.little))'));
+      // Inner is reachable only as a field — its codec must still be emitted.
+      expect(out, contains('Uint8List _nitroPackStructInner('));
+    });
+
+    test('enum struct fields are int32, not int64', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Buf',
+        lib: 'buf',
+        namespace: 'buf',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        webImpl: NativeImpl.wasm,
+        sourceUri: 'buf.native.dart',
+        enums: [BridgeEnum(name: 'Level', startValue: 0, values: ['low', 'high'])],
+        structs: [
+          BridgeStruct(name: 'S', packed: false, fields: [
+            BridgeField(name: 'level', type: BridgeType(name: 'Level')),
+            BridgeField(name: 'n', type: BridgeType(name: 'int')),
+          ]),
+        ],
+        functions: [
+          BridgeFunction(
+            dartName: 'echo',
+            cSymbol: 'buf_echo',
+            isAsync: false,
+            returnType: BridgeType(name: 'S'),
+            params: [BridgeParam(name: 'v', type: BridgeType(name: 'S'))],
+          ),
+        ],
+      );
+      final out = WebBridgeGenerator.generate(spec);
+      // C maps an enum field to int32_t; reading 8 bytes swallowed the next field.
+      expect(out, contains('bd.setInt32(0, v.level.nativeValue, Endian.little)'));
+      expect(out, contains('bd.getInt32(0, Endian.little).toLevel()'));
+      expect(out, contains('setInt64LE(bd, 8, v.n)'));
+      expect(out, contains('final out = Uint8List(16)'));
+    });
+  });
+
+  group('web limits — build fails loudly rather than emitting wrong code', () {
+    BridgeSpec cbSpec(BridgeType cbType) => BridgeSpec(
+      dartClassName: 'Cb',
+      lib: 'cb',
+      namespace: 'cb',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      webImpl: NativeImpl.wasm,
+      sourceUri: 'cb.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'onEvent',
+          cSymbol: 'cb_on_event',
+          isAsync: false,
+          returnType: BridgeType(name: 'void'),
+          params: [BridgeParam(name: 'handler', type: cbType)],
+        ),
+      ],
+    );
+
+    test('callback ARG the web bridge cannot decode is a build error', () {
+      // A raw address would be a meaningless int to the callback AND leak the
+      // buffer, so this must fail generation, not emit silently-wrong code.
+      expect(
+        () => WebBridgeGenerator.generate(cbSpec(BridgeType(
+          name: 'void Function(List<int>)',
+          isFunction: true,
+          functionParams: [BridgeType(name: 'List<int>')],
+          functionReturnType: 'void',
+        ))),
+        throwsA(isA<UnsupportedError>().having((e) => e.message, 'message', allOf(contains('cannot decode'), contains('handler')))),
+      );
+    });
+
+    test('callback RETURN the web bridge cannot encode is a build error', () {
+      expect(
+        () => WebBridgeGenerator.generate(cbSpec(BridgeType(
+          name: 'List<int> Function(int)',
+          isFunction: true,
+          functionParams: [BridgeType(name: 'int')],
+          functionReturnType: 'List<int>',
+        ))),
+        throwsA(isA<UnsupportedError>().having((e) => e.message, 'message', contains('cannot encode'))),
+      );
+    });
+
+    test('supported callback shapes still generate', () {
+      final out = WebBridgeGenerator.generate(cbSpec(BridgeType(
+        name: 'int Function(String)',
+        isFunction: true,
+        functionParams: [BridgeType(name: 'String')],
+        functionReturnType: 'int',
+      )));
+      expect(out, contains('_module.addFunction'));
+    });
+  });
 }
