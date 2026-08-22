@@ -1,13 +1,23 @@
 ## 0.7.0
 
-**Web support.** `nitrogen init --platforms=...,web` scaffolds the web target
-(Emscripten build script, `assets/web/`, the pubspec `web:` plugin entry +
-asset declaration, and the Dart web plugin shell). `nitrogen link` keeps
-`web/build_web.sh` in sync with the module list and copies
-`nitro_wasm_compat.h` next to the other native headers. `nitrogen doctor`
-gains a Web (WASM) section: emsdk presence, build wiring, artifact staleness.
+**Web support.** See [migration/0.7.0.md](../../migration/0.7.0.md).
 
-See [migration/0.7.0.md](../../migration/0.7.0.md).
+Added
+- `nitrogen init --platforms=...,web`: Emscripten build script, `assets/web/`,
+  pubspec `web:` plugin entry + asset declaration, Dart web plugin shell.
+- `nitrogen link`: keeps `web/build_web.sh` in sync with the module list,
+  copies `nitro_wasm_compat.h` into `src/native/`, and scaffolds the
+  browser-test harness (hybrid-isolate asset server + starter test).
+- `nitrogen doctor`: Web (WASM) section — emsdk presence, build wiring,
+  artifact staleness.
+
+Fixed
+- `nitro_wasm_compat.h` was copied into Apple SwiftPM targets, breaking the
+  macOS/iOS build. CMake targets only now.
+- Generated build script omitted `removeFunction` from
+  `EXPORTED_RUNTIME_METHODS`.
+- Scaffolded browser test derived imports from the module lib name instead of
+  the package name, so it did not compile.
 
 ## 0.6.1
 

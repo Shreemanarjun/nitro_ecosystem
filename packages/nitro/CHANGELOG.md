@@ -1,21 +1,28 @@
 ## 0.7.0
 
-**Web support.** `package:nitro` now compiles for the web — under both
-`flutter build web` (dart2js) and `--wasm` (dart2wasm) — with a full web
-runtime: WASM module loading, the port registry replacing native ports, the
-`NitroError` slot read from linear memory, streams, and `@nitroNativeAsync`.
+**Web support** — compiles and runs under `flutter build web` (dart2js) and
+`--wasm` (dart2wasm).
+**Regenerate after upgrading:** `nitrogen generate && nitrogen link`.
+See [migration/0.7.0.md](../../migration/0.7.0.md).
 
-**Regenerate after upgrading** — `nitrogen generate && nitrogen link`. See
-[migration/0.7.0.md](../../migration/0.7.0.md) for adding web to a plugin and
-the small API moves (`NitroAnyMap.fromNative` → `nitroAnyMapFromNative`,
-`NitroNullable*.fromNative` → top-level functions, default log sink is now
-zone-aware `print`).
+Added
+- Web runtime: WASM module loading, port registry, `NitroError` slot in linear
+  memory, streams, `@nitroNativeAsync`.
+- `NitroWireCodec<T>` for `@NitroCustomType` on web.
+- `NitroRuntime.retainLib` — per-instance web module refcount.
 
-- The record/variant wire codecs now have a platform-neutral core shared by
-  the FFI and web edges; new `NitroWireCodec<T>` for custom types on web.
+Changed
+- Record/variant wire codecs share a platform-neutral core between FFI and web.
 - `@nitroAsync` runs inline on web (no isolates); `@zeroCopy` is one bulk copy.
-- Verified end-to-end in Chrome under both compilers, plus the usual native
-  matrix (macOS/iOS/Android integration suites).
+- API moves: `NitroAnyMap.fromNative` → `nitroAnyMapFromNative`,
+  `NitroNullable*.fromNative` → top-level functions, default log sink is now
+  zone-aware `print`.
+- `NitroWasmModule.removeFunction` no-ops when the module lacks the export.
+
+Fixed
+- `jsI64`/`dartI64` rounded above 2^53; `Int64.max` returned `Int64.min`. Now
+  exact over the full int64 range on dart2wasm (dart2js stays 53-bit).
+- Disposing one hybrid instance evicted the shared WASM module for the others.
 
 ## 0.6.1
 

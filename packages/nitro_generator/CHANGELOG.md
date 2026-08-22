@@ -1,27 +1,36 @@
 ## 0.7.0
 
-**Web support.** Web-targeting specs get a real `dart:js_interop` bridge that
-drives the SAME generated C bridge — compiled to WASM by Emscripten — over the
-existing binary wire format. Streams and `@nitroNativeAsync` are fully
-supported (W007 is retired).
+**Web support** — web specs get a `dart:js_interop` bridge over the same
+generated C bridge, compiled to WASM by Emscripten. Streams and
+`@nitroNativeAsync` supported; W007 retired.
 
-**Regenerate after upgrading.** For web-targeting specs the generated layout
-splits: the dart:ffi implementation moves from the `.g.dart` part into
-`generated/native/<file>.ffi.g.dart`, reached through the new conditional
-`<file>.platform.g.dart` shim (`create<Class>Instance()` /
-`ensure<Class>Ready()`). Non-web specs regenerate byte-identical (plus the
-new placeholder outputs). See [migration/0.7.0.md](../../migration/0.7.0.md).
+**Regenerate after upgrading.** Web-targeting specs split: the dart:ffi impl
+moves from the `.g.dart` part to `generated/native/<file>.ffi.g.dart`, reached
+via the new `<file>.platform.g.dart` shim (`create<Class>Instance()` /
+`ensure<Class>Ready()`). Non-web specs regenerate byte-identical.
+See [migration/0.7.0.md](../../migration/0.7.0.md).
 
-- C bridge: `#ifdef __EMSCRIPTEN__` seam — `nitro_wasm_compat.h` maps every
-  `Dart_PostCObject_DL` call onto the module post callback; new
+Added
+- `#ifdef __EMSCRIPTEN__` C-bridge seam: `nitro_wasm_compat.h` maps
+  `Dart_PostCObject_DL` onto the module post callback; new
   `<lib>_nitro_set_post_fn` export.
-- New web checks: W008 (`@nitroAsync` runs on the main thread on web), W009
-  (`@zeroCopy` is a snapshot on web), E017 (struct fields beyond
-  prim/enum/bool/DateTime not yet packed on web).
-- Fixed: nullable-primitive params in the all-C++ bridge declared `void*` in
-  the definition but `const uint8_t*` in the header (conflicting types).
-- Anti-drift: the FFI library and web bridge are asserted to bind the same C
-  symbol set.
+- Validators W008 (`@nitroAsync` on main thread on web), W009 (`@zeroCopy` is
+  a snapshot on web), E017 (unsupported struct field types on web).
+- Anti-drift check: FFI library and web bridge bind the same C symbol set.
+
+Changed
+- Web callback ABI uses natural C types under Emscripten (`bool`→`int32_t`,
+  `double`→`double`, struct→pointer) instead of int64 widening.
+- Web `@nitroAsync` methods are declared `async`.
+
+Fixed
+- TypedData args passed a byte length where C counts elements — types wider
+  than a byte returned `sizeof(T)`x too many elements plus heap garbage.
+- Web callbacks aborted with "function signature mismatch".
+- `@NitroResult` inferred `NitroErr<Object?>`, failing `callAsync`'s cast.
+- Web impl shadowed `HybridObject._disposed`, so `isDisposed` stayed false.
+- All-C++ bridge declared nullable-primitive params `void*` in the definition
+  but `const uint8_t*` in the header.
 
 ## 0.6.1
 
