@@ -11,7 +11,7 @@ class KotlinPropertyEmitter {
     KotlinTypeMapper mapper,
   ) {
     final propTypeName = prop.type.name;
-    final propBaseName = propTypeName.replaceFirst('?', '');
+    final propBaseName = bareTypeName(propTypeName);
     final isNullableProp = propTypeName.endsWith('?');
     final isEnum = mapper.enumNames.contains(propBaseName);
     final isNullableEnum = isEnum && isNullableProp;

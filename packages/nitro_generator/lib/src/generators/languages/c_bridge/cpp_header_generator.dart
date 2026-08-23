@@ -113,7 +113,7 @@ class CppHeaderGenerator {
     if (spec.functions.isNotEmpty) {
       nodes.add(const CodeLine('// Methods'));
       for (final func in spec.functions) {
-        final isEnumRet = spec.isEnumName(func.returnType.name.replaceFirst('?', ''));
+        final isEnumRet = spec.isEnumName(bareTypeName(func.returnType.name));
         // instanceId is the first parameter for all bridge functions (Point 13 multi-instance).
         final paramParts = <String>['int64_t instanceId'];
         for (final p in func.params) {
@@ -121,9 +121,9 @@ class CppHeaderGenerator {
             paramParts.add(_callbackParamToC(p, spec));
             continue;
           }
-          final isStructParam = spec.isStructName(p.type.name.replaceFirst('?', ''));
+          final isStructParam = spec.isStructName(bareTypeName(p.type.name));
           // Nullable primitives: raw byte pointer (matches Swift UnsafeMutablePointer<UInt8>? @_cdecl).
-          final paramBase = p.type.name.replaceFirst('?', '');
+          final paramBase = bareTypeName(p.type.name);
           // Enum params use int64_t (rawValue).
           final isEnumParam = spec.isEnumName(paramBase);
           String cType;
@@ -154,7 +154,7 @@ class CppHeaderGenerator {
             paramParts.add('NitroError* _nitro_err');
           }
           // Sync nullable prim returns: uint8_t* pointer (Dart re-interprets as Pointer<NitroOptXxx>).
-          final retBase = func.returnType.name.replaceFirst('?', '');
+          final retBase = bareTypeName(func.returnType.name);
           // @NitroResult: C returns uint8_t* [1B tag][payload].
           // @NitroVariant: C returns uint8_t* [4B len][1B tag][fields].
           final isVariantRet = spec.isVariantName(retBase);
@@ -193,7 +193,7 @@ class CppHeaderGenerator {
     if (spec.properties.isNotEmpty) {
       nodes.add(const CodeLine('// Properties'));
       for (final prop in spec.properties) {
-        final bare = prop.type.name.replaceFirst('?', '');
+        final bare = bareTypeName(prop.type.name);
         final isEnumProp = spec.isEnumName(bare);
         // Property: nullable prim / @HybridRecord / @NitroVariant → uint8_t*;
         // enum → int64_t; everything else via _typeToC.
@@ -281,7 +281,7 @@ class CppHeaderGenerator {
   }
 
   static String _typeToC(String dartType) {
-    switch (dartType.replaceFirst('?', '')) {
+    switch (bareTypeName(dartType)) {
       case 'int':
         return 'int64_t';
       case 'uint64':
@@ -355,7 +355,7 @@ class CppHeaderGenerator {
     if (bridgeType?.isPointer == true) {
       return _pointerToC(bridgeType!.pointerInnerType);
     }
-    final name = dartType.replaceFirst('?', '');
+    final name = bareTypeName(dartType);
     if (spec.isEnumName(name)) return 'int64_t';
     // @HybridStruct callback params use void* — matches both JNI and Swift paths.
     // The platform bridges cast internally; a typed const T* would conflict across

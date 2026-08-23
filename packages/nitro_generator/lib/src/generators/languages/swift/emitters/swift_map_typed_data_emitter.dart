@@ -5,7 +5,7 @@ void _emitSwiftMapHelpers(CodeWriter writer, BridgeSpec spec) {
   final hasMapTypes = spec.functions.any((f) => f.returnType.isMap || f.params.any((p) => p.type.isMap)) || spec.properties.any((p) => p.type.isMap);
   if (hasMapTypes) {
     writer.line('// Binary map encode/decode — [4B payload_len][4B count][entries: [4B kLen][kBytes][1B tag][vBytes]]');
-    writer.line('// Type tags: 1=int64, 2=float64, 3=bool, 4=string, 5=binary record/variant blob');
+    writer.line('// Type tags: 0=null (NSNull), 1=int64, 2=float64, 3=bool, 4=string, 5=binary record/variant blob');
     writer.line('private func _nitroEncodeMapBinary(_ m: [String: Any]) -> UnsafeMutablePointer<UInt8>? {');
     writer.line('    var payload = Data()');
     // Use raw strings (r'...') for lines containing Swift's $0 closure shorthand.
@@ -14,11 +14,13 @@ void _emitSwiftMapHelpers(CodeWriter writer, BridgeSpec spec) {
     writer.line('    writeLE32(Int32(m.count))');
     writer.line('    for (k, v) in m {');
     writer.line('        let kb = k.data(using: .utf8)!; writeLE32(Int32(kb.count)); payload.append(kb)');
-    writer.line('        if let iv = v as? Int64 { payload.append(1); writeLE64(iv) }');
-    writer.line('        else if let dv = v as? Double { payload.append(2); writeLE64(Int64(bitPattern: dv.bitPattern)) }');
-    writer.line('        else if let bv = v as? Bool { payload.append(3); payload.append(bv ? 1 : 0) }');
-    writer.line('        else if let blob = v as? Data { payload.append(5); writeLE32(Int32(blob.count)); payload.append(blob) }');
-    writer.line(r'        else { let sv = "\(v)".data(using: .utf8)!; payload.append(4); writeLE32(Int32(sv.count)); payload.append(sv) }');
+    writer.line('        if v is NSNull { payload.append(${MapValueWire.nul.tag}) }');
+    writer.line('        else if let iv = v as? Int64 { payload.append(${MapValueWire.int64.tag}); writeLE64(iv) }');
+    writer.line('        else if let dv = v as? Double { payload.append(${MapValueWire.float64.tag}); writeLE64(Int64(bitPattern: dv.bitPattern)) }');
+    writer.line('        else if let bv = v as? Bool { payload.append(${MapValueWire.boolean.tag}); payload.append(bv ? 1 : 0) }');
+    writer.line('        else if let blob = v as? Data { payload.append(${MapValueWire.blob.tag}); writeLE32(Int32(blob.count)); payload.append(blob) }');
+    // Not a raw string: the tag interpolates, so Swift's \(v) is escaped.
+    writer.line('        else { let sv = "\\(v)".data(using: .utf8)!; payload.append(${MapValueWire.string.tag}); writeLE32(Int32(sv.count)); payload.append(sv) }');
     writer.line('    }');
     writer.line('    var lenLE = Int32(payload.count).littleEndian');
     writer.line('    let total = 4 + payload.count');
@@ -40,11 +42,16 @@ void _emitSwiftMapHelpers(CodeWriter writer, BridgeSpec spec) {
     writer.line('        let kLen = readLE32(); let k = String(data: data[pos..<(pos+kLen)], encoding: .utf8)!; pos += kLen');
     writer.line('        let tag = data[pos]; pos += 1');
     writer.line('        switch tag {');
-    writer.line('        case 1: result[k] = readLE64()');
-    writer.line('        case 2: result[k] = Double(bitPattern: UInt64(bitPattern: readLE64()))');
-    writer.line('        case 3: result[k] = data[pos] != 0; pos += 1');
+    writer.line('        case ${MapValueWire.nul.tag}: result[k] = NSNull()');
+    writer.line('        case ${MapValueWire.int64.tag}: result[k] = readLE64()');
+    writer.line('        case ${MapValueWire.float64.tag}: result[k] = Double(bitPattern: UInt64(bitPattern: readLE64()))');
+    writer.line('        case ${MapValueWire.boolean.tag}: result[k] = data[pos] != 0; pos += 1');
     // tag 5 = binary record/variant blob — store as Data for type-specific caller to decode
-    writer.line('        case 5: let bLen = readLE32(); result[k] = Data(data[pos..<(pos+bLen)]); pos += bLen');
+    writer.line('        case ${MapValueWire.blob.tag}: let bLen = readLE32(); result[k] = Data(data[pos..<(pos+bLen)]); pos += bLen');
+    // The string wire is spelled out rather than left to `default`, so a tag
+    // this decoder does not know is visibly the fallback (an ABI mismatch)
+    // instead of being silently read as a string.
+    writer.line('        case ${MapValueWire.string.tag}: let vLen = readLE32(); result[k] = String(data: data[pos..<(pos+vLen)], encoding: .utf8); pos += vLen');
     writer.line('        default: let vLen = readLE32(); result[k] = String(data: data[pos..<(pos+vLen)], encoding: .utf8); pos += vLen');
     writer.line('        }');
     writer.line('    }');

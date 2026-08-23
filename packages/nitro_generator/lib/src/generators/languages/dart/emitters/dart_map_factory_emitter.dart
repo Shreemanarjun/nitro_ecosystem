@@ -34,7 +34,8 @@ void _emitMapAndFactory(CodeWriter writer, BridgeSpec spec) {
     writer.blankLine();
   }
   if (mapValueTypes.isNotEmpty) {
-    // Shared low-level helper (emitted once). Type tags: 1=int64, 2=float64, 3=bool, 4=string, 9=bytes
+    // Shared low-level helper (emitted once). The caller writes the value tag;
+    // see _emitMapBinaryHelpers for the table.
     // Returns just the payload (`[4B count][entries]`) — the caller writes the
     // outer `[4B payload_len]` prefix directly into the native buffer, avoiding
     // an element-wise spread-concatenation copy.

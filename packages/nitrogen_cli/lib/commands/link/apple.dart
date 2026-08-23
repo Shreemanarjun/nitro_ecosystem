@@ -741,13 +741,9 @@ Directory _spmScaffoldSharedCppTarget(
   // lack the guard. Using different copies with inconsistent guards causes a
   // "Typedef redefinition" error when both are included in the same TU.
   File(p.join(includeDir.path, 'nitro.h')).writeAsStringSync(nitroHContent);
-  // nitro_wasm_compat.h is deliberately NOT in this list. SwiftPM compiles
-  // every header in a C++ target's include/ directory as part of the module,
-  // and that header opens with an #error guard for non-Emscripten builds — so
-  // shipping it here fails the macOS/iOS build outright ("nitro_wasm_compat.h
-  // is only for Emscripten builds", followed by Dart_CObject_* redefinitions
-  // against the real dart_api_dl.h). Only the CMake targets, which compile an
-  // explicit source list rather than a directory, can carry it.
+  // nitro_wasm_compat.h is deliberately excluded: SwiftPM compiles every
+  // header in include/, and its non-Emscripten #error guard fails the build.
+  // Only CMake targets, which take an explicit source list, can carry it.
   for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h']) {
     final src = File(p.join(nitroNativePath, headerName));
     if (src.existsSync()) src.copySync(p.join(includeDir.path, headerName));

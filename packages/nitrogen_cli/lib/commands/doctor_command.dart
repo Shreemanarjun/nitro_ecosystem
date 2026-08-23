@@ -494,6 +494,7 @@ class DoctorCommand extends Command {
     final srcCmakeContent = srcCmake.existsSync() ? srcCmake.readAsStringSync() : '';
     _checkWindows(ctx, srcCmakeContent);
     _checkLinux(ctx, srcCmakeContent);
+    _checkDesktopImplParity(ctx);
     _checkWeb(ctx);
 
     if (hasAnyCppSpec) _checkCppDirect(ctx);

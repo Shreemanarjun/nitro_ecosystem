@@ -12,7 +12,7 @@ class SwiftPropertyEmitter {
   ) {
     final swiftType = mapper.swiftType(prop.type.name);
     final propTypeName = prop.type.name;
-    final propTypeBase = propTypeName.replaceFirst('?', '');
+    final propTypeBase = bareTypeName(propTypeName);
     final isNullableProp = propTypeName.endsWith('?');
     final isBool = propTypeBase == 'bool';
     final isDouble = propTypeBase == 'double';

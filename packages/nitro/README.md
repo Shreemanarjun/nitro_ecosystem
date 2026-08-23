@@ -39,7 +39,7 @@ In your plugin's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  nitro: ^0.5.0
+  nitro: ^0.7.1
 ```
 
 Then run:
@@ -530,7 +530,7 @@ Buffers marked `@zeroCopy` point to pinned Dart managed memory. The native imple
 |---|---|---|
 | L6 | `@HybridStruct` / `@HybridRecord` cannot be **returned** from a callback parameter (function type). | Return `void` from callback; use a reverse method call or `Stream`. |
 | L7 | `TypedData?` (nullable `Uint8List`, etc.) is not supported. The two-param C ABI (pointer + length) makes optional transport ambiguous. | Wrap in `@HybridRecord`: `class MaybeBuffer { final Uint8List? data; }` |
-| ~~L8~~ | Resolved in 0.7.0: web is fully supported (WASM via Emscripten, dart2js + dart2wasm), including streams and `@nitroNativeAsync`. `@nitroAsync` runs inline (no isolates); `@zeroCopy` is one bulk copy. | See migration/0.7.0.md. |
+| ~~L8~~ | Resolved in 0.7.0: web is fully supported (WASM via Emscripten, dart2js + dart2wasm), including streams and `@nitroNativeAsync`. `@HybridStruct` fields may be prims, enums, `DateTime`, `String`, TypedData or nested structs (0.7.1). `@nitroAsync` runs inline (no isolates); `@zeroCopy` is one bulk copy. | See migration/0.7.0.md. |
 | L10 | `Map<String, @HybridStruct>` is not supported. | Use `Map<String, @HybridRecord>` instead. |
 | L12 | `@NitroVariant` as a callback return type is not supported. | Return `void`; use a separate method or stream. |
 

@@ -22,7 +22,7 @@ void main(List<String> args) {
     stderr.writeln(
       'usage: format_report.dart <response.json> '
       '[--out-dir DIR] [--update-baseline DIR] '
-      '[--baseline FILE] [--compare-dir DIR]',
+      '[--baseline FILE] [--compare-dir DIR] [--require-cases N]',
     );
     exit(64);
   }
@@ -38,6 +38,7 @@ void main(List<String> args) {
   String? baselinePath;
   String? baselinesDir;
   String? compareDir;
+  var requireCases = 0;
   for (var i = 1; i < args.length; i++) {
     switch (args[i]) {
       case '--out-dir':
@@ -48,6 +49,8 @@ void main(List<String> args) {
         baselinePath = args[++i];
       case '--baselines-dir':
         baselinesDir = args[++i];
+      case '--require-cases':
+        requireCases = int.parse(args[++i]);
       case '--compare-dir':
         compareDir = args[++i];
       default:
@@ -74,6 +77,18 @@ void main(List<String> args) {
   final mode = report['mode'] as String;
   final buildMode = report['buildMode'] as String;
   final cases = report['cases'] as Map<String, dynamic>;
+
+  // A browser/driver misconfiguration can finish "successfully" having run
+  // nothing at all. Without this the report is empty, the gate has nothing to
+  // compare, and the job goes green — the failure mode that hides a broken
+  // benchmark run rather than reporting it.
+  if (cases.length < requireCases) {
+    stderr.writeln(
+      'expected at least $requireCases benchmark case(s) in ${args[0]}, found ${cases.length} — '
+      'the run produced no measurements (check the browser/driver setup)',
+    );
+    exit(65);
+  }
 
   // --baseline takes precedence; otherwise resolve <baselines-dir>/<platform>.json.
   baselinePath ??= baselinesDir == null ? null : '$baselinesDir/$platform.json';

@@ -10,7 +10,7 @@ class SwiftStreamEmitter {
     BridgeSpec spec,
     SwiftTypeMapper mapper,
   ) {
-    final itemName = stream.itemType.name.replaceFirst('?', '');
+    final itemName = bareTypeName(stream.itemType.name);
     final isStructItem = spec.isStructName(itemName);
     final isRecordItem = stream.itemType.isRecord;
     final isEnumItem = spec.isEnumName(itemName);
@@ -56,7 +56,7 @@ class SwiftStreamEmitter {
 
   static void _emitBatch(CodeWriter writer, BridgeStream stream, BridgeSpec spec) {
     final batchMax = stream.batchMaxSize;
-    final itemBase = stream.itemType.name.replaceFirst('?', '');
+    final itemBase = bareTypeName(stream.itemType.name);
     final isRecordBatch = stream.itemType.isRecord;
     final isVariantBatch = spec.isVariantName(itemBase);
 
@@ -135,14 +135,15 @@ class SwiftStreamEmitter {
       writer.line('    ${spec.dartClassName}Registry._${stream.dartName}Cancellables[dartPort] =');
       writer.line('        ${spec.dartClassName}Registry.impl?.${stream.dartName}.sink { item in');
       writer.line('            _lock.lock()');
-      if (itemBase == 'double') {
-        writer.line('            _buf.append(Int64(bitPattern: item.bitPattern))');
-      } else if (itemBase == 'bool') {
-        writer.line('            _buf.append(item ? 1 : 0)');
-      } else if (spec.isEnumName(itemBase)) {
-        writer.line('            _buf.append(item.rawValue)');
-      } else {
-        writer.line('            _buf.append(item)');
+      switch (itemBase) {
+        case 'double':
+          writer.line('            _buf.append(Int64(bitPattern: item.bitPattern))');
+        case 'bool':
+          writer.line('            _buf.append(item ? 1 : 0)');
+        case _ when spec.isEnumName(itemBase):
+          writer.line('            _buf.append(item.rawValue)');
+        default:
+          writer.line('            _buf.append(item)');
       }
       writer.line('            let needsFlush = _buf.count >= $batchMax');
       writer.line('            _lock.unlock()');
@@ -283,94 +284,95 @@ class SwiftStreamEmitter {
   }) {
     final isNullable = stream.itemType.isNullable;
     final cancel = '${spec.dartClassName}Registry._${stream.dartName}Cancellables.removeValue(forKey: dartPort)?.cancel()';
-    if (isVariantItem) {
-      // @NitroVariant stream: serialize variant to length-prefixed bytes via toNative(),
-      // post the pointer address as Int64 (Dart frees via the module's <lib>_nitro_free export after decode).
-      writer.line('${indent}let raw = item.toNative()');
-      writer.line('${indent}if !emitCb(dartPort, raw) {');
-      writer.line('$indent    if let raw { free(UnsafeMutableRawPointer(raw)) }');
-      writer.line('$indent    $cancel');
-      writer.line('$indent}');
-    } else if (isStructItem) {
-      if (isNullable) {
-        writer.line('${indent}guard let item = item else {');
-        writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
-        writer.line('$indent    return');
+    switch (itemName) {
+      case _ when isVariantItem:
+        // @NitroVariant stream: serialize variant to length-prefixed bytes via toNative(),
+        // post the pointer address as Int64 (Dart frees via the module's <lib>_nitro_free export after decode).
+        writer.line('${indent}let raw = item.toNative()');
+        writer.line('${indent}if !emitCb(dartPort, raw) {');
+        writer.line('$indent    if let raw { free(UnsafeMutableRawPointer(raw)) }');
+        writer.line('$indent    $cancel');
         writer.line('$indent}');
-      }
-      writer.line('${indent}let ptr = UnsafeMutablePointer<_${itemName}C>.allocate(capacity: 1)');
-      writer.line('${indent}ptr.initialize(to: _${itemName}C.fromSwift(item))');
-      writer.line('${indent}if !emitCb(dartPort, UnsafeMutableRawPointer(ptr)) {');
-      writer.line('$indent    ptr.deinitialize(count: 1)');
-      writer.line('$indent    ptr.deallocate()');
-      writer.line('$indent    $cancel');
-      writer.line('$indent}');
-    } else if (isEnumItem) {
-      if (isNullable) {
+      case _ when isStructItem:
+        if (isNullable) {
+          writer.line('${indent}guard let item = item else {');
+          writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
+          writer.line('$indent    return');
+          writer.line('$indent}');
+        }
+        writer.line('${indent}let ptr = UnsafeMutablePointer<_${itemName}C>.allocate(capacity: 1)');
+        writer.line('${indent}ptr.initialize(to: _${itemName}C.fromSwift(item))');
+        writer.line('${indent}if !emitCb(dartPort, UnsafeMutableRawPointer(ptr)) {');
+        writer.line('$indent    ptr.deinitialize(count: 1)');
+        writer.line('$indent    ptr.deallocate()');
+        writer.line('$indent    $cancel');
+        writer.line('$indent}');
+      case _ when isEnumItem:
+        if (isNullable) {
+          writer.line('${indent}if let v = item {');
+          writer.line('$indent    var _rv = v.rawValue');
+          writer.line('$indent    if !emitCb(dartPort, &_rv) { $cancel }');
+          writer.line('$indent} else {');
+          writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
+          writer.line('$indent}');
+        } else {
+          writer.line('${indent}if !emitCb(dartPort, item.rawValue) { $cancel }');
+        }
+      case _ when isRecordItem:
+        writer.line('${indent}let raw = item.toNative()');
+        writer.line('${indent}if !emitCb(dartPort, raw) {');
+        writer.line('$indent    if let raw { free(UnsafeMutableRawPointer(raw)) }');
+        writer.line('$indent    $cancel');
+        writer.line('$indent}');
+      case _ when isBoolItem:
+        if (isNullable) {
+          writer.line('${indent}if let v = item {');
+          writer.line('$indent    var _bv: Int8 = v ? 1 : 0');
+          writer.line('$indent    if !emitCb(dartPort, &_bv) { $cancel }');
+          writer.line('$indent} else {');
+          writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
+          writer.line('$indent}');
+        } else {
+          writer.line('${indent}if !emitCb(dartPort, Int8(item ? 1 : 0)) { $cancel }');
+        }
+      case 'String':
+        if (isNullable) {
+          writer.line('${indent}if let s = item {');
+          writer.line('$indent    s.withCString { ptr in');
+          writer.line('$indent        if !emitCb(dartPort, UnsafeMutablePointer(mutating: ptr)) { $cancel }');
+          writer.line('$indent    }');
+          writer.line('$indent} else {');
+          writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
+          writer.line('$indent}');
+        } else {
+          writer.line('${indent}item.withCString { ptr in');
+          writer.line('$indent    if !emitCb(dartPort, UnsafeMutablePointer(mutating: ptr)) { $cancel }');
+          writer.line('$indent}');
+        }
+      case 'DateTime':
+        if (isNullable) {
+          writer.line('${indent}if let v = item {');
+          writer.line('$indent    var _ms = Int64(v.timeIntervalSince1970 * 1000)');
+          writer.line('$indent    if !emitCb(dartPort, &_ms) { $cancel }');
+          writer.line('$indent} else {');
+          writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
+          writer.line('$indent}');
+        } else {
+          writer.line('${indent}if !emitCb(dartPort, Int64(item.timeIntervalSince1970 * 1000)) { $cancel }');
+        }
+      case _ when stream.itemType.isTypedData && stream.itemType.isNullable:
+        writer.line(r'${indent}let _ptr: Int64 = item.map { d in d.withUnsafeBytes { Int64(bitPattern: UInt64(UInt(bitPattern: $0.baseAddress))) } } ?? 0');
+        writer.line('${indent}if !emitCb(dartPort, _ptr) { $cancel }');
+      case _ when isNullable:
+        // Nullable int/double: cType is UnsafePointer<Int64>?/UnsafePointer<Double>? — pass nil for null.
         writer.line('${indent}if let v = item {');
-        writer.line('$indent    var _rv = v.rawValue');
-        writer.line('$indent    if !emitCb(dartPort, &_rv) { $cancel }');
+        writer.line('$indent    var _v = v');
+        writer.line('$indent    if !emitCb(dartPort, &_v) { $cancel }');
         writer.line('$indent} else {');
         writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
         writer.line('$indent}');
-      } else {
-        writer.line('${indent}if !emitCb(dartPort, item.rawValue) { $cancel }');
-      }
-    } else if (isRecordItem) {
-      writer.line('${indent}let raw = item.toNative()');
-      writer.line('${indent}if !emitCb(dartPort, raw) {');
-      writer.line('$indent    if let raw { free(UnsafeMutableRawPointer(raw)) }');
-      writer.line('$indent    $cancel');
-      writer.line('$indent}');
-    } else if (isBoolItem) {
-      if (isNullable) {
-        writer.line('${indent}if let v = item {');
-        writer.line('$indent    var _bv: Int8 = v ? 1 : 0');
-        writer.line('$indent    if !emitCb(dartPort, &_bv) { $cancel }');
-        writer.line('$indent} else {');
-        writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
-        writer.line('$indent}');
-      } else {
-        writer.line('${indent}if !emitCb(dartPort, Int8(item ? 1 : 0)) { $cancel }');
-      }
-    } else if (itemName == 'String') {
-      if (isNullable) {
-        writer.line('${indent}if let s = item {');
-        writer.line('$indent    s.withCString { ptr in');
-        writer.line('$indent        if !emitCb(dartPort, UnsafeMutablePointer(mutating: ptr)) { $cancel }');
-        writer.line('$indent    }');
-        writer.line('$indent} else {');
-        writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
-        writer.line('$indent}');
-      } else {
-        writer.line('${indent}item.withCString { ptr in');
-        writer.line('$indent    if !emitCb(dartPort, UnsafeMutablePointer(mutating: ptr)) { $cancel }');
-        writer.line('$indent}');
-      }
-    } else if (itemName == 'DateTime') {
-      if (isNullable) {
-        writer.line('${indent}if let v = item {');
-        writer.line('$indent    var _ms = Int64(v.timeIntervalSince1970 * 1000)');
-        writer.line('$indent    if !emitCb(dartPort, &_ms) { $cancel }');
-        writer.line('$indent} else {');
-        writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
-        writer.line('$indent}');
-      } else {
-        writer.line('${indent}if !emitCb(dartPort, Int64(item.timeIntervalSince1970 * 1000)) { $cancel }');
-      }
-    } else if (stream.itemType.isTypedData && stream.itemType.isNullable) {
-      writer.line(r'${indent}let _ptr: Int64 = item.map { d in d.withUnsafeBytes { Int64(bitPattern: UInt64(UInt(bitPattern: $0.baseAddress))) } } ?? 0');
-      writer.line('${indent}if !emitCb(dartPort, _ptr) { $cancel }');
-    } else if (isNullable) {
-      // Nullable int/double: cType is UnsafePointer<Int64>?/UnsafePointer<Double>? — pass nil for null.
-      writer.line('${indent}if let v = item {');
-      writer.line('$indent    var _v = v');
-      writer.line('$indent    if !emitCb(dartPort, &_v) { $cancel }');
-      writer.line('$indent} else {');
-      writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
-      writer.line('$indent}');
-    } else {
-      writer.line('${indent}if !emitCb(dartPort, item) { $cancel }');
+      default:
+        writer.line('${indent}if !emitCb(dartPort, item) { $cancel }');
     }
   }
 }

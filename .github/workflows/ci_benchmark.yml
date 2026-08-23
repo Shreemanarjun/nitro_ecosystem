@@ -62,6 +62,15 @@ jobs:
           --mode ${{ github.event.inputs.mode || 'quick' }}
           --gate relative
 
+      - name: Assert the run produced benchmark results
+        run: |
+          f=benchmark/example/build/integration_response_data.json
+          if [ ! -f "$f" ]; then
+            echo "::error::no benchmark results at $f — the run measured nothing"
+            exit 1
+          fi
+          dart run benchmark/tool/format_report.dart "$f" --require-cases 1 > /dev/null
+
       - name: Publish analysis to job summary
         if: always()
         run: |
@@ -176,6 +185,15 @@ jobs:
           --dart-define=NITRO_BENCH_MODE=${{ github.event.inputs.mode || 'quick' }}
           --dart-define=NITRO_BENCH_GATE=relative
 
+      - name: Assert the run produced benchmark results
+        run: |
+          f=benchmark/example/build/integration_response_data.json
+          if [ ! -f "$f" ]; then
+            echo "::error::no benchmark results at $f — the run measured nothing"
+            exit 1
+          fi
+          dart run benchmark/tool/format_report.dart "$f" --require-cases 1 > /dev/null
+
       - name: Publish analysis to job summary
         if: always()
         run: |
@@ -241,6 +259,15 @@ jobs:
           ls -la "$BUNDLE" 2>/dev/null || echo "bundle lib dir missing"
           dart benchmark/tool/probe_desktop.dart "$BUNDLE" || true
 
+      - name: Assert the run produced benchmark results
+        run: |
+          f=benchmark/example/build/integration_response_data.json
+          if [ ! -f "$f" ]; then
+            echo "::error::no benchmark results at $f — the run measured nothing"
+            exit 1
+          fi
+          dart run benchmark/tool/format_report.dart "$f" --require-cases 1 > /dev/null
+
       - name: Publish analysis to job summary
         if: always()
         run: |
@@ -300,6 +327,15 @@ jobs:
           disable-animations: true
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: bash benchmark/tool/bench.sh -d emulator-5554 --debug --gate none --mode quick
+
+      - name: Assert the run produced benchmark results
+        run: |
+          f=benchmark/example/build/integration_response_data.json
+          if [ ! -f "$f" ]; then
+            echo "::error::no benchmark results at $f — the run measured nothing"
+            exit 1
+          fi
+          dart run benchmark/tool/format_report.dart "$f" --require-cases 1 > /dev/null
 
       - name: Publish analysis to job summary
         if: always()
@@ -379,6 +415,15 @@ jobs:
           bash benchmark/tool/bench.sh -d ${{ steps.sim.outputs.udid }} \
             --debug --gate none --mode quick
 
+      - name: Assert the run produced benchmark results
+        run: |
+          f=benchmark/example/build/integration_response_data.json
+          if [ ! -f "$f" ]; then
+            echo "::error::no benchmark results at $f — the run measured nothing"
+            exit 1
+          fi
+          dart run benchmark/tool/format_report.dart "$f" --require-cases 1 > /dev/null
+
       - name: Publish analysis to job summary
         if: always()
         run: |
@@ -432,6 +477,16 @@ jobs:
           BUNDLE=benchmark/example/build/windows/x64/runner/Profile
           ls -la "$BUNDLE" 2>/dev/null || echo "bundle dir missing"
           dart benchmark/tool/probe_desktop.dart "$BUNDLE" || true
+
+      - name: Assert the run produced benchmark results
+        shell: bash
+        run: |
+          f=benchmark/example/build/integration_response_data.json
+          if [ ! -f "$f" ]; then
+            echo "::error::no benchmark results at $f — the run measured nothing"
+            exit 1
+          fi
+          dart run benchmark/tool/format_report.dart "$f" --require-cases 1 > /dev/null
 
       - name: Publish analysis to job summary
         if: always()

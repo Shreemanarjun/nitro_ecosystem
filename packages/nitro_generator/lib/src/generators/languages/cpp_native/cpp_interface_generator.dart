@@ -262,7 +262,7 @@ class CppInterfaceGenerator {
         // posts the address directly and ownership transfers to Dart, exactly
         // like record returns.
         final itemCpp = _cppReturnType(stream.itemType, enumNames, structNames, recordNames);
-        final base = stream.itemType.name.replaceFirst('?', '');
+        final base = bareTypeName(stream.itemType.name);
         final isBufferItem = stream.itemType.isRecord || spec.variants.any((v) => v.name == base);
         if (isBufferItem) {
           nodes.add(
@@ -389,7 +389,7 @@ class CppInterfaceGenerator {
     if (bt.isPointer) {
       final inner = bt.pointerInnerType;
       if (inner == null) return 'void*';
-      final innerBase = inner.replaceFirst('?', '');
+      final innerBase = bareTypeName(inner);
       if (innerBase == 'void' || innerBase == 'Void') return 'void*';
       if (innerBase == 'String') return 'std::string*';
       if (enumNames.contains(innerBase)) return '$innerBase*';
@@ -399,7 +399,7 @@ class CppInterfaceGenerator {
       return prim == 'void*' ? 'void*' : '$prim*';
     }
     final isNullable = bt.isNullable || bt.name.endsWith('?');
-    final base = bt.name.replaceFirst('?', '');
+    final base = bareTypeName(bt.name);
     if (base == 'void') return 'void';
     // Nullable types → std::optional<T> (mirrors RN Nitro JSIConverter<std::optional<T>>)
     if (isNullable) {
@@ -432,7 +432,7 @@ class CppInterfaceGenerator {
     if (bt.isPointer) {
       final inner = bt.pointerInnerType;
       if (inner == null) return 'void*';
-      final innerBase = inner.replaceFirst('?', '');
+      final innerBase = bareTypeName(inner);
       if (innerBase == 'void' || innerBase == 'Void') return 'void*';
       if (innerBase == 'String') return 'std::string*';
       if (enumNames.contains(innerBase)) return '$innerBase*';
@@ -442,7 +442,7 @@ class CppInterfaceGenerator {
       return prim == 'void*' ? 'void*' : '$prim*';
     }
     final isNullable = bt.isNullable || bt.name.endsWith('?');
-    final base = bt.name.replaceFirst('?', '');
+    final base = bareTypeName(bt.name);
     // Nullable types → std::optional<T> (const ref for non-trivial types)
     if (isNullable) {
       if (base == 'String') return 'const std::optional<std::string>&';
@@ -486,26 +486,27 @@ class CppInterfaceGenerator {
         if (inner == null) {
           parts.add('void* ${p.name}');
         } else {
-          final innerBase = inner.replaceFirst('?', '');
-          if (innerBase == 'void' || innerBase == 'Void') {
-            parts.add('void* ${p.name}');
-          } else if (innerBase == 'String') {
-            parts.add('std::string* ${p.name}');
-          } else if (enumNames.contains(innerBase)) {
-            parts.add('$innerBase* ${p.name}');
-          } else if (structNames.contains(innerBase)) {
-            parts.add('$innerBase* ${p.name}');
-          } else if (recordNames.contains(innerBase)) {
-            parts.add('NitroCppBuffer* ${p.name}');
-          } else {
-            final prim = _primitiveType(innerBase);
-            parts.add('${prim == 'void*' ? 'void*' : '$prim*'} ${p.name}');
+          final innerBase = bareTypeName(inner);
+          switch (innerBase) {
+            case 'void' || 'Void':
+              parts.add('void* ${p.name}');
+            case 'String':
+              parts.add('std::string* ${p.name}');
+            case _ when enumNames.contains(innerBase):
+              parts.add('$innerBase* ${p.name}');
+            case _ when structNames.contains(innerBase):
+              parts.add('$innerBase* ${p.name}');
+            case _ when recordNames.contains(innerBase):
+              parts.add('NitroCppBuffer* ${p.name}');
+            default:
+              final prim = _primitiveType(innerBase);
+              parts.add('${prim == 'void*' ? 'void*' : '$prim*'} ${p.name}');
           }
         }
         continue;
       }
       final isNullable = p.type.isNullable || p.type.name.endsWith('?');
-      final base = p.type.name.replaceFirst('?', '');
+      final base = bareTypeName(p.type.name);
       if (_isTypedData(base)) {
         parts.add('${_typedDataPtr(base)} ${p.name}');
         parts.add('size_t ${p.name}_length');
@@ -663,7 +664,7 @@ class CppInterfaceGenerator {
 
   /// Return type of a callback as seen by the C++ impl.
   static String cppCallbackReturnType(String dartType, Set<String> enumNames) {
-    final base = dartType.replaceFirst('?', '');
+    final base = bareTypeName(dartType);
     if (base == 'void') return 'void';
     if (enumNames.contains(base)) return base;
     if (base == 'bool') return 'bool';
@@ -683,10 +684,10 @@ class CppInterfaceGenerator {
       final inner = bridgeType!.pointerInnerType;
       if (inner == null || inner == 'Void' || inner == 'void') return 'void*';
       if (inner == 'Utf8' || inner == 'Char') return 'char*';
-      final prim = _primitiveType(inner.replaceFirst('?', ''));
+      final prim = _primitiveType(bareTypeName(inner));
       return prim == 'void*' ? 'void*' : '$prim*';
     }
-    final base = dartType.replaceFirst('?', '');
+    final base = bareTypeName(dartType);
     if (base == 'void') return 'void';
     if (enumNames.contains(base)) return base;
     if (structNames.contains(base)) return 'const $base&';
@@ -720,7 +721,7 @@ class CppInterfaceGenerator {
     for (final variant in localVariants) {
       for (final c in variant.cases) {
         for (final f in c.fields) {
-          final base = f.dartType.replaceFirst('?', '');
+          final base = bareTypeName(f.dartType);
           if (enumNames.contains(base)) variantEnums.add(base);
           final item = f.itemTypeName;
           if (item != null && enumNames.contains(item)) variantEnums.add(item);
@@ -823,7 +824,7 @@ class CppInterfaceGenerator {
   }
 
   static String _variantFieldCppType(BridgeRecordField f, Set<String> enumNames) {
-    final base = f.dartType.replaceFirst('?', '');
+    final base = bareTypeName(f.dartType);
     String core;
     switch (f.kind) {
       case RecordFieldKind.primitive:
@@ -867,7 +868,7 @@ class CppInterfaceGenerator {
     Set<String> enumNames,
     String indent,
   ) {
-    final base = f.dartType.replaceFirst('?', '');
+    final base = bareTypeName(f.dartType);
     String readCore() {
       switch (f.kind) {
         case RecordFieldKind.primitive:
@@ -900,18 +901,19 @@ class CppInterfaceGenerator {
       case RecordFieldKind.listRecordObject:
         final item = f.itemTypeName ?? 'int';
         String itemRead;
-        if (f.kind == RecordFieldKind.listRecordObject) {
-          itemRead = '$item::fromReader(_r)';
-        } else if (f.kind == RecordFieldKind.listEnumValue && enumNames.contains(item)) {
-          itemRead = 'nitro_${item}_fromIndex(_r.readInt())';
-        } else if (item == 'String') {
-          itemRead = '_r.readString()';
-        } else if (item == 'double') {
-          itemRead = '_r.readDouble()';
-        } else if (item == 'bool') {
-          itemRead = '_r.readBool()';
-        } else {
-          itemRead = '_r.readInt()';
+        switch (item) {
+          case _ when f.kind == RecordFieldKind.listRecordObject:
+            itemRead = '$item::fromReader(_r)';
+          case _ when f.kind == RecordFieldKind.listEnumValue && enumNames.contains(item):
+            itemRead = 'nitro_${item}_fromIndex(_r.readInt())';
+          case 'String':
+            itemRead = '_r.readString()';
+          case 'double':
+            itemRead = '_r.readDouble()';
+          case 'bool':
+            itemRead = '_r.readBool()';
+          default:
+            itemRead = '_r.readInt()';
         }
         final body = '{ int32_t _n = _r.readInt32(); auto& _vec = ${f.isNullable ? '_c.${f.name}.emplace()' : '_c.${f.name}'}; _vec.reserve((size_t)_n); for (int32_t _i = 0; _i < _n; _i++) _vec.push_back($itemRead); }';
         if (f.isNullable) {
@@ -937,7 +939,7 @@ class CppInterfaceGenerator {
     Set<String> enumNames,
     String indent,
   ) {
-    final base = f.dartType.replaceFirst('?', '');
+    final base = bareTypeName(f.dartType);
     // For nullable fields, [v] below is the unwrapped value.
     final v = f.isNullable ? '(*$expr)' : expr;
     String writeCore() {
@@ -957,18 +959,19 @@ class CppInterfaceGenerator {
         case RecordFieldKind.listRecordObject:
           final item = f.itemTypeName ?? 'int';
           String itemWrite;
-          if (f.kind == RecordFieldKind.listRecordObject) {
-            itemWrite = '_e.encodeInto(w);';
-          } else if (f.kind == RecordFieldKind.listEnumValue && enumNames.contains(item)) {
-            itemWrite = 'w.writeInt(nitro_${item}_toIndex(_e));';
-          } else if (item == 'String') {
-            itemWrite = 'w.writeString(_e);';
-          } else if (item == 'double') {
-            itemWrite = 'w.writeDouble(_e);';
-          } else if (item == 'bool') {
-            itemWrite = 'w.writeBool(_e);';
-          } else {
-            itemWrite = 'w.writeInt(_e);';
+          switch (item) {
+            case _ when f.kind == RecordFieldKind.listRecordObject:
+              itemWrite = '_e.encodeInto(w);';
+            case _ when f.kind == RecordFieldKind.listEnumValue && enumNames.contains(item):
+              itemWrite = 'w.writeInt(nitro_${item}_toIndex(_e));';
+            case 'String':
+              itemWrite = 'w.writeString(_e);';
+            case 'double':
+              itemWrite = 'w.writeDouble(_e);';
+            case 'bool':
+              itemWrite = 'w.writeBool(_e);';
+            default:
+              itemWrite = 'w.writeInt(_e);';
           }
           return '{ w.writeInt32((int32_t)$v.size()); for (const auto& _e : $v) { $itemWrite } }';
         case RecordFieldKind.typedData:

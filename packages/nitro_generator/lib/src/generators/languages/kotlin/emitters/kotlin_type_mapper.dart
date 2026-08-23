@@ -48,7 +48,9 @@ class KotlinTypeMapper implements TypeMapper {
     // *parameter* fell through to the generic 'Any?' default (asymmetric
     // with the return type, which was already 'Map<String, Any?>').
     if (bridgeType?.isAnyMap == true) return 'Map<String, Any?>';
-    final name = t.replaceFirst('?', '');
+    // Strip only a TRAILING '?': replaceFirst would eat the inner one in
+    // 'Map<String, int?>' and silently make the value non-nullable.
+    final name = t.endsWith('?') ? t.substring(0, t.length - 1) : t;
 
     if (bridgeType != null && bridgeType.isFunction) {
       final returnType = bridgeType.functionReturnType ?? 'Unit';
@@ -122,6 +124,10 @@ class KotlinTypeMapper implements TypeMapper {
       final m = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(name);
       if (m != null) {
         final valueType = m.group(1)!.trim();
+        // type() strips nullability; a nullable VALUE must keep it (tag 0).
+        if (valueType.endsWith('?')) {
+          return 'Map<String, ${type(valueType.substring(0, valueType.length - 1))}?>';
+        }
         return 'Map<String, ${type(valueType)}>';
       }
     }
@@ -139,7 +145,7 @@ class KotlinTypeMapper implements TypeMapper {
     if (t.isAnyNativeObject) {
       return t.isNullable ? 'Long?' : 'Long';
     }
-    final bareCustom = t.name.replaceFirst('?', '');
+    final bareCustom = bareTypeName(t.name);
     if (customTypeNames.contains(bareCustom)) {
       return t.isNullable ? 'ByteArray?' : 'ByteArray';
     }
@@ -156,7 +162,7 @@ class KotlinTypeMapper implements TypeMapper {
     }
     final base = type(t.name);
     final isNullable = t.name.endsWith('?');
-    final baseName = t.name.replaceFirst('?', '');
+    final baseName = bareTypeName(t.name);
     if (isNullable && baseName == 'bool') return 'Boolean?';
     if (isNullable && baseName == 'int') return 'Long?';
     if (isNullable && baseName == 'uint64') return 'Long?';
@@ -197,24 +203,24 @@ class KotlinTypeMapper implements TypeMapper {
     if (p.type.isAnyNativeObject) {
       return p.type.isNullable ? 'Long' : 'Long';
     }
-    final bareCustom = p.type.name.replaceFirst('?', '');
+    final bareCustom = bareTypeName(p.type.name);
     if (customTypeNames.contains(bareCustom)) return 'ByteArray';
     if (p.type.isAnyMap) return 'ByteArray';
     if (p.type.isMap) return 'ByteArray';
     final isNullableRecord = p.type.isRecord && (p.type.isNullable || p.type.name.endsWith('?'));
     if (p.type.isRecord) return isNullableRecord ? 'ByteArray?' : 'ByteArray';
     // @NitroVariant params arrive as ByteArray [4B len][1B tag][fields]
-    if (variantNames.contains(p.type.name.replaceFirst('?', ''))) return 'ByteArray';
+    if (variantNames.contains(bareTypeName(p.type.name))) return 'ByteArray';
 
     final isNullable = p.type.name.endsWith('?') || p.isOptional;
     if (!isNullable) {
-      final base = p.type.name.replaceFirst('?', '');
+      final base = bareTypeName(p.type.name);
       if (enumNames.contains(base)) return 'Long';
       return paramType(p);
     }
     if (p.zeroCopy && p.type.isTypedData) return 'java.nio.ByteBuffer?';
 
-    final baseName = p.type.name.replaceFirst('?', '');
+    final baseName = bareTypeName(p.type.name);
     // Nullable primitives use NitroNullable ByteArray ([B) for JVM descriptor compatibility.
     // uint64? reuses NitroOptInt64 byte encoding (same 9-byte layout; bits preserved as Long).
     // Also covers isOptional=true params whose type name lacks '?' (same ByteArray encoding).
@@ -237,7 +243,7 @@ class KotlinTypeMapper implements TypeMapper {
   /// All numeric/bool/enum values encode as `Long` to match the synchronous
   /// NativeCallable fast-path. Records encode as `ByteArray`.
   String callbackParamJni(BridgeType t) {
-    final base = t.name.replaceFirst('?', '');
+    final base = bareTypeName(t.name);
     switch (base) {
       case 'double':
         return 'Long'; // IEEE 754 bits via doubleToRawLongBits
@@ -261,7 +267,7 @@ class KotlinTypeMapper implements TypeMapper {
 
     // For nullable int/double/bool, use nullable Kotlin types (Long?, Double?, Boolean?).
     String lambdaParamType(BridgeType cbP) {
-      final base = cbP.name.replaceFirst('?', '');
+      final base = bareTypeName(cbP.name);
       final isNullable = cbP.name.endsWith('?');
       if (isNullable && (base == 'int' || base == 'double' || base == 'bool')) {
         return '${type(base)}?';
@@ -274,47 +280,48 @@ class KotlinTypeMapper implements TypeMapper {
     final nativeArgs = <String>[p.name];
     for (var i = 0; i < cbParams.length; i++) {
       final cbP = cbParams[i];
-      final base = cbP.name.replaceFirst('?', '');
+      final base = bareTypeName(cbP.name);
       final isNullable = cbP.name.endsWith('?');
       final struct = structs.where((s) => s.name == base).firstOrNull;
-      if (struct != null && isExpandableStruct(struct)) {
-        for (final f in struct.fields) {
-          final fBase = f.type.name.replaceFirst('?', '');
-          if (fBase == 'double') {
-            nativeArgs.add('java.lang.Double.doubleToRawLongBits(p$i.${f.name})');
-          } else if (fBase == 'bool') {
-            nativeArgs.add('if (p$i.${f.name}) 1L else 0L');
-          } else {
-            nativeArgs.add('p$i.${f.name}.toLong()');
+      switch (base) {
+        case _ when struct != null && isExpandableStruct(struct):
+          for (final f in struct.fields) {
+            final fBase = bareTypeName(f.type.name);
+            if (fBase == 'double') {
+              nativeArgs.add('java.lang.Double.doubleToRawLongBits(p$i.${f.name})');
+            } else if (fBase == 'bool') {
+              nativeArgs.add('if (p$i.${f.name}) 1L else 0L');
+            } else {
+              nativeArgs.add('p$i.${f.name}.toLong()');
+            }
           }
-        }
-      } else if (isNullable && base == 'int') {
-        // Nullable int: two-arg (isNull flag, value) to avoid Int64.min sentinel corruption.
-        nativeArgs.add('if (p$i == null) 1L else 0L');
-        nativeArgs.add('p$i ?: 0L');
-      } else if (isNullable && base == 'double') {
-        nativeArgs.add('if (p$i == null) 1L else 0L');
-        nativeArgs.add('if (p$i != null) java.lang.Double.doubleToRawLongBits(p$i) else 0L');
-      } else if (isNullable && base == 'bool') {
-        nativeArgs.add('if (p$i == null) 1L else 0L');
-        nativeArgs.add('if (p$i == true) 1L else 0L');
-      } else if (base == 'bool') {
-        nativeArgs.add('if (p$i) 1L else 0L');
-      } else if (base == 'double') {
-        nativeArgs.add('java.lang.Double.doubleToRawLongBits(p$i)');
-      } else if (enumNames.contains(base)) {
-        nativeArgs.add('p$i.nativeValue');
-      } else if (recordNames.contains(base)) {
-        nativeArgs.add('p$i.encode()');
-      } else if (variantNames.contains(base)) {
-        nativeArgs.add('p$i.encode()');
-      } else {
-        nativeArgs.add('p$i');
+        case _ when isNullable && base == 'int':
+          // Nullable int: two-arg (isNull flag, value) to avoid Int64.min sentinel corruption.
+          nativeArgs.add('if (p$i == null) 1L else 0L');
+          nativeArgs.add('p$i ?: 0L');
+        case _ when isNullable && base == 'double':
+          nativeArgs.add('if (p$i == null) 1L else 0L');
+          nativeArgs.add('if (p$i != null) java.lang.Double.doubleToRawLongBits(p$i) else 0L');
+        case _ when isNullable && base == 'bool':
+          nativeArgs.add('if (p$i == null) 1L else 0L');
+          nativeArgs.add('if (p$i == true) 1L else 0L');
+        case 'bool':
+          nativeArgs.add('if (p$i) 1L else 0L');
+        case 'double':
+          nativeArgs.add('java.lang.Double.doubleToRawLongBits(p$i)');
+        case _ when enumNames.contains(base):
+          nativeArgs.add('p$i.nativeValue');
+        case _ when recordNames.contains(base):
+          nativeArgs.add('p$i.encode()');
+        case _ when variantNames.contains(base):
+          nativeArgs.add('p$i.encode()');
+        default:
+          nativeArgs.add('p$i');
       }
     }
 
     final invocation = '$nativeMethodName(${nativeArgs.join(', ')})';
-    final returnType = (p.type.functionReturnType ?? 'void').replaceFirst('?', '');
+    final returnType = bareTypeName((p.type.functionReturnType ?? 'void'));
     final body = switch (returnType) {
       'void' => invocation,
       'bool' => '$invocation != 0L',
@@ -331,7 +338,7 @@ class KotlinTypeMapper implements TypeMapper {
   }
 
   String callbackReturnJniType(String? dartType) {
-    final base = (dartType ?? 'void').replaceFirst('?', '');
+    final base = bareTypeName((dartType ?? 'void'));
     if (base == 'void') return 'Unit';
     if (base == 'String') return 'String';
     // @HybridRecord / @NitroVariant: C JNI invoker returns jbyteArray (encoded bytes).
@@ -344,7 +351,7 @@ class KotlinTypeMapper implements TypeMapper {
   /// for the synchronous NativeCallable.listener fast-path.
   bool isExpandableStruct(BridgeStruct st) {
     const numeric = {'int', 'double', 'bool'};
-    return st.fields.every((f) => numeric.contains(f.type.name.replaceFirst('?', '')) && !f.type.isTypedData);
+    return st.fields.every((f) => numeric.contains(bareTypeName(f.type.name)) && !f.type.isTypedData);
   }
 
   /// Wraps [body] in a `runBlocking { kotlinx.coroutines.withTimeout(N) { ... } }` block when

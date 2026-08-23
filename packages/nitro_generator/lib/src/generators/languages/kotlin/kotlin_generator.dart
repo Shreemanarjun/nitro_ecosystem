@@ -61,10 +61,10 @@ class KotlinGenerator {
     final hasVariants = spec.localVariants.isNotEmpty;
     final hasVariantBridge =
         spec.functions.any((f) {
-          final ret = f.returnType.name.replaceFirst('?', '');
-          return spec.isVariantName(ret) || f.params.any((p) => spec.isVariantName(p.type.name.replaceFirst('?', '')));
+          final ret = bareTypeName(f.returnType.name);
+          return spec.isVariantName(ret) || f.params.any((p) => spec.isVariantName(bareTypeName(p.type.name)));
         }) ||
-        spec.streams.any((s) => spec.isVariantName(s.itemType.name.replaceFirst('?', '')));
+        spec.streams.any((s) => spec.isVariantName(bareTypeName(s.itemType.name)));
     if (hasVariants) {
       final varWriter = CodeWriter();
       for (final variant in spec.localVariants) {
@@ -246,11 +246,7 @@ class KotlinGenerator {
       // actually used in a native-async return position (structs are plain
       // Kotlin data classes at the JNI boundary, not ByteArray-encoded, so
       // postBytesToPort doesn't apply — each needs its own typed external fun).
-      final structReturnNames = spec.functions
-          .where((f) => f.isNativeAsync)
-          .map((f) => f.returnType.name.replaceFirst('?', ''))
-          .where((n) => spec.structs.any((s) => s.name == n))
-          .toSet();
+      final structReturnNames = spec.functions.where((f) => f.isNativeAsync).map((f) => bareTypeName(f.returnType.name)).where((n) => spec.structs.any((s) => s.name == n)).toSet();
       for (final sn in structReturnNames) {
         writer.line('    // $sn NativeAsync return: malloc a native copy via pack_${sn}_from_jni, post');
         writer.line('    // address as kInt64. null posts address 0 — NOT Dart_CObject_kNull — same');

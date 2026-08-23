@@ -88,7 +88,7 @@ class StructGenerator {
       s.writeln('  /// is CoTaskMemFree on Windows and corrupts the heap on these pointers.');
       s.writeln('  void freeFields(void Function(Pointer<NativeType>) nativeFree) {');
       for (final f in st.fields) {
-        final typeName = f.type.name.replaceFirst('?', '');
+        final typeName = bareTypeName(f.type.name);
         if (f.type.name == 'String') {
           s.writeln('    if (${f.name} != nullptr) {');
           s.writeln('      nativeFree(${f.name});');
@@ -113,26 +113,27 @@ class StructGenerator {
       s.writeln('  Pointer<${st.name}Ffi> toNative(Arena arena) {');
       s.writeln('    final ptr = arena<${st.name}Ffi>();');
       for (final f in st.fields) {
-        final typeName = f.type.name.replaceFirst('?', '');
-        if (f.type.isTypedData) {
-          s.writeln('    ptr.ref.${f.name} = ${f.name}.toPointer(arena);');
-          // Populate the synthetic length field so C can round-trip the size.
-          if (_needsSyntheticLen(st, f.name)) {
-            s.writeln('    ptr.ref.${f.name}Length = ${f.name}.length;');
-          }
-        } else if (f.type.name == 'bool') {
-          s.writeln('    ptr.ref.${f.name} = ${f.name} ? 1 : 0;');
-        } else if (f.type.name == 'String') {
-          s.writeln(
-            '    ptr.ref.${f.name} = ${f.name}.toNativeUtf8(allocator: arena);',
-          );
-        } else if (enumNames.contains(typeName)) {
-          s.writeln('    ptr.ref.${f.name} = ${f.name}.nativeValue;');
-        } else if (structNames.contains(typeName)) {
-          // Nested struct: call its toNative() extension (arena-managed pointer).
-          s.writeln('    ptr.ref.${f.name} = ${f.name}.toNative(arena);');
-        } else {
-          s.writeln('    ptr.ref.${f.name} = ${f.name};');
+        final typeName = bareTypeName(f.type.name);
+        switch (f.type.name) {
+          case _ when f.type.isTypedData:
+            s.writeln('    ptr.ref.${f.name} = ${f.name}.toPointer(arena);');
+            // Populate the synthetic length field so C can round-trip the size.
+            if (_needsSyntheticLen(st, f.name)) {
+              s.writeln('    ptr.ref.${f.name}Length = ${f.name}.length;');
+            }
+          case 'bool':
+            s.writeln('    ptr.ref.${f.name} = ${f.name} ? 1 : 0;');
+          case 'String':
+            s.writeln(
+              '    ptr.ref.${f.name} = ${f.name}.toNativeUtf8(allocator: arena);',
+            );
+          case _ when enumNames.contains(typeName):
+            s.writeln('    ptr.ref.${f.name} = ${f.name}.nativeValue;');
+          case _ when structNames.contains(typeName):
+            // Nested struct: call its toNative() extension (arena-managed pointer).
+            s.writeln('    ptr.ref.${f.name} = ${f.name}.toNative(arena);');
+          default:
+            s.writeln('    ptr.ref.${f.name} = ${f.name};');
         }
       }
       s.writeln('    return ptr;');
@@ -211,29 +212,30 @@ class StructGenerator {
       s.writeln('  /// and do not free zero-copy field buffers while the proxy may be read.');
       s.writeln('  ${st.name}Proxy(this._native) : super($superArgs) {');
       s.writeln("    assert(_finalizer != null, '${st.name}Proxy._init() was not called. Ensure the Nitro impl class constructor ran before creating proxies.');");
-      s.writeln('    _finalizer!.attach(this, _native.cast(), detach: this, externalSize: 512);');
+      s.writeln('    _finalizer!.attach(this, _native.cast(), detach: this, externalSize: sizeOf<${st.name}Ffi>());');
       s.writeln('  }');
       s.writeln();
       s.writeln('  // @override lazy getters — read native memory on demand, zero allocation.');
       for (final f in st.fields) {
-        final typeName = f.type.name.replaceFirst('?', '');
+        final typeName = bareTypeName(f.type.name);
         final dartFieldType = f.type.name;
         String readExpr;
-        if (f.type.isTypedData) {
-          final companion = _zeroCopyCompanionField(st, f.name);
-          // Prefer explicit companion field; fall back to synthesized ${fieldName}Length.
-          final lenRef = '_native.ref.${companion ?? '${f.name}Length'}';
-          readExpr = '_native.ref.${f.name}.asTypedList($lenRef)';
-        } else if (f.type.name == 'bool') {
-          readExpr = '_native.ref.${f.name} != 0';
-        } else if (f.type.name == 'String') {
-          readExpr = '_native.ref.${f.name}.toDartString()';
-        } else if (enumNames.contains(typeName)) {
-          readExpr = '_native.ref.${f.name}.to$typeName()';
-        } else if (structNames.contains(typeName)) {
-          readExpr = '_native.ref.${f.name}.ref.toDart()';
-        } else {
-          readExpr = '_native.ref.${f.name}';
+        switch (f.type.name) {
+          case _ when f.type.isTypedData:
+            final companion = _zeroCopyCompanionField(st, f.name);
+            // Prefer explicit companion field; fall back to synthesized ${fieldName}Length.
+            final lenRef = '_native.ref.${companion ?? '${f.name}Length'}';
+            readExpr = '_native.ref.${f.name}.asTypedList($lenRef)';
+          case 'bool':
+            readExpr = '_native.ref.${f.name} != 0';
+          case 'String':
+            readExpr = '_native.ref.${f.name}.toDartString()';
+          case _ when enumNames.contains(typeName):
+            readExpr = '_native.ref.${f.name}.to$typeName()';
+          case _ when structNames.contains(typeName):
+            readExpr = '_native.ref.${f.name}.ref.toDart()';
+          default:
+            readExpr = '_native.ref.${f.name}';
         }
         s.writeln('  @override');
         s.writeln('  $dartFieldType get ${f.name} => $readExpr;');
@@ -270,20 +272,21 @@ class StructGenerator {
     Set<String> enumNames,
     Set<String> structNames,
   ) {
-    final typeName = f.type.name.replaceFirst('?', '');
-    if (f.type.isTypedData) {
-      final companion = _zeroCopyCompanionField(st, f.name);
-      // Prefer explicit companion field; fall back to synthesized ${fieldName}Length.
-      final lenExpr = companion ?? '${f.name}Length';
-      return '$typeName.fromList(${f.name}.asTypedList($lenExpr))';
-    } else if (f.type.name == 'bool') {
-      return '${f.name} != 0';
-    } else if (f.type.name == 'String') {
-      return '${f.name}.toDartString()';
-    } else if (enumNames.contains(typeName)) {
-      return '${f.name}.to$typeName()';
-    } else if (structNames.contains(typeName)) {
-      return '${f.name}.ref.toDart()';
+    final typeName = bareTypeName(f.type.name);
+    switch (f.type.name) {
+      case _ when f.type.isTypedData:
+        final companion = _zeroCopyCompanionField(st, f.name);
+        // Prefer explicit companion field; fall back to synthesized ${fieldName}Length.
+        final lenExpr = companion ?? '${f.name}Length';
+        return '$typeName.fromList(${f.name}.asTypedList($lenExpr))';
+      case 'bool':
+        return '${f.name} != 0';
+      case 'String':
+        return '${f.name}.toDartString()';
+      case _ when enumNames.contains(typeName):
+        return '${f.name}.to$typeName()';
+      case _ when structNames.contains(typeName):
+        return '${f.name}.ref.toDart()';
     }
     return f.name;
   }
@@ -296,7 +299,7 @@ class StructGenerator {
     Set<String> structNames = const {},
     Map<String, BridgeStruct>? structMap,
   ]) {
-    final base = type.replaceFirst('?', '');
+    final base = bareTypeName(type);
     if (enumNames.contains(base)) return '$base.values.first';
     if (structNames.contains(base) && structMap != null) {
       // Generate a zero-value constructor call for the nested struct type,
@@ -464,7 +467,7 @@ class StructGenerator {
   }
 
   static String _kotlinReadExprNoNull(BridgeField f, Set<String> enumNames, Set<String> structNames) {
-    final base = f.type.name.replaceFirst('?', '');
+    final base = bareTypeName(f.type.name);
     if (enumNames.contains(base)) return 'buf.long';
     if (structNames.contains(base)) return '$base.decodeFrom(buf)';
     if (f.type.isTypedData) {
@@ -495,7 +498,7 @@ class StructGenerator {
   /// Assumes local helper functions [writeInt], [writeDouble], etc. exist in scope.
   static String _kotlinWriteCallForStruct(BridgeField f, Set<String> enumNames, Set<String> structNames, [String? varOverride]) {
     final name = varOverride ?? f.name;
-    final base = f.type.name.replaceFirst('?', '');
+    final base = bareTypeName(f.type.name);
     if (enumNames.contains(base)) return 'writeInt($name.toLong())';
     if (structNames.contains(base)) return '$name.writeFieldsTo(out, buf)';
     if (f.type.isTypedData) {
@@ -527,21 +530,22 @@ class StructGenerator {
     var total = 0;
     for (final f in st.fields) {
       if (f.type.isNullable) total += 1;
-      final base = f.type.name.replaceFirst('?', '');
-      if (enumNames.contains(base) || base == 'int') {
-        total += 8;
-      } else if (base == 'double') {
-        total += 8;
-      } else if (base == 'bool') {
-        total += 1;
-      } else if (base == 'String') {
-        total += 36; // 4-byte len + ~32 avg content
-      } else if (structNames.contains(base)) {
-        total += 32; // rough estimate for nested struct
-      } else if (f.type.isTypedData) {
-        total += 36; // 4-byte len + ~32 byte hint
-      } else {
-        total += 8;
+      final base = bareTypeName(f.type.name);
+      switch (base) {
+        case _ when enumNames.contains(base) || base == 'int':
+          total += 8;
+        case 'double':
+          total += 8;
+        case 'bool':
+          total += 1;
+        case 'String':
+          total += 36; // 4-byte len + ~32 avg content
+        case _ when structNames.contains(base):
+          total += 32; // rough estimate for nested struct
+        case _ when f.type.isTypedData:
+          total += 36; // 4-byte len + ~32 byte hint
+        default:
+          total += 8;
       }
     }
     return total > 0 ? total : 32;
@@ -618,9 +622,7 @@ class StructGenerator {
         if (f.type.isTypedData && _needsSyntheticLen(st, f.name)) {
           // Zero-copy fields carry their synthesized length on the public
           // struct; copied fields use the temp computed above.
-          fromFields.add(f.zeroCopy
-              ? '      ${f.name}Length: s.${f.name}Length'
-              : '      ${f.name}Length: _len_${f.name}');
+          fromFields.add(f.zeroCopy ? '      ${f.name}Length: s.${f.name}Length' : '      ${f.name}Length: _len_${f.name}');
         }
       }
       s.writeln(fromFields.join(',\n'));
@@ -669,7 +671,7 @@ class StructGenerator {
 
   /// C-ABI Swift type for a shadow struct field. Must exactly match the C struct.
   static String _dartTypeToSwiftCShadow(String t, [bool isZeroCopy = false, Set<String> enumNames = const {}, Set<String> structNames = const {}]) {
-    final base = t.replaceFirst('?', '');
+    final base = bareTypeName(t);
     if (enumNames.contains(base)) return 'Int32'; // C enum is int32_t
     if (structNames.contains(base)) return 'UnsafeMutablePointer<_${base}C>?';
     switch (base) {
@@ -705,7 +707,7 @@ class StructGenerator {
 
   /// Swift element type for a TypedData field (used to allocate temp buffers).
   static String _swiftTypedDataElement(String t) {
-    switch (t.replaceFirst('?', '')) {
+    switch (bareTypeName(t)) {
       case 'Uint8List':
         return 'UInt8';
       case 'Int8List':
@@ -730,7 +732,7 @@ class StructGenerator {
 
   /// Swift expression to convert a Swift struct field value → C shadow field.
   static String _swiftFromSwiftExpr(BridgeField f, Set<String> enumNames, Set<String> structNames) {
-    final base = f.type.name.replaceFirst('?', '');
+    final base = bareTypeName(f.type.name);
     if (f.type.isTypedData && !f.zeroCopy) return '_buf_${f.name}';
     if (f.type.isTypedData && f.zeroCopy) return 's.${f.name}';
     if (enumNames.contains(base)) return 'Int32(s.${f.name}.rawValue)';
@@ -747,7 +749,7 @@ class StructGenerator {
 
   /// Swift expression to convert a C shadow field value → Swift struct field.
   static String _swiftToSwiftExpr(BridgeField f, Set<String> enumNames, Set<String> structNames) {
-    final base = f.type.name.replaceFirst('?', '');
+    final base = bareTypeName(f.type.name);
     if (enumNames.contains(base)) {
       // Force-unwrap: the C bridge always sends a valid rawValue; crashing on
       // corruption is intentional and avoids silent wrong-enum-case bugs.
@@ -779,7 +781,7 @@ class StructGenerator {
   }
 
   static String _dartTypeToCType(String t, [Set<String> enumNames = const {}, Set<String> structNames = const {}]) {
-    final base = t.replaceFirst('?', '');
+    final base = bareTypeName(t);
     if (enumNames.contains(base)) return 'int32_t';
     // Nested @HybridStruct — passed by pointer so layout matches dart:ffi.
     if (structNames.contains(base)) return '$base*';
@@ -818,7 +820,7 @@ class StructGenerator {
   }
 
   static String _dartTypeToKotlin(String t, bool isNullable, [bool isZeroCopy = false, Set<String> enumNames = const {}, Set<String> structNames = const {}]) {
-    final base = t.replaceFirst('?', '');
+    final base = bareTypeName(t);
     String kotlinType;
     // Enum fields are stored as Long in Kotlin data classes (matches JNI Long
     // bridging used for enum function params/returns).
@@ -862,7 +864,7 @@ class StructGenerator {
   }
 
   static String _dartTypeToSwift(String t, [bool isZeroCopy = false, Set<String> enumNames = const {}, Set<String> structNames = const {}]) {
-    final base = t.replaceFirst('?', '');
+    final base = bareTypeName(t);
     if (enumNames.contains(base)) return base;
     // Nested @HybridStruct — use its Swift struct by the same name.
     if (structNames.contains(base)) return base;
@@ -900,7 +902,7 @@ class StructGenerator {
   /// Nested @HybridStruct types are stored as [Pointer<NestedFfi>] since C
   /// passes them by pointer.  dart:ffi rules: int → `int`, double → `double`.
   static String _dartTypeToFfi(String t, [Set<String> enumNames = const {}, Set<String> structNames = const {}]) {
-    final base = t.replaceFirst('?', '');
+    final base = bareTypeName(t);
     if (enumNames.contains(base)) return 'int'; // stored as Int32 in C enum
     // Nested @HybridStruct — C passes a heap pointer to the nested struct.
     if (structNames.contains(base)) return 'Pointer<${base}Ffi>';
@@ -941,7 +943,7 @@ class StructGenerator {
   /// Returns the @XxxSize() annotation class name for scalar numeric fields.
   /// Pointer fields (including nested struct pointers) need no annotation.
   static String _dartTypeToFfiAnnotation(String t, [Set<String> enumNames = const {}, Set<String> structNames = const {}]) {
-    final base = t.replaceFirst('?', '');
+    final base = bareTypeName(t);
     if (enumNames.contains(base)) return 'Int32'; // C enum is int32-sized
     if (structNames.contains(base)) return ''; // Pointer<NestedFfi> — no annotation
     switch (base) {

@@ -40,10 +40,10 @@ String _generateKotlinRecords(BridgeSpec spec) {
     // --- fromJson() for Map<String, ${rt.name}> support (#2) ---
     final companionFromJsonFields = rt.fields
         .map((f) {
-          final base = f.dartType.replaceFirst('?', '');
+          final base = bareTypeName(f.dartType);
           switch (f.kind) {
             case RecordFieldKind.primitive:
-              final kBase = f.dartType.replaceFirst('?', '');
+              final kBase = bareTypeName(f.dartType);
               if (f.isNullable) {
                 if (kBase == 'int') return '${f.name} = (map["${f.name}"] as Number?)?.toLong()';
                 if (kBase == 'double') return '${f.name} = (map["${f.name}"] as Number?)?.toDouble()';
@@ -80,27 +80,29 @@ String _generateKotlinRecords(BridgeSpec spec) {
     s.writeln('        val _tlsBuf = ThreadLocal.withInitial { java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN) }');
     s.writeln('    }');
     // ── Built-in NitroNullable types: nullable getter + single-arg constructor ──
-    if (rt.name == 'NitroNullableInt') {
-      s.writeln('    constructor(v: Long?) : this(v != null, v ?: 0L)');
-      s.writeln('    val nullable: Long? get() = if (hasValue) value else null');
-    } else if (rt.name == 'NitroNullableDouble') {
-      s.writeln('    constructor(v: Double?) : this(v != null, v ?: 0.0)');
-      s.writeln('    val nullable: Double? get() = if (hasValue) value else null');
-    } else if (rt.name == 'NitroNullableBool') {
-      s.writeln('    constructor(v: Boolean?) : this(v != null, v ?: false)');
-      s.writeln('    val nullable: Boolean? get() = if (hasValue) value else null');
+    switch (rt.name) {
+      case 'NitroNullableInt':
+        s.writeln('    constructor(v: Long?) : this(v != null, v ?: 0L)');
+        s.writeln('    val nullable: Long? get() = if (hasValue) value else null');
+      case 'NitroNullableDouble':
+        s.writeln('    constructor(v: Double?) : this(v != null, v ?: 0.0)');
+        s.writeln('    val nullable: Double? get() = if (hasValue) value else null');
+      case 'NitroNullableBool':
+        s.writeln('    constructor(v: Boolean?) : this(v != null, v ?: false)');
+        s.writeln('    val nullable: Boolean? get() = if (hasValue) value else null');
     }
     // ── NitroOpt* packed types: nullable getter + single-arg constructor ──
     // These use [1B hasValue][N bytes value] with NO 4-byte length prefix.
-    if (rt.name == 'NitroOptInt64') {
-      s.writeln('    constructor(v: Long?) : this(v != null, v ?: 0L)');
-      s.writeln('    val nullable: Long? get() = if (hasValue) value else null');
-    } else if (rt.name == 'NitroOptFloat64') {
-      s.writeln('    constructor(v: Double?) : this(v != null, v ?: 0.0)');
-      s.writeln('    val nullable: Double? get() = if (hasValue) value else null');
-    } else if (rt.name == 'NitroOptBool') {
-      s.writeln('    constructor(v: Boolean?) : this(v != null, v ?: false)');
-      s.writeln('    val nullable: Boolean? get() = if (hasValue) value else null');
+    switch (rt.name) {
+      case 'NitroOptInt64':
+        s.writeln('    constructor(v: Long?) : this(v != null, v ?: 0L)');
+        s.writeln('    val nullable: Long? get() = if (hasValue) value else null');
+      case 'NitroOptFloat64':
+        s.writeln('    constructor(v: Double?) : this(v != null, v ?: 0.0)');
+        s.writeln('    val nullable: Double? get() = if (hasValue) value else null');
+      case 'NitroOptBool':
+        s.writeln('    constructor(v: Boolean?) : this(v != null, v ?: false)');
+        s.writeln('    val nullable: Boolean? get() = if (hasValue) value else null');
     }
     s.writeln();
 
@@ -180,10 +182,10 @@ String _kotlinType(BridgeRecordField f, Set<String> enumNames) {
     case RecordFieldKind.primitive:
       return _kotlinBase(f.dartType) + (f.isNullable ? '?' : '');
     case RecordFieldKind.enumValue:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       return (enumNames.contains(base) ? base : 'Long') + (f.isNullable ? '?' : '');
     case RecordFieldKind.recordObject:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       return base + (f.isNullable ? '?' : '');
     case RecordFieldKind.listPrimitive:
       return 'List<${_kotlinBase(f.itemTypeName ?? 'int')}>';
@@ -193,10 +195,10 @@ String _kotlinType(BridgeRecordField f, Set<String> enumNames) {
     case RecordFieldKind.listRecordObject:
       return 'List<${f.itemTypeName}>';
     case RecordFieldKind.typedData:
-      final kotlinType = _kotlinTypedDataType(f.dartType.replaceFirst('?', ''));
+      final kotlinType = _kotlinTypedDataType(bareTypeName(f.dartType));
       return kotlinType + (f.isNullable ? '?' : '');
     case RecordFieldKind.struct:
-      return f.dartType.replaceFirst('?', '') + (f.isNullable ? '?' : '');
+      return bareTypeName(f.dartType) + (f.isNullable ? '?' : '');
   }
 }
 
@@ -224,7 +226,7 @@ String _kotlinTypedDataType(String dartType) {
 }
 
 String _kotlinBase(String dartType) {
-  final base = dartType.replaceFirst('?', '');
+  final base = bareTypeName(dartType);
   switch (base) {
     case 'int':
       return 'Long';
@@ -242,20 +244,20 @@ String _kotlinBase(String dartType) {
 String _kotlinReadExpr(BridgeRecordField f, Set<String> enumNames) {
   switch (f.kind) {
     case RecordFieldKind.primitive:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       if (f.isNullable) {
         return '(if (buf.get().toInt() == 0) null else ${_kotlinPrimRead(base)})';
       }
       return _kotlinPrimRead(base);
     case RecordFieldKind.enumValue:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       final read = enumNames.contains(base) ? '$base.fromNative(buf.long)' : 'buf.long';
       if (f.isNullable) {
         return '(if (buf.get().toInt() == 0) null else $read)';
       }
       return read;
     case RecordFieldKind.recordObject:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       if (f.isNullable) {
         return '(if (buf.get().toInt() == 0) null else $base.decodeFrom(buf))';
       }
@@ -273,14 +275,14 @@ String _kotlinReadExpr(BridgeRecordField f, Set<String> enumNames) {
       final item = f.itemTypeName!;
       return _kotlinListRead(f, '(0 until buf.int).map { $item.decodeFrom(buf) }');
     case RecordFieldKind.typedData:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       final read = _kotlinTypedDataRead(base);
       if (f.isNullable) {
         return '(if (buf.get().toInt() == 0) null else $read)';
       }
       return read;
     case RecordFieldKind.struct:
-      final structBase = f.dartType.replaceFirst('?', '');
+      final structBase = bareTypeName(f.dartType);
       if (f.isNullable) {
         return '(if (buf.get().toInt() == 0) null else $structBase.decodeFrom(buf))';
       }
@@ -315,8 +317,7 @@ String _kotlinTypedDataRead(String dartType) {
 }
 
 /// Wraps a list field's read in the null tag when the field is nullable.
-String _kotlinListRead(BridgeRecordField f, String read) =>
-    f.isNullable ? '(if (buf.get().toInt() == 0) null else $read)' : read;
+String _kotlinListRead(BridgeRecordField f, String read) => f.isNullable ? '(if (buf.get().toInt() == 0) null else $read)' : read;
 
 /// Writer counterpart to [_kotlinListRead].
 void _kotlinWriteListField(CodeWriter s, BridgeRecordField f, void Function(String accessor) body) {
@@ -351,7 +352,7 @@ String _kotlinPrimRead(String base) {
 void _kotlinWriteStmt(CodeWriter s, BridgeRecordField f) {
   switch (f.kind) {
     case RecordFieldKind.primitive:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       if (f.isNullable) {
         s.writeln('        out.write(if (${f.name} == null) 0 else 1)');
         s.writeln('        ${f.name}?.let { ${_kotlinWriteCall(base, 'it')} }');
@@ -395,7 +396,7 @@ void _kotlinWriteStmt(CodeWriter s, BridgeRecordField f) {
       });
       break;
     case RecordFieldKind.typedData:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       if (f.isNullable) {
         s.writeln('        out.write(if (${f.name} == null) 0 else 1)');
         s.writeln('        ${f.name}?.let { ${_kotlinTypedDataWrite(base, 'it')} }');
@@ -475,7 +476,7 @@ int _recordBytesHint(BridgeRecordType rt) {
     final nullableTag = f.isNullable ? 1 : 0;
     switch (f.kind) {
       case RecordFieldKind.primitive:
-        final base = f.dartType.replaceFirst('?', '');
+        final base = bareTypeName(f.dartType);
         switch (base) {
           case 'bool':
             total += nullableTag + 1;

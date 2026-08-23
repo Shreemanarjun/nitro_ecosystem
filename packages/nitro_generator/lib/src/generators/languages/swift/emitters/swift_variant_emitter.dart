@@ -112,7 +112,7 @@ class SwiftVariantEmitter {
   // ── Type helpers ──────────────────────────────────────────────────────────────
 
   static String _fieldSwiftType(BridgeRecordField f, SwiftTypeMapper mapper) {
-    final base = f.dartType.replaceFirst('?', '');
+    final base = bareTypeName(f.dartType);
     final optional = f.isNullable ? '?' : '';
     return switch (f.kind) {
       RecordFieldKind.primitive => '${mapper.swiftType(base)}$optional',
@@ -126,7 +126,7 @@ class SwiftVariantEmitter {
   }
 
   static String _fieldReadExpr(BridgeRecordField f, SwiftTypeMapper mapper) {
-    final base = f.dartType.replaceFirst('?', '');
+    final base = bareTypeName(f.dartType);
     if (f.isNullable) {
       final nonNull = BridgeRecordField(
         name: f.name,
@@ -171,7 +171,7 @@ class SwiftVariantEmitter {
   }
 
   static String _fieldWriteExpr(BridgeRecordField f, SwiftTypeMapper mapper, String expr) {
-    final base = f.dartType.replaceFirst('?', '');
+    final base = bareTypeName(f.dartType);
     return switch (f.kind) {
       RecordFieldKind.primitive when base == 'int' => 'w.writeInt($expr)',
       RecordFieldKind.primitive when base == 'double' => 'w.writeDouble($expr)',

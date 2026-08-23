@@ -85,7 +85,7 @@ String _typeToFFI(BridgeType bt, BridgeSpec spec) {
   }
   if (bt.isNativeHandle) return 'Pointer<Void>';
   if (bt.isAnyNativeObject) return 'Int64';
-  final name = bt.name.replaceFirst('?', '');
+  final name = bareTypeName(bt.name);
   if (spec.isCustomTypeName(name)) return 'Pointer<Uint8>';
   if (spec.isVariantName(name)) return 'Pointer<Uint8>';
   // Nullable primitives: typed Pointer<NitroOptXxx> (struct layout, full value domain).
@@ -173,7 +173,7 @@ String _typeToDartFFI(BridgeType bt, BridgeSpec spec) {
   }
   if (bt.isNativeHandle) return 'Pointer<Void>';
   if (bt.isAnyNativeObject) return 'int';
-  final name = bt.name.replaceFirst('?', '');
+  final name = bareTypeName(bt.name);
   if (spec.isCustomTypeName(name)) return 'Pointer<Uint8>';
   if (spec.isVariantName(name)) return 'Pointer<Uint8>';
   // Nullable primitives: typed Pointer<NitroOptXxx> for async/param paths.

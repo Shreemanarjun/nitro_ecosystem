@@ -18,7 +18,7 @@ void _emitSwiftBridgeSection(
     writer.blankLine();
   }
   for (final func in spec.functions) {
-    final retBase = func.returnType.name.replaceFirst('?', '');
+    final retBase = bareTypeName(func.returnType.name);
     final isEnum = enumNames.contains(retBase);
     final isVariantRet = spec.isVariantName(retBase);
     // instanceId is the first param for API consistency with the JNI path; Swift ignores it.
@@ -33,7 +33,7 @@ void _emitSwiftBridgeSection(
         paramParts.add(cbType);
         externParamParts.add(cbType);
       } else {
-        final isEnumParam = enumNames.contains(p.type.name.replaceFirst('?', ''));
+        final isEnumParam = enumNames.contains(bareTypeName(p.type.name));
         // Nullable primitives: raw byte pointer (matches Swift UnsafeMutablePointer<UInt8>? @_cdecl param).
         String cType;
         if (p.type.isNullableNitroPrim) {
@@ -115,8 +115,7 @@ void _emitSwiftBridgeSection(
     writer.line('    @try {');
     // @NitroResult<String> and @NitroVariant carry a binary envelope, not a
     // NUL-terminated string — strlen would truncate it at the first zero byte.
-    if ((func.returnType.name == 'String' || func.returnType.name == 'String?') &&
-        !func.isAsync && !func.isResult && !isVariantRet) {
+    if ((func.returnType.name == 'String' || func.returnType.name == 'String?') && !func.isAsync && !func.isResult && !isVariantRet) {
       // Dart borrows sync string returns, but the Swift shim hands back memory
       // it allocated — copy into the scratch and release it here, or every call
       // leaks the string. @nitroAsync passes the owned pointer through.
@@ -147,8 +146,7 @@ void _emitSwiftBridgeSection(
     }
     writer.line('    }');
     writer.line('#else');
-    if ((func.returnType.name == 'String' || func.returnType.name == 'String?') &&
-        !func.isAsync && !func.isResult && !isVariantRet) {
+    if ((func.returnType.name == 'String' || func.returnType.name == 'String?') && !func.isAsync && !func.isResult && !isVariantRet) {
       // Same contract as the @try branch above.
       writer.line('    const char* _sw = (const char*)_${spec.namespace}_call_${func.dartName}($callParams);');
       writer.line('    if (_sw == nullptr) { return nullptr; }');
@@ -166,7 +164,7 @@ void _emitSwiftBridgeSection(
   }
 
   for (final prop in spec.properties) {
-    final propBase = prop.type.name.replaceFirst('?', '');
+    final propBase = bareTypeName(prop.type.name);
     final isEnum = enumNames.contains(propBase);
     final isVariantProp = spec.isVariantName(propBase);
     // Property getter: nullable prim/variant returns pointer; setter receives typed pointer.
@@ -232,7 +230,7 @@ void _emitSwiftBridgeSection(
 
   for (final stream in spec.streams) {
     final isNullable = stream.itemType.isNullable;
-    final itemName = stream.itemType.name.replaceFirst('?', '');
+    final itemName = bareTypeName(stream.itemType.name);
     final isStruct = structNames.contains(itemName);
     final isRecord = stream.itemType.isRecord;
     final isEnum = enumNames.contains(itemName);
@@ -308,49 +306,50 @@ void _emitSwiftBridgeSection(
 
     writer.line('bool _emit_${stream.dartName}_to_dart(int64_t dartPort, $itemCType item) {');
     writer.line('    Dart_CObject obj;');
-    if (isNullable && (itemName == 'int' || isEnum)) {
-      // Nullable int/enum: pointer to int64_t, nullptr = null.
-      writer.line('    if (item == nullptr) { obj.type = Dart_CObject_kNull; }');
-      writer.line('    else { obj.type = Dart_CObject_kInt64; obj.value.as_int64 = *item; }');
-    } else if (isNullable && itemName == 'uint64') {
-      // Nullable uint64: pointer to uint64_t, nullptr = null; post as kInt64 (same bits).
-      writer.line('    if (item == nullptr) { obj.type = Dart_CObject_kNull; }');
-      writer.line('    else { obj.type = Dart_CObject_kInt64; obj.value.as_int64 = (int64_t)*item; }');
-    } else if (isNullable && itemName == 'double') {
-      writer.line('    if (item == nullptr) { obj.type = Dart_CObject_kNull; }');
-      writer.line('    else { obj.type = Dart_CObject_kDouble; obj.value.as_double = *item; }');
-    } else if (isNullable && itemName == 'bool') {
-      writer.line('    if (item == nullptr) { obj.type = Dart_CObject_kNull; }');
-      writer.line('    else { obj.type = Dart_CObject_kInt64; obj.value.as_int64 = *item ? 1 : 0; }');
-    } else if (stream.itemType.name == 'double') {
-      writer.line('    obj.type = Dart_CObject_kDouble;');
-      writer.line('    obj.value.as_double = item;');
-    } else if (stream.itemType.name == 'int' || stream.itemType.name == 'uint64') {
-      writer.line('    obj.type = Dart_CObject_kInt64;');
-      writer.line('    obj.value.as_int64 = (int64_t)item;');
-    } else if (stream.itemType.name == 'bool') {
-      // Use kInt64 (0/1) — kBool is unreliable on some Android versions.
-      // Dart stream unpack decodes: (message as int) != 0
-      writer.line('    obj.type = Dart_CObject_kInt64;');
-      writer.line('    obj.value.as_int64 = item ? 1 : 0;');
-    } else if (isEnum) {
-      writer.line('    obj.type = Dart_CObject_kInt64;');
-      writer.line('    obj.value.as_int64 = (int64_t)item;');
-    } else if (isStruct || isRecord || isVariant) {
-      // Pointer (struct/record/variant bytes) — post address as kInt64; Dart frees after decode.
-      writer.line('    obj.type = Dart_CObject_kInt64;');
-      writer.line('    obj.value.as_int64 = (intptr_t)item;');
-    } else if (stream.itemType.name == 'String' || stream.itemType.name == 'String?') {
-      // String items: post kString when non-null, kNull for nullptr.
-      // Dart_PostCObject_DL copies the string, so item (const char*) need not outlive the call.
-      writer.line('    if (item != nullptr) {');
-      writer.line('        obj.type = Dart_CObject_kString;');
-      writer.line('        obj.value.as_string = const_cast<char*>(item);');
-      writer.line('    } else {');
-      writer.line('        obj.type = Dart_CObject_kNull;');
-      writer.line('    }');
-    } else {
-      writer.line('    obj.type = Dart_CObject_kNull;');
+    switch (stream.itemType.name) {
+      case _ when isNullable && (itemName == 'int' || isEnum):
+        // Nullable int/enum: pointer to int64_t, nullptr = null.
+        writer.line('    if (item == nullptr) { obj.type = Dart_CObject_kNull; }');
+        writer.line('    else { obj.type = Dart_CObject_kInt64; obj.value.as_int64 = *item; }');
+      case _ when isNullable && itemName == 'uint64':
+        // Nullable uint64: pointer to uint64_t, nullptr = null; post as kInt64 (same bits).
+        writer.line('    if (item == nullptr) { obj.type = Dart_CObject_kNull; }');
+        writer.line('    else { obj.type = Dart_CObject_kInt64; obj.value.as_int64 = (int64_t)*item; }');
+      case _ when isNullable && itemName == 'double':
+        writer.line('    if (item == nullptr) { obj.type = Dart_CObject_kNull; }');
+        writer.line('    else { obj.type = Dart_CObject_kDouble; obj.value.as_double = *item; }');
+      case _ when isNullable && itemName == 'bool':
+        writer.line('    if (item == nullptr) { obj.type = Dart_CObject_kNull; }');
+        writer.line('    else { obj.type = Dart_CObject_kInt64; obj.value.as_int64 = *item ? 1 : 0; }');
+      case 'double':
+        writer.line('    obj.type = Dart_CObject_kDouble;');
+        writer.line('    obj.value.as_double = item;');
+      case 'int' || 'uint64':
+        writer.line('    obj.type = Dart_CObject_kInt64;');
+        writer.line('    obj.value.as_int64 = (int64_t)item;');
+      case 'bool':
+        // Use kInt64 (0/1) — kBool is unreliable on some Android versions.
+        // Dart stream unpack decodes: (message as int) != 0
+        writer.line('    obj.type = Dart_CObject_kInt64;');
+        writer.line('    obj.value.as_int64 = item ? 1 : 0;');
+      case _ when isEnum:
+        writer.line('    obj.type = Dart_CObject_kInt64;');
+        writer.line('    obj.value.as_int64 = (int64_t)item;');
+      case _ when isStruct || isRecord || isVariant:
+        // Pointer (struct/record/variant bytes) — post address as kInt64; Dart frees after decode.
+        writer.line('    obj.type = Dart_CObject_kInt64;');
+        writer.line('    obj.value.as_int64 = (intptr_t)item;');
+      case 'String' || 'String?':
+        // String items: post kString when non-null, kNull for nullptr.
+        // Dart_PostCObject_DL copies the string, so item (const char*) need not outlive the call.
+        writer.line('    if (item != nullptr) {');
+        writer.line('        obj.type = Dart_CObject_kString;');
+        writer.line('        obj.value.as_string = const_cast<char*>(item);');
+        writer.line('    } else {');
+        writer.line('        obj.type = Dart_CObject_kNull;');
+        writer.line('    }');
+      default:
+        writer.line('    obj.type = Dart_CObject_kNull;');
     }
     writer.line('    return Dart_PostCObject_DL(dartPort, &obj);');
     writer.line('}');

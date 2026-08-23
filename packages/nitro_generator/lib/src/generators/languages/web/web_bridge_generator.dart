@@ -1,6 +1,8 @@
 import '../../../bridge_spec.dart';
 import '../../code_writer.dart';
 import '../../generator_metadata.dart';
+import '../../../map_wire.dart';
+import '../../../wire_kind.dart';
 
 /// Web bridge generator (0.7.0 pointer-ABI rewrite).
 ///
@@ -187,7 +189,6 @@ class WebBridgeGenerator {
     return t.name;
   }
 
-
   /// `NativeHandle<T>` and `Pointer<T>` name different classes per platform —
   /// dart:ffi natively, the web twins here — so `dart analyze`, which resolves
   /// the SPEC natively and this file for web, reports a false invalid_override.
@@ -212,9 +213,7 @@ class WebBridgeGenerator {
     final params = _dartParams(func.params);
     // @NitroResult widens the declared return to NitroResultValue<T>; the C
     // symbol still returns a pointer to [1B tag][framed payload].
-    final rt = func.isResult
-        ? 'NitroResultValue<${_dartTypeFor(func.returnType)}>'
-        : _dartTypeFor(func.returnType);
+    final rt = func.isResult ? 'NitroResultValue<${_dartTypeFor(func.returnType)}>' : _dartTypeFor(func.returnType);
 
     if (func.isNativeAsync) {
       _emitNativeAsyncMethod(w, spec, func, params, rt);
@@ -230,11 +229,8 @@ class WebBridgeGenerator {
       // error protocol matches the C signature (no NitroError* out-param).
       // Async returns are OWNED (malloc'd by native) — decode then free.
       _emitOverride(w, func.returnType);
-      // `async` so a synchronous throw from checkDisposed() surfaces as a
-      // REJECTED future rather than blowing up at the call site — the FFI
-      // emitter declares these `async` for the same reason. Callers write
-      // `await expectLater(api.asyncX(), throwsA(...))`, which never sees the
-      // error if the method throws before returning a Future.
+      // `async` so a checkDisposed() throw rejects the future instead of
+      // blowing up at the call site (matches the FFI emitter).
       w.line('  Future<$rt> ${func.dartName}($params) async {');
       w.line('    checkDisposed();');
       w.line('    return NitroRuntime.callAsync<$rt>(() {');
@@ -299,7 +295,7 @@ class WebBridgeGenerator {
   /// kInt64 addresses are OWNED (freed via nitro_free after decoding).
   static void _emitNativeAsyncUnpack(CodeWriter w, BridgeSpec spec, BridgeFunction func, String indent) {
     final rt = func.returnType.name;
-    final rtBase = rt.replaceFirst('?', '');
+    final rtBase = _bare(rt);
     final isNullable = rt.endsWith('?');
     final type = func.returnType;
 
@@ -448,7 +444,7 @@ class WebBridgeGenerator {
 
   static void _emitStream(CodeWriter w, BridgeSpec spec, BridgeStream stream) {
     final itemType = stream.itemType.name;
-    final baseItemType = itemType.replaceFirst('?', '');
+    final baseItemType = _bare(itemType);
     final nullable = stream.itemType.isNullable;
     final q = nullable ? '?' : '';
     final isRecord = stream.itemType.isRecord;
@@ -490,14 +486,15 @@ class WebBridgeGenerator {
     } else if (stream.isBatch) {
       // kArray of kInt64 → post tag 4 → List<int> [count, items...].
       final String itemExpr;
-      if (baseItemType == 'double') {
-        itemExpr = 'Int64List.fromList([batch[i]]).buffer.asFloat64List()[0]';
-      } else if (baseItemType == 'bool') {
-        itemExpr = 'batch[i] != 0';
-      } else if (spec.isEnumName(baseItemType)) {
-        itemExpr = 'batch[i].to$baseItemType()';
-      } else {
-        itemExpr = 'batch[i]';
+      switch (baseItemType) {
+        case 'double':
+          itemExpr = 'Int64List.fromList([batch[i]]).buffer.asFloat64List()[0]';
+        case 'bool':
+          itemExpr = 'batch[i] != 0';
+        case _ when spec.isEnumName(baseItemType):
+          itemExpr = 'batch[i].to$baseItemType()';
+        default:
+          itemExpr = 'batch[i]';
       }
       w.line('    return NitroRuntime.openStream<List<int>>(');
       w.line('      register: $register,');
@@ -512,25 +509,26 @@ class WebBridgeGenerator {
     } else {
       final String unpack;
       final nullAction = nullable ? 'return null;' : "throw StateError('Received null event on non-nullable stream ${stream.dartName}');";
-      if (isRecord || isVariant) {
-        final decode = _framedDecodeExpr(spec, BridgeType(name: baseItemType, isRecord: isRecord), '_framed');
-        unpack = '(message) { if (message == null) { $nullAction } final _ptr = (message as num).toInt(); final _framed = _m.readFramed(_ptr); _m.nitroFree(_ptr); return $decode; }';
-      } else if (isStruct) {
-        unpack = '(message) { if (message == null) { $nullAction } final _ptr = (message as num).toInt(); final _v = ${_structReadCall(spec, baseItemType, '_ptr')}; _m.nitroFree(_ptr); return _v; }';
-      } else if (stream.itemType.isAnyNativeObject) {
-        unpack = nullable ? '(message) => message == null ? null : AnyNativeObject((message as num).toInt())' : '(message) => AnyNativeObject((message as num).toInt())';
-      } else if (spec.isEnumName(baseItemType)) {
-        unpack = nullable ? '(message) => message == null ? null : ((message as num).toInt()).to$baseItemType()' : '(message) => ((message as num).toInt()).to$baseItemType()';
-      } else if (baseItemType == 'bool') {
-        unpack = nullable ? '(message) => message == null ? null : (message as num).toInt() != 0' : '(message) => (message as num).toInt() != 0';
-      } else if (baseItemType == 'DateTime') {
-        unpack = nullable ? '(message) => message == null ? null : DateTime.fromMillisecondsSinceEpoch((message as num).toInt())' : '(message) => DateTime.fromMillisecondsSinceEpoch((message as num).toInt())';
-      } else if (baseItemType == 'int' || baseItemType == 'uint64') {
-        unpack = nullable ? '(message) => message == null ? null : (message as num).toInt()' : '(message) => (message as num).toInt()';
-      } else if (baseItemType == 'double') {
-        unpack = nullable ? '(message) => message == null ? null : (message as num).toDouble()' : '(message) => (message as num).toDouble()';
-      } else {
-        unpack = '(message) => message as $baseItemType$q';
+      switch (baseItemType) {
+        case _ when isRecord || isVariant:
+          final decode = _framedDecodeExpr(spec, BridgeType(name: baseItemType, isRecord: isRecord), '_framed');
+          unpack = '(message) { if (message == null) { $nullAction } final _ptr = (message as num).toInt(); final _framed = _m.readFramed(_ptr); _m.nitroFree(_ptr); return $decode; }';
+        case _ when isStruct:
+          unpack = '(message) { if (message == null) { $nullAction } final _ptr = (message as num).toInt(); final _v = ${_structReadCall(spec, baseItemType, '_ptr')}; _m.nitroFree(_ptr); return _v; }';
+        case _ when stream.itemType.isAnyNativeObject:
+          unpack = nullable ? '(message) => message == null ? null : AnyNativeObject((message as num).toInt())' : '(message) => AnyNativeObject((message as num).toInt())';
+        case _ when spec.isEnumName(baseItemType):
+          unpack = nullable ? '(message) => message == null ? null : ((message as num).toInt()).to$baseItemType()' : '(message) => ((message as num).toInt()).to$baseItemType()';
+        case 'bool':
+          unpack = nullable ? '(message) => message == null ? null : (message as num).toInt() != 0' : '(message) => (message as num).toInt() != 0';
+        case 'DateTime':
+          unpack = nullable ? '(message) => message == null ? null : DateTime.fromMillisecondsSinceEpoch((message as num).toInt())' : '(message) => DateTime.fromMillisecondsSinceEpoch((message as num).toInt())';
+        case 'int' || 'uint64':
+          unpack = nullable ? '(message) => message == null ? null : (message as num).toInt()' : '(message) => (message as num).toInt()';
+        case 'double':
+          unpack = nullable ? '(message) => message == null ? null : (message as num).toDouble()' : '(message) => (message as num).toDouble()';
+        default:
+          unpack = '(message) => message as $baseItemType$q';
       }
       w.line('    return NitroRuntime.openStream<$streamItemType$q>(');
       w.line('      register: $register,');
@@ -559,11 +557,7 @@ class WebBridgeGenerator {
     for (final p in params) {
       args.add(_jsArgExpr(spec, p.type, p.name, ownerFn));
       if (p.type.isTypedData) {
-        // ELEMENT count, matching the FFI emitter and the C++ signature
-        // (`const int32_t* v, size_t v_length`) which multiplies by sizeof to
-        // get bytes. Passing lengthInBytes here made the native side read and
-        // return sizeof(T)x too much for every element wider than a byte —
-        // invisible for Uint8List/Int8List, corrupt for all the rest.
+        // ELEMENT count: C multiplies by sizeof(T) to get bytes.
         args.add(p.type.name.endsWith('?') ? '(${p.name}?.length ?? 0).toJS' : '${p.name}.length.toJS');
       }
     }
@@ -572,7 +566,7 @@ class WebBridgeGenerator {
   }
 
   static bool _paramNeedsArena(BridgeSpec spec, BridgeType t) {
-    final base = t.name.replaceFirst('?', '');
+    final base = _bare(t.name);
     if (base == 'int' || base == 'uint64' || base == 'double' || base == 'bool' || base == 'DateTime') {
       return t.name.endsWith('?'); // nullable prims pack a NitroOpt buffer
     }
@@ -585,7 +579,7 @@ class WebBridgeGenerator {
 
   /// The JS argument expression for one parameter, mirroring the C signature.
   static String _jsArgExpr(BridgeSpec spec, BridgeType t, String name, String ownerFn) {
-    final base = t.name.replaceFirst('?', '');
+    final base = _bare(t.name);
     final nullable = t.name.endsWith('?');
 
     if (t.isFunction) return _callbackArgExpr(spec, t, name, ownerFn);
@@ -647,11 +641,8 @@ class WebBridgeGenerator {
       return 'arena.copyIn($bytes).toJS';
     }
     if (spec.isStructName(base)) {
-      // Pack takes the arena: a TypedData field stores a pointer into module
-      // memory, so its payload must be copied in before the struct itself.
-      return nullable
-          ? '($name == null ? 0 : arena.copyIn(_nitroPackStruct$base(_m, arena, $name))).toJS'
-          : 'arena.copyIn(_nitroPackStruct$base(_m, arena, $name)).toJS';
+      // Pack takes the arena: a TypedData field stores a pointer.
+      return nullable ? '($name == null ? 0 : arena.copyIn(_nitroPackStruct$base(_m, arena, $name))).toJS' : 'arena.copyIn(_nitroPackStruct$base(_m, arena, $name)).toJS';
     }
     if (spec.isVariantName(base)) {
       final variant = spec.variantByName(base)!;
@@ -667,9 +658,7 @@ class WebBridgeGenerator {
     if (t.isTuple) {
       // A nullable tuple passes 0 for "absent" like every other framed param;
       // the encoder itself declares the non-null record type.
-      return nullable
-          ? '($name == null ? 0 : arena.copyIn(_nitroEncodeTuple_$base($name))).toJS'
-          : 'arena.copyIn(_nitroEncodeTuple_$base($name)).toJS';
+      return nullable ? '($name == null ? 0 : arena.copyIn(_nitroEncodeTuple_$base($name))).toJS' : 'arena.copyIn(_nitroEncodeTuple_$base($name)).toJS';
     }
     if (t.isMap) {
       final suffix = _mapHelperSuffix(spec, base);
@@ -703,9 +692,7 @@ class WebBridgeGenerator {
     final nullableItems = t.recordListItemIsNullable;
     if (t.isEnumList) {
       final write = 'w.writeInt(e.nativeValue)';
-      return nullableItems
-          ? 'RecordWriter.encodeNullableListBytes($name, (w, e) => $write)'
-          : 'RecordWriter.encodeListBytes($name, (w, e) => $write)';
+      return nullableItems ? 'RecordWriter.encodeNullableListBytes($name, (w, e) => $write)' : 'RecordWriter.encodeListBytes($name, (w, e) => $write)';
     }
     if (t.recordListItemIsPrimitive) {
       final writeCall = switch (item) {
@@ -725,9 +712,7 @@ class WebBridgeGenerator {
     }
     if (spec.isVariantName(item)) {
       const write = 'e.writeFields(w)';
-      return nullableItems
-          ? 'RecordWriter.encodeNullableListBytes($name, (w, e) => $write)'
-          : 'RecordWriter.encodeListBytes($name, (w, e) => $write)';
+      return nullableItems ? 'RecordWriter.encodeNullableListBytes($name, (w, e) => $write)' : 'RecordWriter.encodeListBytes($name, (w, e) => $write)';
     }
     // True @HybridRecord lists are indexed in BOTH directions —
     // [4B count][8B×n offsets][item bytes] — matching the native Dart encoder
@@ -754,17 +739,14 @@ class WebBridgeGenerator {
     String resVar,
     String indent,
   ) {
-    final base = type.name.replaceFirst('?', '');
+    final base = _bare(type.name);
     w.line('${indent}final _p = dartI64($resVar);');
     w.line('${indent}try {');
     final i2 = '$indent  ';
     w.line('${i2}final _tag = _m.readBytes(_p, 1)[0];');
     w.line('${i2}if (_tag != 0) {');
-    // Explicit type argument, not a bare `NitroErr(...)`. The enclosing method
-    // signature gives the native emitter's inference enough context, but here
-    // the value flows through an untyped closure into callSync/callAsync —
-    // Dart then infers NitroErr<Object?>, and callAsync's `as T` blew up with
-    // "NitroErr<Object?> is not a subtype of NitroResultValue<double>".
+    // Explicit type argument: through an untyped callSync/callAsync closure a
+    // bare NitroErr infers NitroErr<Object?> and fails callAsync's cast.
     w.line('$i2  return NitroErr<${type.name}>(RecordReader.fromFramedBytes(_m.readFramed(_p + 1)).readString());');
     w.line('$i2}');
     if (type.isRecord) {
@@ -777,9 +759,7 @@ class WebBridgeGenerator {
         'double' || 'float' => '_r.readDouble()',
         'bool' => '_r.readBool()',
         'String' => '_r.readString()',
-        _ => spec.isEnumName(base)
-            ? '_r.readInt().to$base()'
-            : (spec.isStructName(base) ? '${base}StructExt.fromReader(_r)' : '${base}RecordExt.fromReader(_r)'),
+        _ => spec.isEnumName(base) ? '_r.readInt().to$base()' : (spec.isStructName(base) ? '${base}StructExt.fromReader(_r)' : '${base}RecordExt.fromReader(_r)'),
       };
       w.line('${i2}return NitroOk($valueExpr);');
     }
@@ -806,7 +786,7 @@ class WebBridgeGenerator {
       return;
     }
     final rt = type.name;
-    final rtBase = rt.replaceFirst('?', '');
+    final rtBase = _bare(rt);
     final nullable = rt.endsWith('?');
 
     if (rt == 'void') {
@@ -969,7 +949,7 @@ class WebBridgeGenerator {
 
   /// Decode expression for a framed byte buffer (after the bulk copy).
   static String _framedDecodeExpr(BridgeSpec spec, BridgeType type, String framedVar) {
-    final base = type.name.replaceFirst('?', '');
+    final base = _bare(type.name);
     if (type.isAnyMap || base == 'NitroAnyMap') {
       return 'NitroAnyMap.readFrom(RecordReader.fromFramedBytes($framedVar))';
     }
@@ -987,9 +967,7 @@ class WebBridgeGenerator {
       final nullableItems = type.recordListItemIsNullable;
       if (type.isEnumList) {
         final read = 'r.readInt().to$item()';
-        return nullableItems
-            ? 'RecordReader.decodeNullableListBytes($framedVar, (r) => $read)'
-            : 'RecordReader.decodeListBytes($framedVar, (r) => $read)';
+        return nullableItems ? 'RecordReader.decodeNullableListBytes($framedVar, (r) => $read)' : 'RecordReader.decodeListBytes($framedVar, (r) => $read)';
       }
       if (type.recordListItemIsPrimitive) {
         final readCall = switch (item) {
@@ -1003,9 +981,7 @@ class WebBridgeGenerator {
       }
       if (spec.isVariantName(item)) {
         final read = '${item}VariantExt.fromReader(r)';
-        return nullableItems
-            ? 'RecordReader.decodeNullableListBytes($framedVar, (r) => $read)'
-            : 'RecordReader.decodeListBytes($framedVar, (r) => $read)';
+        return nullableItems ? 'RecordReader.decodeNullableListBytes($framedVar, (r) => $read)' : 'RecordReader.decodeListBytes($framedVar, (r) => $read)';
       }
       // Indexed record lists ([4B count][offset table][items]) are produced by
       // encodeIndexedList on native returns; web decodes them eagerly.
@@ -1051,17 +1027,34 @@ class WebBridgeGenerator {
   /// Emscripten signature letter for one callback C type (wasm32: pointers
   /// and small ints are i32 → 'i'; int64 → 'j'; double → 'd'; float → 'f').
   static String _sigLetter(BridgeSpec spec, BridgeType t) {
-    final base = t.name.replaceFirst('?', '');
-    if (t.isPointer || t.isNativeHandle || base == 'String') return 'i';
-    if (spec.isEnumName(base)) return 'j';
-    if (spec.isStructName(base) || spec.isRecordName(base) || spec.isVariantName(base) || t.isMap || t.isAnyMap) return 'i';
-    return switch (base) {
-      'int' || 'uint64' || 'DateTime' => 'j',
-      'double' => 'd',
-      'float' => 'f',
-      'bool' || 'int8' || 'int16' || 'int32' || 'uint8' || 'uint16' || 'uint32' || 'intptr' || 'size' => 'i',
-      'void' => 'v',
-      _ => 'i',
+    final base = _bare(t.name);
+    // Exhaustive over WireKind: a new wire category fails to COMPILE here
+    // rather than silently defaulting to a pointer slot and producing a
+    // callback signature the wasm table rejects at call time.
+    return switch (spec.wireKind(t)) {
+      WireKind.none => 'v',
+      WireKind.float => base == 'float' ? 'f' : 'd',
+      WireKind.enumeration => 'j',
+      // Only the genuinely 64-bit integers get 'j'; the rest are i32 slots.
+      WireKind.integer => switch (base) {
+        'int' || 'uint64' || 'DateTime' => 'j',
+        _ => 'i',
+      },
+      // Everything else is an i32 slot on wasm32: bools, and every
+      // pointer-shaped payload.
+      WireKind.bool_ ||
+      WireKind.string ||
+      WireKind.typedData ||
+      WireKind.pointer ||
+      WireKind.struct ||
+      WireKind.record ||
+      WireKind.variant ||
+      WireKind.list ||
+      WireKind.map ||
+      WireKind.anyMap ||
+      WireKind.function ||
+      WireKind.handle ||
+      WireKind.opaque => 'i',
     };
   }
 
@@ -1080,8 +1073,7 @@ class WebBridgeGenerator {
   /// parameter alone collides when two methods share a callback parameter name
   /// with different signatures — the second method then silently reuses the
   /// first one's conversion.
-  static String _callbackHelperName(String ownerFn, String paramName) =>
-      '_nitroWebCallback_${ownerFn}_$paramName';
+  static String _callbackHelperName(String ownerFn, String paramName) => '_nitroWebCallback_${ownerFn}_$paramName';
 
   // ══ Helper section (module-level, emitted once per file) ═════════════════
 
@@ -1119,15 +1111,15 @@ class WebBridgeGenerator {
   /// (size, align) of one struct field slot on wasm32. Pointers are 4/4;
   /// int64/double are 8/8; bool is 1/1. Null = not representable on web.
   static (int, int)? _fieldSlot(BridgeSpec spec, BridgeType t) {
-    final base = t.name.replaceFirst('?', '');
-    // Every pointer-shaped field is a 4-byte wasm32 slot: TypedData buffers
-    // (`uint8_t*`), strings (`const char*`) and NESTED STRUCTS, which the C
-    // typedef stores as `Nested*`, not inline.
-    if (t.isTypedData || base == 'String' || spec.isStructName(base)) return (4, 4);
-    if (spec.isEnumName(base)) return (4, 4); // C enum field is int32_t
+    final base = _bare(t.name);
     return switch (base) {
-      'int' || 'uint64' || 'DateTime' => (8, 8),
-      'double' => (8, 8),
+      // Every pointer-shaped field is a 4-byte wasm32 slot: TypedData buffers
+      // (`uint8_t*`), strings (`const char*`) and NESTED STRUCTS, which the C
+      // typedef stores as `Nested*`, not inline.
+      'String' => (4, 4),
+      _ when t.isTypedData || spec.isStructName(base) => (4, 4),
+      _ when spec.isEnumName(base) => (4, 4), // C enum field is int32_t
+      'int' || 'uint64' || 'DateTime' || 'double' => (8, 8),
       'bool' => (1, 1),
       _ => null,
     };
@@ -1186,33 +1178,30 @@ class WebBridgeGenerator {
       w.line('  final out = Uint8List(${layout.size});');
       w.line('  final bd = ByteData.sublistView(out);');
       for (final f in st.fields) {
-        final base = f.type.name.replaceFirst('?', '');
+        final base = _bare(f.type.name);
         final off = layout.at[f.name]!;
-        if (f.type.isTypedData) {
-          final bytes = base == 'Uint8List'
-              ? 'v.${f.name}'
-              : 'v.${f.name}.buffer.asUint8List(v.${f.name}.offsetInBytes, v.${f.name}.lengthInBytes)';
-          w.line('  bd.setUint32($off, arena.copyIn($bytes), Endian.little);');
-          final lenOff = layout.lenAt[f.name];
-          if (lenOff != null) w.line('  setInt64LE(bd, $lenOff, v.${f.name}.length);');
-        } else if (base == 'String') {
-          final e = f.type.name.endsWith('?') ? "v.${f.name} == null ? 0 : arena.cString(v.${f.name}!)" : 'arena.cString(v.${f.name})';
-          w.line('  bd.setUint32($off, $e, Endian.little);');
-        } else if (spec.isStructName(base)) {
-          final e = f.type.name.endsWith('?')
-              ? "v.${f.name} == null ? 0 : arena.copyIn(_nitroPackStruct$base(m, arena, v.${f.name}!))"
-              : 'arena.copyIn(_nitroPackStruct$base(m, arena, v.${f.name}))';
-          w.line('  bd.setUint32($off, $e, Endian.little);');
-        } else if (spec.isEnumName(base)) {
-          w.line('  bd.setInt32($off, v.${f.name}.nativeValue, Endian.little);');
-        } else if (base == 'int' || base == 'uint64') {
-          w.line('  setInt64LE(bd, $off, v.${f.name});');
-        } else if (base == 'DateTime') {
-          w.line('  setInt64LE(bd, $off, v.${f.name}.millisecondsSinceEpoch);');
-        } else if (base == 'double') {
-          w.line('  bd.setFloat64($off, v.${f.name}, Endian.little);');
-        } else {
-          w.line('  bd.setUint8($off, v.${f.name} ? 1 : 0);');
+        switch (base) {
+          case _ when f.type.isTypedData:
+            final bytes = base == 'Uint8List' ? 'v.${f.name}' : 'v.${f.name}.buffer.asUint8List(v.${f.name}.offsetInBytes, v.${f.name}.lengthInBytes)';
+            w.line('  bd.setUint32($off, arena.copyIn($bytes), Endian.little);');
+            final lenOff = layout.lenAt[f.name];
+            if (lenOff != null) w.line('  setInt64LE(bd, $lenOff, v.${f.name}.length);');
+          case 'String':
+            final e = f.type.name.endsWith('?') ? "v.${f.name} == null ? 0 : arena.cString(v.${f.name}!)" : 'arena.cString(v.${f.name})';
+            w.line('  bd.setUint32($off, $e, Endian.little);');
+          case _ when spec.isStructName(base):
+            final e = f.type.name.endsWith('?') ? "v.${f.name} == null ? 0 : arena.copyIn(_nitroPackStruct$base(m, arena, v.${f.name}!))" : 'arena.copyIn(_nitroPackStruct$base(m, arena, v.${f.name}))';
+            w.line('  bd.setUint32($off, $e, Endian.little);');
+          case _ when spec.isEnumName(base):
+            w.line('  bd.setInt32($off, v.${f.name}.nativeValue, Endian.little);');
+          case 'int' || 'uint64':
+            w.line('  setInt64LE(bd, $off, v.${f.name});');
+          case 'DateTime':
+            w.line('  setInt64LE(bd, $off, v.${f.name}.millisecondsSinceEpoch);');
+          case 'double':
+            w.line('  bd.setFloat64($off, v.${f.name}, Endian.little);');
+          default:
+            w.line('  bd.setUint8($off, v.${f.name} ? 1 : 0);');
         }
       }
       w.line('  return out;');
@@ -1224,42 +1213,37 @@ class WebBridgeGenerator {
       w.line('  final bd = ByteData.sublistView(m.readBytes(ptr, ${layout.size}));');
       final args = <String>[];
       for (final f in st.fields) {
-        final base = f.type.name.replaceFirst('?', '');
+        final base = _bare(f.type.name);
         final off = layout.at[f.name]!;
         String expr;
-        if (f.type.isTypedData) {
-          final elem = _typedDataElementSizeWeb(base);
-          final synthLen = layout.lenAt[f.name];
-          final lenExpr = synthLen != null
-              ? 'getInt64LE(bd, $synthLen)'
-              : 'getInt64LE(bd, ${layout.at[_structCompanionLen(st, f.name)!]!})';
-          w.line('  final _p${f.name} = bd.getUint32($off, Endian.little);');
-          w.line('  final _n${f.name} = $lenExpr;');
-          final read = 'm.readBytes(_p${f.name}, _n${f.name} * $elem)';
-          expr = base == 'Uint8List' ? '(_p${f.name} == 0 ? Uint8List(0) : $read)' : '(_p${f.name} == 0 ? $base(0) : ${_typedDataViewExpr(base, '_b${f.name}')})';
-          if (base != 'Uint8List') {
-            w.line('  final _b${f.name} = _p${f.name} == 0 ? Uint8List(0) : $read;');
-          }
-        } else if (base == 'String') {
-          final p = 'bd.getUint32($off, Endian.little)';
-          expr = f.type.name.endsWith('?')
-              ? '(() { final _p = $p; return _p == 0 ? null : m.readCString(_p); })()'
-              : "(() { final _p = $p; return _p == 0 ? '' : m.readCString(_p); })()";
-        } else if (spec.isStructName(base)) {
-          final p = 'bd.getUint32($off, Endian.little)';
-          expr = f.type.name.endsWith('?')
-              ? '(() { final _p = $p; return _p == 0 ? null : _nitroReadStruct$base(m, _p); })()'
-              : '_nitroReadStruct$base(m, $p)';
-        } else if (spec.isEnumName(base)) {
-          expr = 'bd.getInt32($off, Endian.little).to$base()';
-        } else if (base == 'int' || base == 'uint64') {
-          expr = 'getInt64LE(bd, $off)';
-        } else if (base == 'DateTime') {
-          expr = 'DateTime.fromMillisecondsSinceEpoch(getInt64LE(bd, $off))';
-        } else if (base == 'double') {
-          expr = 'bd.getFloat64($off, Endian.little)';
-        } else {
-          expr = 'bd.getUint8($off) != 0';
+        switch (base) {
+          case _ when f.type.isTypedData:
+            final elem = _typedDataElementSizeWeb(base);
+            final synthLen = layout.lenAt[f.name];
+            final lenExpr = synthLen != null ? 'getInt64LE(bd, $synthLen)' : 'getInt64LE(bd, ${layout.at[_structCompanionLen(st, f.name)!]!})';
+            w.line('  final _p${f.name} = bd.getUint32($off, Endian.little);');
+            w.line('  final _n${f.name} = $lenExpr;');
+            final read = 'm.readBytes(_p${f.name}, _n${f.name} * $elem)';
+            expr = base == 'Uint8List' ? '(_p${f.name} == 0 ? Uint8List(0) : $read)' : '(_p${f.name} == 0 ? $base(0) : ${_typedDataViewExpr(base, '_b${f.name}')})';
+            if (base != 'Uint8List') {
+              w.line('  final _b${f.name} = _p${f.name} == 0 ? Uint8List(0) : $read;');
+            }
+          case 'String':
+            final p = 'bd.getUint32($off, Endian.little)';
+            expr = f.type.name.endsWith('?') ? '(() { final _p = $p; return _p == 0 ? null : m.readCString(_p); })()' : "(() { final _p = $p; return _p == 0 ? '' : m.readCString(_p); })()";
+          case _ when spec.isStructName(base):
+            final p = 'bd.getUint32($off, Endian.little)';
+            expr = f.type.name.endsWith('?') ? '(() { final _p = $p; return _p == 0 ? null : _nitroReadStruct$base(m, _p); })()' : '_nitroReadStruct$base(m, $p)';
+          case _ when spec.isEnumName(base):
+            expr = 'bd.getInt32($off, Endian.little).to$base()';
+          case 'int' || 'uint64':
+            expr = 'getInt64LE(bd, $off)';
+          case 'DateTime':
+            expr = 'DateTime.fromMillisecondsSinceEpoch(getInt64LE(bd, $off))';
+          case 'double':
+            expr = 'bd.getFloat64($off, Endian.little)';
+          default:
+            expr = 'bd.getUint8($off) != 0';
         }
         args.add('${f.name}: $expr');
       }
@@ -1280,15 +1264,14 @@ class WebBridgeGenerator {
     return null;
   }
 
-  static String _typedDataViewExpr(String dartType, String bytesVar) =>
-      '${_typedDataViewCtor(dartType)}($bytesVar.buffer, $bytesVar.offsetInBytes, $bytesVar.lengthInBytes ~/ ${_typedDataElementSizeWeb(dartType)})';
+  static String _typedDataViewExpr(String dartType, String bytesVar) => '${_typedDataViewCtor(dartType)}($bytesVar.buffer, $bytesVar.offsetInBytes, $bytesVar.lengthInBytes ~/ ${_typedDataElementSizeWeb(dartType)})';
 
   static String _typedDataViewCtor(String dartType) => '$dartType.view';
 
   static Set<String> _usedStructs(BridgeSpec spec) {
     final used = <String>{};
     void addType(BridgeType t) {
-      final base = t.name.replaceFirst('?', '');
+      final base = _bare(t.name);
       if (spec.isStructName(base)) used.add(base);
     }
 
@@ -1311,7 +1294,7 @@ class WebBridgeGenerator {
       final next = <String>[];
       for (final name in frontier) {
         for (final f in spec.structByName(name)?.fields ?? const <BridgeField>[]) {
-          final b = f.type.name.replaceFirst('?', '');
+          final b = _bare(f.type.name);
           if (spec.isStructName(b) && used.add(b)) next.add(b);
         }
       }
@@ -1327,7 +1310,7 @@ class WebBridgeGenerator {
   static void _emitVariantNullableEncoders(CodeWriter w, BridgeSpec spec) {
     final used = <String>{};
     void addType(BridgeType t) {
-      final base = t.name.replaceFirst('?', '');
+      final base = _bare(t.name);
       if (spec.isVariantName(base) && (t.name.endsWith('?') || (spec.variantByName(base)!.cases.any((c) => c.name.toLowerCase() == 'null')))) {
         used.add(base);
       }
@@ -1396,7 +1379,7 @@ class WebBridgeGenerator {
   }
 
   static String _tupleFieldReadExpr(BridgeSpec spec, BridgeRecordField f) {
-    final base = f.dartType.replaceFirst('?', '');
+    final base = _bare(f.dartType);
     String inner;
     switch (f.kind) {
       case RecordFieldKind.primitive:
@@ -1435,7 +1418,7 @@ class WebBridgeGenerator {
 
   static void _emitTupleFieldWrite(CodeWriter w, BridgeSpec spec, BridgeRecordField f, int index) {
     final accessor = 'v.\$$index';
-    final base = f.dartType.replaceFirst('?', '');
+    final base = _bare(f.dartType);
     if (f.isNullable) {
       w.line('  w.writeNullTag($accessor == null);');
       w.line('  if ($accessor != null) {');
@@ -1486,7 +1469,7 @@ class WebBridgeGenerator {
   static void _emitMapCodecs(CodeWriter w, BridgeSpec spec) {
     final mapTypes = <String>{};
     void addType(BridgeType t) {
-      final base = t.name.replaceFirst('?', '');
+      final base = _bare(t.name);
       if (t.isMap && !t.isAnyMap) mapTypes.add(base);
     }
 
@@ -1549,8 +1532,8 @@ class WebBridgeGenerator {
 
   /// Map value wire, mirroring the native helpers exactly.
   ///
-  /// String-key maps TAG every value (1=int64, 2=f64, 3=bool, 4=string,
-  /// 5=record/variant blob); int-key maps are tag-less. Record/variant blobs
+  /// String-key maps TAG every value (0=null, 1=int64, 2=f64, 3=bool,
+  /// 4=string, 5=record/variant blob); int-key maps are tag-less. Record/variant blobs
   /// are `[4B blob_len][framed bytes]` — the framed bytes keep their own
   /// inner 4B length prefix.
   static void _emitMapValueWrite(CodeWriter w, BridgeSpec spec, String valueType, {required bool tagged}) {
@@ -1558,48 +1541,58 @@ class WebBridgeGenerator {
       if (tagged) w.line('    w.writeInt8($t);');
     }
 
-    if (valueType == 'int') {
-      tag(1);
-      w.line('    w.writeInt(e.value);');
-    } else if (valueType == 'double') {
-      tag(2);
-      w.line('    w.writeDouble(e.value);');
-    } else if (valueType == 'bool') {
-      tag(3);
-      w.line('    w.writeBool(e.value);');
-    } else if (valueType == 'String') {
-      tag(4);
-      w.line('    w.writeString(e.value);');
-    } else if (spec.isEnumName(valueType)) {
-      tag(1);
-      w.line('    w.writeInt(e.value.nativeValue);');
-    } else if (spec.isRecordName(valueType) || spec.isVariantName(valueType)) {
-      tag(5);
-      w.line('    w.writeBlob(_nitroEncodeFramed((rw) => e.value.writeFields(rw)));');
-    } else {
-      tag(4);
-      w.line('    w.writeString(jsonEncode(e.value));');
+    // Bound to a local: `e.value` is a public getter, which Dart will not
+    // promote to non-null after the guard.
+    var valueExpr = 'e.value';
+    if (valueType.endsWith('?')) {
+      w.line('    final _v = e.value;');
+      w.line('    if (_v == null) { w.writeInt8(${MapValueWire.nul.tag}); continue; }');
+      valueType = valueType.substring(0, valueType.length - 1);
+      valueExpr = '_v';
+    }
+    tag(_wireOf(spec, valueType).tag);
+    switch (valueType) {
+      case 'int':
+        w.line('    w.writeInt($valueExpr);');
+      case 'double':
+        w.line('    w.writeDouble($valueExpr);');
+      case 'bool':
+        w.line('    w.writeBool($valueExpr);');
+      case 'String':
+        w.line('    w.writeString($valueExpr);');
+      case final t when spec.isEnumName(t):
+        w.line('    w.writeInt($valueExpr.nativeValue);');
+      case final t when spec.isRecordName(t) || spec.isVariantName(t):
+        w.line('    w.writeBlob(_nitroEncodeFramed((rw) => $valueExpr.writeFields(rw)));');
+      default:
+        w.line('    w.writeString(jsonEncode($valueExpr));');
     }
   }
 
   static void _emitMapValueRead(CodeWriter w, BridgeSpec spec, String valueType, {required bool tagged}) {
-    if (tagged) w.line('    r.readInt8(); // skip the value type tag');
-    if (valueType == 'int') {
-      w.line('    final v = r.readInt();');
-    } else if (valueType == 'double') {
-      w.line('    final v = r.readDouble();');
-    } else if (valueType == 'bool') {
-      w.line('    final v = r.readBool();');
-    } else if (valueType == 'String') {
-      w.line('    final v = r.readString();');
-    } else if (spec.isEnumName(valueType)) {
-      w.line('    final v = r.readInt().to$valueType();');
-    } else if (spec.isRecordName(valueType)) {
-      w.line('    final v = ${valueType}RecordExt.fromReader(RecordReader.fromFramedBytes(r.readBlob()));');
-    } else if (spec.isVariantName(valueType)) {
-      w.line('    final v = ${valueType}VariantExt.fromReader(RecordReader.fromFramedBytes(r.readBlob()));');
-    } else {
-      w.line('    final v = jsonDecode(r.readString()) as $valueType;');
+    if (valueType.endsWith('?')) {
+      w.line('    if (r.readInt8() == ${MapValueWire.nul.tag}) { result[key] = null; continue; }');
+      valueType = valueType.substring(0, valueType.length - 1);
+    } else if (tagged) {
+      w.line('    r.readInt8(); // skip the value type tag');
+    }
+    switch (valueType) {
+      case 'int':
+        w.line('    final v = r.readInt();');
+      case 'double':
+        w.line('    final v = r.readDouble();');
+      case 'bool':
+        w.line('    final v = r.readBool();');
+      case 'String':
+        w.line('    final v = r.readString();');
+      case final t when spec.isEnumName(t):
+        w.line('    final v = r.readInt().to$t();');
+      case final t when spec.isRecordName(t):
+        w.line('    final v = ${t}RecordExt.fromReader(RecordReader.fromFramedBytes(r.readBlob()));');
+      case final t when spec.isVariantName(t):
+        w.line('    final v = ${t}VariantExt.fromReader(RecordReader.fromFramedBytes(r.readBlob()));');
+      default:
+        w.line('    final v = jsonDecode(r.readString()) as $valueType;');
     }
   }
 
@@ -1631,6 +1624,17 @@ class WebBridgeGenerator {
     };
   }
 
+  /// Strips a TRAILING '?' only. replaceFirst would eat the inner one in
+  /// `Map<String, int?>` and silently drop the value's nullability.
+  static MapValueWire _wireOf(BridgeSpec spec, String valueType) => mapValueWireOf(
+    valueType,
+    isEnum: spec.isEnumName,
+    isRecord: spec.isRecordName,
+    isVariant: spec.isVariantName,
+  );
+
+  static String _bare(String t) => t.endsWith('?') ? t.substring(0, t.length - 1) : t;
+
   static (String, String) _mapKeyValue(String mapTypeName) {
     final lt = mapTypeName.indexOf('<');
     final gt = mapTypeName.lastIndexOf('>');
@@ -1648,7 +1652,7 @@ class WebBridgeGenerator {
       return cleaned.isEmpty ? 'Dynamic' : cleaned[0].toUpperCase() + cleaned.substring(1);
     }
 
-    return '${capName(k)}${capName(v)}';
+    return '${capName(k)}${capName(v)}${v.endsWith('?') ? 'Nullable' : ''}';
   }
 
   // ── Callback helpers ──────────────────────────────────────────────────────
@@ -1682,77 +1686,79 @@ class WebBridgeGenerator {
     for (var i = 0; i < cbParams.length; i++) {
       jsParams.add('JSAny? a$i');
       final t = cbParams[i];
-      final base = t.name.replaceFirst('?', '');
+      final base = _bare(t.name);
       final nullable = t.name.endsWith('?');
       String conv;
-      if (base == 'int' || base == 'uint64') {
-        conv = 'dartI64(a$i)';
-      } else if (base == 'DateTime') {
-        conv = 'DateTime.fromMillisecondsSinceEpoch(dartI64(a$i))';
-      } else if (base == 'double' || base == 'float') {
-        conv = '(a$i! as JSNumber).toDartDouble';
-      } else if (base == 'bool') {
-        conv = '(a$i! as JSNumber).toDartInt != 0';
-      } else if (base == 'String') {
-        // char* — borrowed for the duration of the call; malloc'd by the
-        // bridge and freed by Dart on native, so mirror: read then free.
-        conv = nullable ? _freeingStringConv('a$i', nullable: true) : _freeingStringConv('a$i', nullable: false);
-      } else if (spec.isEnumName(base)) {
-        conv = 'dartI64(a$i).to$base()';
-      } else if (spec.isStructName(base)) {
-        conv = '(() { final _p = dartI64(a$i); final _v = _nitroReadStruct$base(_module, _p); _module.nitroFree(_p); return _v; })()';
-      } else if (spec.isRecordName(base) || spec.isVariantName(base) || t.isMap || t.isAnyMap) {
-        final decode = _framedDecodeExpr(spec, t, '_framed');
-        final nullPart = nullable ? 'if (_p == 0) return null; ' : '';
-        conv = '(() { final _p = dartI64(a$i); ${nullPart}final _framed = _module.readFramed(_p); _module.nitroFree(_p); return $decode; })()';
-      } else {
-        // Anything left over (List<T>, @NitroTuple, Pointer<T>, …) has no web
-        // decode. Falling through to a raw address would hand the callback a
-        // meaningless int AND leak the buffer, so fail the build the same way
-        // the native generator does rather than emit silently-wrong code.
-        throw UnsupportedError(
-          '${spec.dartClassName}: callback parameter "${p.name}" takes an '
-          'argument of type "${t.name}", which the web bridge cannot decode. '
-          'Callback arguments on web support int, uint64, double, bool, '
-          'String, DateTime, @HybridEnum, @HybridStruct, @HybridRecord, '
-          '@NitroVariant, and Map (and their nullable variants).',
-        );
+      switch (base) {
+        case 'int' || 'uint64':
+          conv = 'dartI64(a$i)';
+        case 'DateTime':
+          conv = 'DateTime.fromMillisecondsSinceEpoch(dartI64(a$i))';
+        case 'double' || 'float':
+          conv = '(a$i! as JSNumber).toDartDouble';
+        case 'bool':
+          conv = '(a$i! as JSNumber).toDartInt != 0';
+        case 'String':
+          // char* — borrowed for the duration of the call; malloc'd by the
+          // bridge and freed by Dart on native, so mirror: read then free.
+          conv = nullable ? _freeingStringConv('a$i', nullable: true) : _freeingStringConv('a$i', nullable: false);
+        case _ when spec.isEnumName(base):
+          conv = 'dartI64(a$i).to$base()';
+        case _ when spec.isStructName(base):
+          conv = '(() { final _p = dartI64(a$i); final _v = _nitroReadStruct$base(_module, _p); _module.nitroFree(_p); return _v; })()';
+        case _ when spec.isRecordName(base) || spec.isVariantName(base) || t.isMap || t.isAnyMap:
+          final decode = _framedDecodeExpr(spec, t, '_framed');
+          final nullPart = nullable ? 'if (_p == 0) return null; ' : '';
+          conv = '(() { final _p = dartI64(a$i); ${nullPart}final _framed = _module.readFramed(_p); _module.nitroFree(_p); return $decode; })()';
+        default:
+          // Anything left over (List<T>, @NitroTuple, Pointer<T>, …) has no web
+          // decode. Falling through to a raw address would hand the callback a
+          // meaningless int AND leak the buffer, so fail the build the same way
+          // the native generator does rather than emit silently-wrong code.
+          throw UnsupportedError(
+            '${spec.dartClassName}: callback parameter "${p.name}" takes an '
+            'argument of type "${t.name}", which the web bridge cannot decode. '
+            'Callback arguments on web support int, uint64, double, bool, '
+            'String, DateTime, @HybridEnum, @HybridStruct, @HybridRecord, '
+            '@NitroVariant, and Map (and their nullable variants).',
+          );
       }
       convs.add(conv);
     }
 
     final String retConv;
-    if (retName == 'void') {
-      retConv = '';
-    } else if (retName == 'int' || retName == 'uint64') {
-      retConv = 'return jsI64(_r);';
-    } else if (retName == 'double') {
-      retConv = 'return _r.toJS;';
-    } else if (retName == 'bool') {
-      retConv = 'return (_r ? 1 : 0).toJS;';
-    } else if (retName == 'String') {
-      // The bridge frees callback string returns with the module free — copy
-      // into a nitro_alloc'd buffer.
-      retConv = 'return _module.nitroAllocCString(_r).toJS;';
-    } else if (retName == 'DateTime') {
-      retConv = 'return jsI64(_r.millisecondsSinceEpoch);';
-    } else if (spec.isEnumName(retName)) {
-      retConv = 'return jsI64(_r.nativeValue);';
-    } else if (spec.isRecordName(retName) || spec.isVariantName(retName)) {
-      // Framed blob, same shape as a record return: encode into a module
-      // allocation and hand back the pointer. The bridge frees it with the
-      // module free after reading, mirroring the native contract.
-      retConv = 'return _module.nitroAllocBytes(_nitroEncodeFramed((w) => _r.writeFields(w))).toJS;';
-    } else {
-      // Anything else (AnyNativeObject, Pointer<T>, lists, tuples) has no web
-      // encoding. `return jsI64(0)` would hand native a silent zero, so fail
-      // the build rather than emit code that misbehaves only on web.
-      throw UnsupportedError(
-        '${spec.dartClassName}: callback parameter "${p.name}" returns '
-        '"$retName", which the web bridge cannot encode. Callback returns on '
-        'web support void, int, uint64, double, bool, String, DateTime, '
-        '@HybridEnum, @HybridRecord, and @NitroVariant.',
-      );
+    switch (retName) {
+      case 'void':
+        retConv = '';
+      case 'int' || 'uint64':
+        retConv = 'return jsI64(_r);';
+      case 'double':
+        retConv = 'return _r.toJS;';
+      case 'bool':
+        retConv = 'return (_r ? 1 : 0).toJS;';
+      case 'String':
+        // The bridge frees callback string returns with the module free — copy
+        // into a nitro_alloc'd buffer.
+        retConv = 'return _module.nitroAllocCString(_r).toJS;';
+      case 'DateTime':
+        retConv = 'return jsI64(_r.millisecondsSinceEpoch);';
+      case _ when spec.isEnumName(retName):
+        retConv = 'return jsI64(_r.nativeValue);';
+      case _ when spec.isRecordName(retName) || spec.isVariantName(retName):
+        // Framed blob, same shape as a record return: encode into a module
+        // allocation and hand back the pointer. The bridge frees it with the
+        // module free after reading, mirroring the native contract.
+        retConv = 'return _module.nitroAllocBytes(_nitroEncodeFramed((w) => _r.writeFields(w))).toJS;';
+      default:
+        // Anything else (AnyNativeObject, Pointer<T>, lists, tuples) has no web
+        // encoding. `return jsI64(0)` would hand native a silent zero, so fail
+        // the build rather than emit code that misbehaves only on web.
+        throw UnsupportedError(
+          '${spec.dartClassName}: callback parameter "${p.name}" returns '
+          '"$retName", which the web bridge cannot encode. Callback returns on '
+          'web support void, int, uint64, double, bool, String, DateTime, '
+          '@HybridEnum, @HybridRecord, and @NitroVariant.',
+        );
     }
 
     final hn = _callbackHelperName(ownerFn, p.name);

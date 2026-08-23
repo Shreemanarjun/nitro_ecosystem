@@ -23,7 +23,7 @@ class CppTypeMappings {
   /// Maps a Dart type name to its matching C type.
   /// Unknown / aggregate types default to `void*`.
   static String typeToC(String dartType) {
-    switch (dartType.replaceFirst('?', '')) {
+    switch (bareTypeName(dartType)) {
       case 'int':
         return 'int64_t';
       case 'double':
@@ -62,7 +62,7 @@ class CppTypeMappings {
   /// Like [typeToC] but for function parameters.
   /// Struct params are passed as `void*` by convention.
   static String paramTypeToC(String dartType, Set<String> structNames) {
-    if (structNames.contains(dartType.replaceFirst('?', ''))) {
+    if (structNames.contains(bareTypeName(dartType))) {
       return 'void*';
     }
     return typeToC(dartType);
@@ -80,7 +80,7 @@ class CppTypeMappings {
 
   /// Returns the JNI `GetXxxField` method name for a Dart type.
   static String jniGetter(String t) {
-    switch (t.replaceFirst('?', '')) {
+    switch (bareTypeName(t)) {
       case 'int':
         return 'GetLongField';
       case 'double':
@@ -112,7 +112,7 @@ class CppTypeMappings {
   /// Maps a Dart type to its JVM type signature character(s).
   /// Used inside method signatures like `(JI)V`.
   static String jniSigType(String t) {
-    switch (t.replaceFirst('?', '')) {
+    switch (bareTypeName(t)) {
       case 'int':
         return 'J';
       case 'double':
@@ -148,7 +148,7 @@ class CppTypeMappings {
 
   /// Maps a Dart type to the corresponding JNI C type (`jlong`, `jdouble`…).
   static String jniSigTypeC(String t) {
-    switch (t.replaceFirst('?', '')) {
+    switch (bareTypeName(t)) {
       case 'int':
         return 'jlong';
       case 'double':
@@ -168,7 +168,7 @@ class CppTypeMappings {
 
   /// Returns the C cast type used when storing a JNI value into a C variable.
   static String jniCast(String t) {
-    switch (t.replaceFirst('?', '')) {
+    switch (bareTypeName(t)) {
       case 'int':
         return 'jlong';
       case 'double':
@@ -184,7 +184,7 @@ class CppTypeMappings {
   /// field. `GetDirectBufferAddress` returns `void*`; this cast avoids the
   /// implicit conversion warning in C++.
   static String zeroCopyCElementCast(String dartType) {
-    switch (dartType.replaceFirst('?', '')) {
+    switch (bareTypeName(dartType)) {
       case 'Uint8List':
         return 'uint8_t*';
       case 'Int8List':
@@ -217,7 +217,7 @@ class CppTypeMappings {
   /// Returns `''` for byte-sized elements (no-op multiply) or
   /// ` * sizeof(T)` for multi-byte elements.
   static String zeroCopyElementSizeExpr(String dartType) {
-    switch (dartType.replaceFirst('?', '')) {
+    switch (bareTypeName(dartType)) {
       case 'Uint8List':
       case 'Int8List':
         return ''; // 1 byte — no multiplication needed

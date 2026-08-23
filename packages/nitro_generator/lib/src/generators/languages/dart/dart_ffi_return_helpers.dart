@@ -43,7 +43,7 @@ ReturnKind classifyReturn(BridgeType returnType, BridgeSpec spec) {
   // even when the name ends with '?'.
   final isNullable = returnType.isNullable || rt.endsWith('?');
   // baseName strips '?' whether from the field or the name suffix.
-  final base = isNullable ? rt.replaceFirst('?', '') : rt;
+  final base = isNullable ? bareTypeName(rt) : rt;
 
   if (rt == 'void') return ReturnKind.voidType;
   if (returnType.isAnyMap) return ReturnKind.record; // NitroAnyMap: same wire as @HybridRecord

@@ -32,7 +32,7 @@ void _emitJniTypeHelpers(
     );
     writer.line('    ${st.name} result;');
     for (final f in st.fields) {
-      final isEnumField = enumNames.contains(f.type.name.replaceFirst('?', ''));
+      final isEnumField = enumNames.contains(bareTypeName(f.type.name));
       final isZeroCopyField = _isZeroCopy(st, f.name);
       final getter = isEnumField ? 'GetLongField' : _jniGetter(f.type.name);
       if (isZeroCopyField) {
@@ -78,12 +78,12 @@ void _emitJniTypeHelpers(
         writer.line('        env->DeleteLocalRef(j_${f.name});');
         writer.line('    }');
       } else if (isEnumField) {
-        final enumType = f.type.name.replaceFirst('?', '');
+        final enumType = bareTypeName(f.type.name);
         writer.line(
           '    result.${f.name} = ($enumType)(int32_t)env->$getter(obj, g_fid_${st.name}_${f.name});',
         );
-      } else if (structNames.contains(f.type.name.replaceFirst('?', ''))) {
-        final nestedType = f.type.name.replaceFirst('?', '');
+      } else if (structNames.contains(bareTypeName(f.type.name))) {
+        final nestedType = bareTypeName(f.type.name);
         writer.line('    jobject j_${f.name} = env->GetObjectField(obj, g_fid_${st.name}_${f.name});');
         writer.line('    $nestedType* ${f.name}_ptr = ($nestedType*)malloc(sizeof($nestedType));');
         writer.line('    *${f.name}_ptr = pack_${nestedType}_from_jni(env, j_${f.name});');
@@ -141,8 +141,8 @@ void _emitJniTypeHelpers(
     }
     for (final f in st.fields) {
       if (_isZeroCopy(st, f.name)) continue;
-      if (!structNames.contains(f.type.name.replaceFirst('?', ''))) continue;
-      final nestedType = f.type.name.replaceFirst('?', '');
+      if (!structNames.contains(bareTypeName(f.type.name))) continue;
+      final nestedType = bareTypeName(f.type.name);
       writer.line('    jobject j_${f.name} = unpack_${nestedType}_to_jni(env, st->${f.name});');
     }
     // Pre-compute non-zero-copy typed data: create Java arrays from C buffers.
@@ -157,8 +157,8 @@ void _emitJniTypeHelpers(
     }
     final ctorArgs = st.fields
         .map((f) {
-          final isEnum = enumNames.contains(f.type.name.replaceFirst('?', ''));
-          final isNestedStruct = structNames.contains(f.type.name.replaceFirst('?', ''));
+          final isEnum = enumNames.contains(bareTypeName(f.type.name));
+          final isNestedStruct = structNames.contains(bareTypeName(f.type.name));
           if (_isZeroCopy(st, f.name)) {
             return 'dbuf_${f.name}';
           } else if (f.type.isTypedData) {
@@ -182,7 +182,7 @@ void _emitJniTypeHelpers(
         writer.line('    if (j_${f.name}) env->DeleteLocalRef(j_${f.name});');
       } else if (f.type.name == 'String') {
         writer.line('    if (j_${f.name}) env->DeleteLocalRef(j_${f.name});');
-      } else if (structNames.contains(f.type.name.replaceFirst('?', ''))) {
+      } else if (structNames.contains(bareTypeName(f.type.name))) {
         writer.line('    if (j_${f.name}) env->DeleteLocalRef(j_${f.name});');
       }
     }

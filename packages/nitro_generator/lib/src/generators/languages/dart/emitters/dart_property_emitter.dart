@@ -8,7 +8,7 @@ void _emitPropertyImpls(CodeWriter writer, BridgeSpec spec) {
     final rt = prop.type.name;
     final isRecordProp = prop.type.isRecord;
 
-    final isVariantProp = spec.isVariantName(prop.type.name.replaceFirst('?', ''));
+    final isVariantProp = spec.isVariantName(bareTypeName(prop.type.name));
 
     if (prop.hasGetter) {
       writer.line('  @override');

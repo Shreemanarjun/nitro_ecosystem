@@ -1059,4 +1059,120 @@ void main() {
       expect(SpecValidator.validate(spec).any((i) => i.code == 'W001'), isFalse);
     });
   });
+
+  group('nullable Map values ride the tagged wire as tag 0', () {
+    BridgeSpec mapSpec(String type) => BridgeSpec(
+      dartClassName: 'M',
+      lib: 'm',
+      namespace: 'm',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'm.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'echo',
+          cSymbol: 'm_echo',
+          isAsync: false,
+          // Maps are isRecord + isMap, exactly as spec_extractor builds them.
+          returnType: BridgeType(name: type, isRecord: true, isMap: true),
+          params: [BridgeParam(name: 'v', type: BridgeType(name: type, isRecord: true, isMap: true))],
+        ),
+      ],
+    );
+
+    // Tag 0 = null rides the String-key wire's existing per-value type tag,
+    // so scalars and String are supported end to end.
+    test('Map<String, int?> is accepted on both return and param', () {
+      expect(SpecValidator.validate(mapSpec('Map<String, int?>')).where((i) => i.code == 'E018'), isEmpty);
+    });
+
+    test('double?/bool?/String? values are accepted too', () {
+      for (final t in ['double', 'bool', 'String']) {
+        expect(
+          SpecValidator.validate(mapSpec('Map<String, $t?>')).where((i) => i.code == 'E018'),
+          isEmpty,
+          reason: 'Map<String, $t?>',
+        );
+      }
+    });
+
+    test('the non-nullable form is accepted', () {
+      expect(SpecValidator.validate(mapSpec('Map<String, int>')).where((i) => i.code == 'E018'), isEmpty);
+    });
+
+    // Swift decodes these through compactMapValues, which DROPS a nil entry
+    // rather than keeping the key — so the null could not survive the trip.
+    test('a nullable record value is still E018', () {
+      final issues = SpecValidator.validate(mapSpec('Map<String, TcConfig?>'));
+      final e018 = issues.where((i) => i.code == 'E018').toList();
+      expect(e018, hasLength(2), reason: 'return type + parameter');
+      expect(e018.every((i) => i.isError), isTrue);
+      expect(e018.first.message, contains('TcConfig?'));
+      expect(e018.first.hint, contains('NitroAnyMap'));
+      expect(e018.first.hint, contains('Map<..., TcConfig>'));
+    });
+
+    // An int-keyed map's values carry no type tag (they are homogeneous), so
+    // there is no byte in which to record "this one is null".
+    test('an int-keyed map with a nullable value is E018', () {
+      final issues = SpecValidator.validate(mapSpec('Map<int, int?>'));
+      final e018 = issues.where((i) => i.code == 'E018').toList();
+      expect(e018, isNotEmpty);
+      expect(e018.first.message, contains('no type tag'));
+    });
+
+    test('an int-keyed map with a non-nullable value is accepted', () {
+      expect(SpecValidator.validate(mapSpec('Map<int, int>')).where((i) => i.code == 'E018'), isEmpty);
+    });
+
+    test('an unsupported nullable map value on a PROPERTY is caught', () {
+      final spec = BridgeSpec(
+        dartClassName: 'M',
+        lib: 'm',
+        namespace: 'm',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'm.native.dart',
+        functions: const [],
+        properties: [
+          BridgeProperty(
+            dartName: 'cfg',
+            type: BridgeType(name: 'Map<int, double?>', isRecord: true, isMap: true),
+            getSymbol: 'm_get_cfg',
+            setSymbol: 'm_set_cfg',
+            hasGetter: true,
+            hasSetter: true,
+          ),
+        ],
+      );
+      expect(SpecValidator.validate(spec).any((i) => i.code == 'E018'), isTrue);
+    });
+
+    test('an unsupported nullable map value as a STREAM item is caught', () {
+      final spec = BridgeSpec(
+        dartClassName: 'M',
+        lib: 'm',
+        namespace: 'm',
+        iosImpl: NativeImpl.swift,
+        androidImpl: NativeImpl.kotlin,
+        sourceUri: 'm.native.dart',
+        functions: const [],
+        streams: [
+          BridgeStream(
+            dartName: 'updates',
+            registerSymbol: 'm_register_updates',
+            releaseSymbol: 'm_release_updates',
+            itemType: BridgeType(name: 'Map<int, bool?>', isRecord: true, isMap: true),
+            backpressure: Backpressure.dropLatest,
+          ),
+        ],
+      );
+      expect(SpecValidator.validate(spec).any((i) => i.code == 'E018'), isTrue);
+    });
+
+    test('a nested generic value type is split on the LAST comma', () {
+      // Map<String, List<int>> must not be mistaken for value type ' int>'.
+      expect(SpecValidator.validate(mapSpec('Map<String, List<int>>')).where((i) => i.code == 'E018'), isEmpty);
+    });
+  });
 }

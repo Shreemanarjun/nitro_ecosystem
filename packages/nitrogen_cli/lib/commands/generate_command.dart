@@ -841,17 +841,18 @@ class IncrementalGenerationCache {
     required List<String> Function(File spec) outputPathsForSpec,
   }) {
     final manifest = _readManifest();
+    final generator = _generatorStamp();
     final changed = <File>[];
     for (final spec in specs) {
       final rel = p.relative(spec.path, from: projectRoot);
-      final hash = contentHash(spec);
-      final entry = manifest[rel];
-      final cachedHash = entry is Map<String, dynamic> ? entry['hash'] as String? : null;
-      final outputPaths = outputPathsForSpec(spec);
-      final missingOutput = outputPaths.any((path) => !File(path).existsSync());
-      if (cachedHash != hash || missingOutput) {
-        changed.add(spec);
+      final upToDate = outputPathsForSpec(spec).every((path) => File(path).existsSync());
+      // An entry that does not destructure — absent, or written by a CLI old
+      // enough to omit 'generator' — falls through to a regenerate.
+      if (manifest[rel] case {'hash': final String cached, 'generator': final String stamp}
+          when cached == contentHash(spec) && stamp == generator && upToDate) {
+        continue;
       }
+      changed.add(spec);
     }
     return IncrementalGenerationPlan(List.unmodifiable(changed));
   }
@@ -865,6 +866,7 @@ class IncrementalGenerationCache {
       final rel = p.relative(spec.path, from: projectRoot);
       manifest[rel] = {
         'hash': contentHash(spec),
+        'generator': _generatorStamp(),
         'outputFiles': outputPathsForSpec(spec).map((path) => p.relative(path, from: projectRoot)).toList(),
       };
     }
@@ -880,6 +882,37 @@ class IncrementalGenerationCache {
       if (decoded is Map<String, dynamic>) return decoded;
     } catch (_) {}
     return const {};
+  }
+
+  /// Identifies the nitro_generator that produced the cached output. A hosted
+  /// dep is pinned by its resolved version; a path dep (local development)
+  /// reports the newest mtime under its lib/, since its version never moves.
+  String _generatorStamp() {
+    final cfg = File(p.join(projectRoot, '.dart_tool', 'package_config.json'));
+    if (!cfg.existsSync()) return 'unknown';
+    try {
+      if (jsonDecode(cfg.readAsStringSync()) case {'packages': final List<Object?> pkgs}) {
+        for (final pkg in pkgs) {
+          // rootUri is usually RELATIVE to .dart_tool, not a file: URI. A
+          // hosted dep also carries 'version'; a path dep does not.
+          if (pkg case {'name': 'nitro_generator', 'rootUri': final String rootUri}) {
+            final version = switch (pkg) {
+              {'version': final String v} => v,
+              _ => 'path',
+            };
+            final libDir = Directory(p.normalize(p.join(cfg.parent.path, Uri.decodeFull(rootUri), 'lib')));
+            if (!libDir.existsSync()) return version;
+            final newest = libDir
+                .listSync(recursive: true)
+                .whereType<File>()
+                .map((f) => f.lastModifiedSync().millisecondsSinceEpoch)
+                .fold(0, (a, b) => a > b ? a : b);
+            return '$version@$newest';
+          }
+        }
+      }
+    } catch (_) {}
+    return 'unknown';
   }
 
   static String contentHash(File file) {

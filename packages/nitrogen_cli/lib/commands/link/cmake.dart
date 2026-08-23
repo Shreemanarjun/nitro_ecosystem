@@ -67,8 +67,11 @@ void createSharedHeaders(String nitroNativePath, {String baseDir = '.'}) {
         if (!includeDir.existsSync()) continue;
         // Write nitro.h with the correct guard-protected content.
         File(p.join(includeDir.path, 'nitro.h')).writeAsStringSync(nitroHContent);
-        // Copy dart API headers from the nitro native source.
-        for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h', 'nitro_wasm_compat.h']) {
+        // Copy dart API headers from the nitro native source. NOT
+        // nitro_wasm_compat.h: SwiftPM compiles every header in include/, and
+        // that one #errors outside Emscripten. link/apple.dart deletes stale
+        // copies; copying it here re-planted it on every generate.
+        for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h']) {
           final src = File(p.join(nitroNativePath, headerName));
           if (src.existsSync()) src.copySync(p.join(includeDir.path, headerName));
         }

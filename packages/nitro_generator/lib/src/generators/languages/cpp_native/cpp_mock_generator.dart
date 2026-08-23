@@ -169,7 +169,7 @@ class CppMockGenerator {
     Set<String> structNames,
     Set<String> recordNames,
   ) {
-    final base = dartType.replaceFirst('?', '');
+    final base = bareTypeName(dartType);
     if (base == 'void') return 'void';
     if (base == 'String') return 'std::string';
     if (enumNames.contains(base)) return base;
@@ -192,7 +192,7 @@ class CppMockGenerator {
     Set<String> structNames,
     Set<String> recordNames,
   ) {
-    final base = dartType.replaceFirst('?', '');
+    final base = bareTypeName(dartType);
     if (base == 'String') return 'const std::string&';
     if (enumNames.contains(base)) return base;
     if (structNames.contains(base)) return 'const $base&';
@@ -209,7 +209,7 @@ class CppMockGenerator {
   ) {
     final parts = <String>[];
     for (final p in params) {
-      final base = p.type.name.replaceFirst('?', '');
+      final base = bareTypeName(p.type.name);
       if (_isTypedData(base)) {
         parts.add('${_typedDataPtr(base)} ${p.name}');
         parts.add('size_t ${p.name}_length');
@@ -229,7 +229,7 @@ class CppMockGenerator {
   }
 
   static String _exampleReturnValue(String dartType, String cppType) {
-    switch (dartType.replaceFirst('?', '')) {
+    switch (bareTypeName(dartType)) {
       case 'int':
         return '0';
       case 'double':
@@ -251,7 +251,7 @@ class CppMockGenerator {
     Set<String> structNames,
     Set<String> recordNames,
   ) {
-    final base = dartType.replaceFirst('?', '');
+    final base = bareTypeName(dartType);
     if (base == 'int') return '::testing::An<int64_t>()';
     if (base == 'double') return '::testing::An<double>()';
     if (base == 'bool') return '::testing::An<bool>()';
@@ -267,7 +267,7 @@ class CppMockGenerator {
   ) {
     return params
         .map((p) {
-          final base = p.type.name.replaceFirst('?', '');
+          final base = bareTypeName(p.type.name);
           if (base == 'int') return '0';
           if (base == 'double') return '0.0';
           if (base == 'bool') return 'false';

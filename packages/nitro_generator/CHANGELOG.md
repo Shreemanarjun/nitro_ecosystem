@@ -1,3 +1,47 @@
+## 0.7.1
+
+Added
+- `WireKind` — one closed classification of how a type crosses the boundary,
+  replacing the per-backend if/else ladders whose ORDER encoded the
+  precedence (a map is also a record, a tuple is also a record) and could
+  drift apart. A switch over it is exhaustive, so a new wire category fails
+  to compile in any backend that ignores it.
+- Web `@HybridStruct` fields: `String`, TypedData and nested structs (all
+  pointer slots in the wasm32 layout). E017 now only rejects record, variant
+  and map fields.
+- Nullable Map values: `Map<String, int?>`, `<double?>`, `<bool?>` and
+  `<String?>` round-trip on Dart, Kotlin, Swift, C++ and web. The String-key
+  wire already tags every value, so null is tag 0 — no layout change, and
+  non-nullable maps are byte-identical. The key stays present with a null
+  value rather than being dropped.
+- E018 — a nullable Map value that the wire cannot carry is an error: an
+  int-keyed map (its values are untagged) or an enum/record/variant value
+  (Swift's `compactMapValues` drops a nil entry instead of keeping the key).
+  Checked on returns, parameters, properties and stream items; the hint points
+  at `NitroAnyMap`, which tags every value and already carries nulls.
+
+Fixed
+- `replaceFirst('?', '')` removed the FIRST nullability marker, which in a
+  generic is the INNER type's — `Map<String, int?>` became
+  `Map<String, int>` and the value silently lost its nullability. All 384
+  uses now go through `bareTypeName()`, which strips only a trailing marker;
+  a test keeps the idiom from coming back.
+- The map wire contract lived as prose in six places that had already
+  drifted: one listed a `9=bytes` tag that exists nowhere, two omitted
+  `0=null`, and one claimed int-keyed maps "reuse the tag scheme" when they
+  write no tag at all. Tags now come from a single `MapValueWire` table that
+  every backend reads.
+- The Swift map decoder read the string wire through `default:`, so a tag it
+  did not know was silently decoded as a string. Tag 4 is now explicit.
+- Enum struct fields were packed and read as int64 while the C typedef
+  declares `int32_t`, misreading every field after the enum.
+- The web struct layout ignored C alignment; it now follows natural alignment
+  (and `packed`), so a `bool` before an `int64` no longer shifts the tail.
+- TypedData struct fields carry the pointer plus the synthesized `int64`
+  element count, or a spec-declared companion length field when present.
+- Struct proxies reported a fixed `externalSize: 512` to the GC instead of the
+  real `sizeOf<XFfi>()`.
+
 ## 0.7.0
 
 **Web support** — web specs get a `dart:js_interop` bridge over the same

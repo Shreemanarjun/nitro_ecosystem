@@ -20,7 +20,7 @@ class KotlinCallbackEmitter {
         final paramDecl = StringBuffer('callbackPtr: Long');
 
         for (var i = 0; i < cbParams.length; i++) {
-          final base = cbParams[i].name.replaceFirst('?', '');
+          final base = bareTypeName(cbParams[i].name);
           final struct = spec.structs.where((s) => s.name == base).firstOrNull;
           if (struct != null && mapper.isExpandableStruct(struct)) {
             for (final f in struct.fields) {

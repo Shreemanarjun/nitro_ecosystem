@@ -53,9 +53,9 @@ void main() {
       expect(out, contains("assert(_finalizer != null"));
     });
 
-    test('proxy constructor calls _finalizer!.attach()', () {
+    test('proxy constructor reports the REAL struct size to the GC', () {
       final out = StructGenerator.generateDartProxies(structStreamSpec());
-      expect(out, contains('_finalizer!.attach(this, _native.cast(), detach: this, externalSize: 512)'));
+      expect(out, contains('_finalizer!.attach(this, _native.cast(), detach: this, externalSize: sizeOf<CameraFrameFfi>())'));
     });
 
     test('proxy documents zero-copy ownership contract', () {

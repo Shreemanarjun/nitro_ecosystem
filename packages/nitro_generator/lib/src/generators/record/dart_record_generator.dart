@@ -25,12 +25,12 @@ String _generateDartRecordExtensions(BridgeSpec spec, DartCodecSlice slice) {
   for (final rt in localRecords) {
     for (final f in rt.fields) {
       if (f.kind == RecordFieldKind.recordObject || f.kind == RecordFieldKind.listRecordObject) {
-        final typeName = f.kind == RecordFieldKind.listRecordObject ? (f.itemTypeName ?? f.dartType.replaceFirst('?', '')) : f.dartType.replaceFirst('?', '');
+        final typeName = f.kind == RecordFieldKind.listRecordObject ? (f.itemTypeName ?? bareTypeName(f.dartType)) : bareTypeName(f.dartType);
         if (structMap.containsKey(typeName)) referencedStructs.add(typeName);
       }
       // @HybridStruct embedded in @HybridRecord — needs RecordExt (fromReader/writeFields).
       if (f.kind == RecordFieldKind.struct) {
-        final base = f.dartType.replaceFirst('?', '');
+        final base = bareTypeName(f.dartType);
         if (structMap.containsKey(base)) referencedStructs.add(base);
       }
     }
@@ -54,7 +54,7 @@ String _generateDartRecordExtensions(BridgeSpec spec, DartCodecSlice slice) {
     final st = structMap[typeName];
     if (st == null) return;
     for (final f in st.fields) {
-      final base = f.type.name.replaceFirst('?', '');
+      final base = bareTypeName(f.type.name);
       if (structMap.containsKey(base) && !referencedStructs.contains(base)) {
         referencedStructs.add(base);
         collectNestedDart(base);
@@ -227,8 +227,7 @@ String _generateDartRecordExtensions(BridgeSpec spec, DartCodecSlice slice) {
 }
 
 /// Reader counterpart to [_writeListField] — consumes the null tag first.
-String _readListField(BridgeRecordField f, String read) =>
-    f.isNullable ? 'r.readNullTag() ? null : $read' : read;
+String _readListField(BridgeRecordField f, String read) => f.isNullable ? 'r.readNullTag() ? null : $read' : read;
 
 /// Emits a list field's body, wrapped in a null tag when the field is
 /// nullable. An empty list and an absent list are distinct values, so the
@@ -301,7 +300,7 @@ void _writeTupleFieldStmt(CodeWriter s, BridgeRecordField f, int index) {
       });
       break;
     case RecordFieldKind.typedData:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       final toBytes = base == 'Uint8List' ? accessor : '$accessor.buffer.asUint8List()';
       if (f.isNullable) {
         s.writeln('  writer.writeNullTag($accessor == null);');
@@ -329,14 +328,14 @@ String _readExpr(BridgeRecordField f) {
       return _primitiveReadExpr(f.dartType);
 
     case RecordFieldKind.enumValue:
-      final baseType = f.dartType.replaceFirst('?', '');
+      final baseType = bareTypeName(f.dartType);
       if (f.isNullable) {
         return 'r.readNullTag() ? null : r.readInt().to$baseType()';
       }
       return 'r.readInt().to$baseType()';
 
     case RecordFieldKind.recordObject:
-      final baseType = f.dartType.replaceFirst('?', '');
+      final baseType = bareTypeName(f.dartType);
       // Built-in library types (NitroNullableInt etc.) define fromReader on the
       // class itself — call directly. All others use the generated RecordExt.
       final readerCall = _nitroLibraryRecordTypes.contains(baseType) ? '$baseType.fromReader(r)' : '${baseType}RecordExt.fromReader(r)';
@@ -359,7 +358,7 @@ String _readExpr(BridgeRecordField f) {
       return _readListField(f, 'List.generate(r.readInt32(), (_) => $itemReaderCall)');
 
     case RecordFieldKind.typedData:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       if (f.isNullable) {
         return 'r.readNullTag() ? null : ${_typedDataReadCall(base)}';
       }
@@ -367,7 +366,7 @@ String _readExpr(BridgeRecordField f) {
 
     case RecordFieldKind.struct:
       // @HybridStruct embedded inline — read via RecordReader using the struct's RecordExt.
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       if (f.isNullable) {
         return 'r.readNullTag() ? null : ${base}RecordExt.fromReader(r)';
       }
@@ -406,7 +405,7 @@ String _typedDataReadCall(String dartType) {
 }
 
 String _primitiveReadExpr(String dartType) {
-  final base = dartType.replaceFirst('?', '');
+  final base = bareTypeName(dartType);
   final nullable = dartType.endsWith('?');
   if (nullable) {
     return 'r.readNullTag() ? null : ${_primitiveReadCall(base)}';
@@ -488,7 +487,7 @@ void _writeFieldStmt(CodeWriter s, BridgeRecordField f) {
 
     case RecordFieldKind.typedData:
       // TypedData: convert to Uint8List bytes via .buffer.asUint8List() then writeBlob.
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       final toBytes = base == 'Uint8List' ? f.name : '${f.name}.buffer.asUint8List()';
       if (f.isNullable) {
         s.writeln('    writer.writeNullTag(${f.name} == null);');
@@ -518,7 +517,7 @@ void _writePrimitiveStmt(
   String dartType,
   String fieldName,
 ) {
-  final base = dartType.replaceFirst('?', '');
+  final base = bareTypeName(dartType);
   final nullable = dartType.endsWith('?');
   if (nullable) {
     s.writeln('    writer.writeNullTag($fieldName == null);');
@@ -551,7 +550,7 @@ String _primitiveWriteCall(String base, String expr) {
 
 /// Dart read expression for one field of a @HybridStruct embedded in a record.
 String _structFieldReadExpr(BridgeField f, Set<String> enumNames, Set<String> structNames) {
-  final base = f.type.name.replaceFirst('?', '');
+  final base = bareTypeName(f.type.name);
   if (enumNames.contains(base)) return _primitiveReadCall('int');
   if (structNames.contains(base)) return '${base}RecordExt.fromReader(r)';
   return _primitiveReadCall(base);
@@ -564,7 +563,7 @@ void _writeStructFieldStmt(
   Set<String> enumNames,
   Set<String> structNames,
 ) {
-  final base = f.type.name.replaceFirst('?', '');
+  final base = bareTypeName(f.type.name);
   if (enumNames.contains(base)) {
     s.writeln('    writer.${_primitiveWriteCall('int', '${f.name}.nativeValue')};');
   } else if (structNames.contains(base)) {

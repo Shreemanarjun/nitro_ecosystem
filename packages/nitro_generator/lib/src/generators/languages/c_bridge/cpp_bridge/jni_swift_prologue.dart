@@ -38,7 +38,7 @@ void _emitJniSwiftPrologue(
   final emittedRecordGlobals = <String>{};
   for (final stream in spec.streams) {
     if (stream.itemType.isRecord) {
-      final recName = stream.itemType.name.replaceFirst('?', '');
+      final recName = bareTypeName(stream.itemType.name);
       if (emittedRecordGlobals.add(recName)) {
         writer.line('static jclass g_cls_$recName = nullptr;');
         writer.line('static jmethodID g_mid_${recName}_encode = nullptr;');
@@ -53,7 +53,7 @@ void _emitJniSwiftPrologue(
     }
   }
   writer.blankLine();
-  final zeroCopyStreamStructs = spec.streams.where((st2) => structNames.contains(st2.itemType.name.replaceFirst('?', ''))).map((st2) => st2.itemType.name.replaceFirst('?', '')).where((name) {
+  final zeroCopyStreamStructs = spec.streams.where((st2) => structNames.contains(bareTypeName(st2.itemType.name))).map((st2) => bareTypeName(st2.itemType.name)).where((name) {
     final st = spec.structByName(name);
     return st != null && st.fields.any((f) => f.zeroCopy);
   }).toSet();

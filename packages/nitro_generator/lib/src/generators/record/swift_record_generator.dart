@@ -21,12 +21,12 @@ String _generateSwiftRecords(BridgeSpec spec, {bool emitBoilerplate = true}) {
   for (final rt in localRecords) {
     for (final f in rt.fields) {
       if (f.kind == RecordFieldKind.recordObject || f.kind == RecordFieldKind.listRecordObject) {
-        final typeName = f.kind == RecordFieldKind.listRecordObject ? (f.itemTypeName ?? f.dartType.replaceFirst('?', '')) : f.dartType.replaceFirst('?', '');
+        final typeName = f.kind == RecordFieldKind.listRecordObject ? (f.itemTypeName ?? bareTypeName(f.dartType)) : bareTypeName(f.dartType);
         if (structMap.containsKey(typeName)) referencedStructs.add(typeName);
       }
       // @HybridStruct embedded in @HybridRecord — needs RecordExt (fromReader/writeFields).
       if (f.kind == RecordFieldKind.struct) {
-        final base = f.dartType.replaceFirst('?', '');
+        final base = bareTypeName(f.dartType);
         if (structMap.containsKey(base)) referencedStructs.add(base);
       }
     }
@@ -50,7 +50,7 @@ String _generateSwiftRecords(BridgeSpec spec, {bool emitBoilerplate = true}) {
     final st = structMap[typeName];
     if (st == null) return;
     for (final f in st.fields) {
-      final base = f.type.name.replaceFirst('?', '');
+      final base = bareTypeName(f.type.name);
       if (structMap.containsKey(base) && !referencedStructs.contains(base)) {
         referencedStructs.add(base);
         collectNestedSwift(base);
@@ -139,21 +139,22 @@ String _generateSwiftRecords(BridgeSpec spec, {bool emitBoilerplate = true}) {
     s.writeln('    return writer.toNative()');
     s.writeln('  }');
     // ── Built-in NitroNullable types: add nullable computed var + fromNullable factory ──
-    if (rt.name == 'NitroNullableInt') {
-      s.writeln('  public var nullable: Int64? { hasValue ? value : nil }');
-      s.writeln('  public static func fromNullable(_ v: Int64?) -> NitroNullableInt {');
-      s.writeln('    return NitroNullableInt(hasValue: v != nil, value: v ?? 0)');
-      s.writeln('  }');
-    } else if (rt.name == 'NitroNullableDouble') {
-      s.writeln('  public var nullable: Double? { hasValue ? value : nil }');
-      s.writeln('  public static func fromNullable(_ v: Double?) -> NitroNullableDouble {');
-      s.writeln('    return NitroNullableDouble(hasValue: v != nil, value: v ?? 0.0)');
-      s.writeln('  }');
-    } else if (rt.name == 'NitroNullableBool') {
-      s.writeln('  public var nullable: Bool? { hasValue ? value : nil }');
-      s.writeln('  public static func fromNullable(_ v: Bool?) -> NitroNullableBool {');
-      s.writeln('    return NitroNullableBool(hasValue: v != nil, value: v ?? false)');
-      s.writeln('  }');
+    switch (rt.name) {
+      case 'NitroNullableInt':
+        s.writeln('  public var nullable: Int64? { hasValue ? value : nil }');
+        s.writeln('  public static func fromNullable(_ v: Int64?) -> NitroNullableInt {');
+        s.writeln('    return NitroNullableInt(hasValue: v != nil, value: v ?? 0)');
+        s.writeln('  }');
+      case 'NitroNullableDouble':
+        s.writeln('  public var nullable: Double? { hasValue ? value : nil }');
+        s.writeln('  public static func fromNullable(_ v: Double?) -> NitroNullableDouble {');
+        s.writeln('    return NitroNullableDouble(hasValue: v != nil, value: v ?? 0.0)');
+        s.writeln('  }');
+      case 'NitroNullableBool':
+        s.writeln('  public var nullable: Bool? { hasValue ? value : nil }');
+        s.writeln('  public static func fromNullable(_ v: Bool?) -> NitroNullableBool {');
+        s.writeln('    return NitroNullableBool(hasValue: v != nil, value: v ?? false)');
+        s.writeln('  }');
     }
     s.writeln('}');
     s.writeln();
@@ -170,9 +171,9 @@ String _swiftType(BridgeRecordField f) {
     case RecordFieldKind.primitive:
       return _swiftBase(f.dartType);
     case RecordFieldKind.enumValue:
-      return f.dartType.replaceFirst('?', '');
+      return bareTypeName(f.dartType);
     case RecordFieldKind.recordObject:
-      return f.dartType.replaceFirst('?', '');
+      return bareTypeName(f.dartType);
     case RecordFieldKind.listPrimitive:
       return '[${_swiftBase(f.itemTypeName ?? 'Any')}]';
     case RecordFieldKind.listEnumValue:
@@ -180,9 +181,9 @@ String _swiftType(BridgeRecordField f) {
     case RecordFieldKind.listRecordObject:
       return '[${f.itemTypeName}]';
     case RecordFieldKind.typedData:
-      return _swiftTypedDataType(f.dartType.replaceFirst('?', ''));
+      return _swiftTypedDataType(bareTypeName(f.dartType));
     case RecordFieldKind.struct:
-      return f.dartType.replaceFirst('?', '');
+      return bareTypeName(f.dartType);
   }
 }
 
@@ -210,7 +211,7 @@ String _swiftTypedDataType(String dartType) {
 }
 
 String _swiftBase(String dartType) {
-  final base = dartType.replaceFirst('?', '');
+  final base = bareTypeName(dartType);
   switch (base) {
     case 'int':
       return 'Int64';
@@ -226,8 +227,7 @@ String _swiftBase(String dartType) {
 }
 
 /// Wraps a list field's read in the null tag when the field is nullable.
-String _swiftListRead(BridgeRecordField f, String read) =>
-    f.isNullable ? 'r.readNullTag() ? nil : $read' : read;
+String _swiftListRead(BridgeRecordField f, String read) => f.isNullable ? 'r.readNullTag() ? nil : $read' : read;
 
 /// Writer counterpart to [_swiftListRead].
 void _swiftWriteListField(CodeWriter s, BridgeRecordField f, void Function(String accessor) body) {
@@ -261,16 +261,16 @@ String _swiftReadCall(String base) {
 String _swiftRead(BridgeRecordField f) {
   switch (f.kind) {
     case RecordFieldKind.primitive:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       if (f.isNullable) return 'r.readNullTag() ? nil : ${_swiftReadCall(base)}';
       return _swiftReadCall(base);
     case RecordFieldKind.enumValue:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       final read = '$base(rawValue: r.readInt())!';
       if (f.isNullable) return 'r.readNullTag() ? nil : $read';
       return read;
     case RecordFieldKind.recordObject:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       if (f.isNullable) return 'r.readNullTag() ? nil : $base.fromReader(r)';
       return '$base.fromReader(r)';
     // Nullable list fields carry a null tag like every other nullable field —
@@ -285,12 +285,12 @@ String _swiftRead(BridgeRecordField f) {
       final item = f.itemTypeName!;
       return _swiftListRead(f, '(0..<Int(r.readInt32())).map { _ in $item.fromReader(r) }');
     case RecordFieldKind.typedData:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       final read = _swiftTypedDataRead(base);
       if (f.isNullable) return 'r.readNullTag() ? nil : $read';
       return read;
     case RecordFieldKind.struct:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       if (f.isNullable) return 'r.readNullTag() ? nil : $base.fromReader(r)';
       return '$base.fromReader(r)';
   }
@@ -324,7 +324,7 @@ String _swiftTypedDataRead(String dartType) {
 void _swiftWriteStmt(CodeWriter s, BridgeRecordField f) {
   switch (f.kind) {
     case RecordFieldKind.primitive:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       if (f.isNullable) {
         s.writeln('    writer.writeNullTag(${f.name} == nil)');
         s.writeln('    if let val = ${f.name} { writer.${_swiftWriterCall(base, 'val')} }');
@@ -368,7 +368,7 @@ void _swiftWriteStmt(CodeWriter s, BridgeRecordField f) {
       });
       break;
     case RecordFieldKind.typedData:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       if (f.isNullable) {
         s.writeln('    writer.writeNullTag(${f.name} == nil)');
         s.writeln('    if let val = ${f.name} { ${_swiftTypedDataWrite(base, 'val', 'writer')} }');
@@ -429,7 +429,7 @@ String _swiftWriterCall(String base, String expr) {
 }
 
 String _swiftStructReadExpr(BridgeField f, Set<String> enumNames, Set<String> structNames) {
-  final base = f.type.name.replaceFirst('?', '');
+  final base = bareTypeName(f.type.name);
   if (enumNames.contains(base)) return '$base(rawValue: Int(r.readInt()))!';
   if (structNames.contains(base)) return '$base.fromReader(r)';
   if (base == 'Uint8List' && f.zeroCopy) {
@@ -439,7 +439,7 @@ String _swiftStructReadExpr(BridgeField f, Set<String> enumNames, Set<String> st
 }
 
 void _swiftStructWriteStmt(CodeWriter s, BridgeField f, Set<String> enumNames, Set<String> structNames, BridgeStruct st) {
-  final base = f.type.name.replaceFirst('?', '');
+  final base = bareTypeName(f.type.name);
   if (enumNames.contains(base)) {
     s.writeln('    writer.writeInt(Int64(${f.name}.rawValue))');
   } else if (structNames.contains(base)) {

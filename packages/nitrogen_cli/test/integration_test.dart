@@ -1186,6 +1186,24 @@ class TestingProjectPlugin : FlutterPlugin {
       }
     });
 
+    test('createSharedHeaders never plants nitro_wasm_compat.h in an SPM include', () {
+      // It #errors outside Emscripten and SwiftPM compiles every header in
+      // include/. link/apple.dart deletes stale copies, but createSharedHeaders
+      // re-planted it on every `nitrogen generate`, breaking the next
+      // macOS/iOS build until `nitrogen link` was run again.
+      createSharedHeaders(_nitroNativePath, baseDir: tmp.path);
+      for (final platform in ['ios', 'macos']) {
+        final incl = Directory(p.join(tmp.path, platform, 'testing_project', 'Sources', 'TestingProjectCpp', 'include'));
+        expect(
+          File(p.join(incl.path, 'nitro_wasm_compat.h')).existsSync(),
+          isFalse,
+          reason: '$platform SPM include must not carry the Emscripten-only header',
+        );
+      }
+      // The CMake-side copy (explicit source list, no scan) still gets it.
+      expect(File(p.join(tmp.path, 'src', 'native', 'nitro_wasm_compat.h')).existsSync(), isTrue);
+    });
+
     test('linkSwiftPlugin is idempotent — no duplicate registrations', () {
       final modules = [
         {'module': 'TestingProject', 'lib': 'testing_project'},

@@ -24,7 +24,7 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
             return [_encodeRecordParam(p.type, p.name, 'arena')];
           }
           // @NitroVariant param: encode as [4B len][1B tag][fields] using toNative(alloc).
-          final tBase2 = t.replaceFirst('?', '');
+          final tBase2 = bareTypeName(t);
           if (spec.isVariantName(tBase2)) {
             return ['${p.name}.toNative(arena)'];
           }
@@ -46,7 +46,7 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
           if (spec.isStructName(t)) {
             return ['${p.name}.toNative(arena).cast<Void>()'];
           }
-          final tBase = t.replaceFirst('?', '');
+          final tBase = bareTypeName(t);
           if (t.endsWith('?') && spec.isStructName(tBase)) {
             return ['${p.name} != null ? ${p.name}.toNative(arena).cast<Void>() : nullptr'];
           }
@@ -66,7 +66,7 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
             return ['${p.name}.instanceId'];
           }
           // @NitroCustomType: encode via user codec.
-          final tBaseCustom = t.replaceFirst('?', '');
+          final tBaseCustom = bareTypeName(t);
           if (spec.isCustomTypeName(tBaseCustom)) {
             final ct = spec.customTypeByName(tBaseCustom)!;
             return ['const ${ct.codecClass}().encode(${p.name}, arena)'];
@@ -237,7 +237,18 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
           writer.line('    return NitroRuntime.callSync(() => withArena((arena) {');
           writer.line('      final res = _${func.dartName}Ptr($syncArgs);');
           if (!isFast) writer.line(_assertCheckError('      '));
-          _emitReturnDecode(writer, func.returnType, 'res', '      ', spec, zeroCopy: func.zeroCopyReturn, dartName: func.dartName, isOwned: func.isOwned, nativeHandleTypeParam: nativeHandleTypeParam, optIsBorrowed: true);
+          _emitReturnDecode(
+            writer,
+            func.returnType,
+            'res',
+            '      ',
+            spec,
+            zeroCopy: func.zeroCopyReturn,
+            dartName: func.dartName,
+            isOwned: func.isOwned,
+            nativeHandleTypeParam: nativeHandleTypeParam,
+            optIsBorrowed: true,
+          );
           writer.line('    })$mnArg);');
         }
       } else {
@@ -250,7 +261,18 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
           writer.line('    return NitroRuntime.callSync(() {');
           writer.line('      final res = _${func.dartName}Ptr($syncArgs);');
           if (!isFast) writer.line(_assertCheckError('      '));
-          _emitReturnDecode(writer, func.returnType, 'res', '      ', spec, zeroCopy: func.zeroCopyReturn, dartName: func.dartName, isOwned: func.isOwned, nativeHandleTypeParam: nativeHandleTypeParam, optIsBorrowed: true);
+          _emitReturnDecode(
+            writer,
+            func.returnType,
+            'res',
+            '      ',
+            spec,
+            zeroCopy: func.zeroCopyReturn,
+            dartName: func.dartName,
+            isOwned: func.isOwned,
+            nativeHandleTypeParam: nativeHandleTypeParam,
+            optIsBorrowed: true,
+          );
           writer.line('    }$mnArg);');
         }
       }

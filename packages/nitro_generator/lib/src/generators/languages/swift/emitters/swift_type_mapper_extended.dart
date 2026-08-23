@@ -45,7 +45,7 @@ class SwiftTypeMapperExtended extends SwiftTypeMapper {
   @override
   String swiftType(String t, {BridgeType? bridgeType}) {
     final isNullable = t.endsWith('?') || (bridgeType?.isNullable ?? false);
-    final base = t.replaceFirst('?', '');
+    final base = bareTypeName(t);
     final mapped = _narrowSwiftType(base);
     if (mapped != null) return isNullable ? '$mapped?' : mapped;
     return super.swiftType(t, bridgeType: bridgeType);
@@ -53,7 +53,7 @@ class SwiftTypeMapperExtended extends SwiftTypeMapper {
 
   @override
   String swiftCType(String t, {bool isZeroCopy = false}) {
-    final base = t.replaceFirst('?', '');
+    final base = bareTypeName(t);
     final mapped = _narrowSwiftType(base);
     if (mapped != null) return mapped;
     return super.swiftCType(t, isZeroCopy: isZeroCopy);
@@ -61,7 +61,7 @@ class SwiftTypeMapperExtended extends SwiftTypeMapper {
 
   @override
   String cdeclReturnType(BridgeFunction func) {
-    final name = func.returnType.name.replaceFirst('?', '');
+    final name = bareTypeName(func.returnType.name);
     final isNullable = func.returnType.isNullable || func.returnType.name.endsWith('?');
     if (_narrowAllTypes.contains(name)) {
       // Nullable narrow types: UnsafeMutablePointer<UInt8>? (NitroOptXxx raw bytes).
@@ -73,7 +73,7 @@ class SwiftTypeMapperExtended extends SwiftTypeMapper {
 
   @override
   String cdeclParamType(String typeName, {BridgeType? bridgeType}) {
-    final base = typeName.replaceFirst('?', '');
+    final base = bareTypeName(typeName);
     final isNullable = typeName.endsWith('?') || (bridgeType?.isNullable ?? false);
     if (_narrowAllTypes.contains(base)) {
       if (isNullable) return 'UnsafeMutablePointer<UInt8>?';
@@ -84,7 +84,7 @@ class SwiftTypeMapperExtended extends SwiftTypeMapper {
 
   @override
   String defaultCDeclValue(String t) {
-    final base = t.replaceFirst('?', '');
+    final base = bareTypeName(t);
     final isNullable = t.endsWith('?');
     if (_narrowIntTypes.contains(base)) return isNullable ? 'nil' : '0';
     if (base == 'float') return isNullable ? 'nil' : '0.0';

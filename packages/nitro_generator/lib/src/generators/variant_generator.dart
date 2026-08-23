@@ -239,7 +239,7 @@ class VariantGenerator {
     Set<String> enumNames,
     Set<String> structNames,
   ) {
-    final base = f.dartType.replaceFirst('?', '');
+    final base = bareTypeName(f.dartType);
     final nullable = f.isNullable;
 
     if (nullable) return _nullableReadExpr(f, enumNames, structNames);
@@ -268,7 +268,7 @@ class VariantGenerator {
     Set<String> enumNames,
     Set<String> structNames,
   ) {
-    final base = f.dartType.replaceFirst('?', '');
+    final base = bareTypeName(f.dartType);
     final inner = _fieldReadExpr(
       BridgeRecordField(name: f.name, dartType: base, kind: f.kind, itemTypeName: f.itemTypeName),
       enumNames,
@@ -295,7 +295,7 @@ class VariantGenerator {
     String indent = '    ',
   }) {
     final name = f.name;
-    final base = f.dartType.replaceFirst('?', '');
+    final base = bareTypeName(f.dartType);
     final nullable = f.isNullable;
 
     if (nullable) {

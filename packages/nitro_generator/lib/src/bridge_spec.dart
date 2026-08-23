@@ -709,3 +709,11 @@ class BridgeVariant {
 
   List<BridgeVariant> get localVariants => isImported ? [] : [this];
 }
+
+/// The type name with its nullability marker removed.
+///
+/// Strips only a TRAILING `?`. `replaceFirst('?', '')` — the idiom this
+/// replaces — removes the FIRST one, which for a generic is the INNER type's:
+/// `Map<String, int?>` became `Map<String, int>`, silently dropping the value's
+/// nullability. That shipped as a real bug on the Kotlin and web backends.
+String bareTypeName(String typeName) => typeName.endsWith('?') ? typeName.substring(0, typeName.length - 1) : typeName;

@@ -112,6 +112,49 @@ extension _DoctorDesktopChecks on DoctorCommand {
     }
   }
 
+  /// Desktop plugins keep hand-maintained copies of the C++ impl under
+  /// `linux/src/` and `windows/src/` (the desktop CMake compiles those, not
+  /// `src/`). A method added to the spec lands in `src/` and silently misses
+  /// the copies, so the desktop build fails to instantiate the abstract impl —
+  /// far from the edit that caused it. The generated header is the contract.
+  void _checkDesktopImplParity(_DoctorCtx ctx) {
+    final sec = DoctorSection('Desktop C++ impl parity');
+    final copies = [
+      for (final d in ['linux', 'windows'])
+        if (Directory(p.join(ctx.root.path, d, 'src')).existsSync()) d,
+    ];
+    if (copies.isEmpty) return; // no desktop copies to drift
+    ctx.sections.add(sec);
+
+    final pureVirtual = RegExp(r'^\s*virtual\s+.*?\b(\w+)\s*\([^;]*\)\s*=\s*0\s*;', multiLine: true);
+    final override = RegExp(r'^\s*[\w:<>&,\s\*]+?\b(\w+)\s*\([^;{]*\)\s*(?:const\s+)?override\b', multiLine: true);
+    Set<String> names(RegExp re, File f) => re.allMatches(f.readAsStringSync()).map((m) => m.group(1)!).toSet();
+
+    for (final header in Directory(p.join(ctx.root.path, 'lib', 'src', 'generated', 'cpp'))
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.native.g.h'))) {
+      final required = names(pureVirtual, header);
+      if (required.isEmpty) continue;
+      final stem = p.basename(header.path).replaceAll('.native.g.h', '');
+      for (final copy in copies) {
+        final impls = Directory(p.join(ctx.root.path, copy, 'src')).listSync().whereType<File>().where((f) => f.path.endsWith('.cpp'));
+        if (impls.isEmpty) continue;
+        final implemented = <String>{for (final f in impls) ...names(override, f)};
+        final missing = required.difference(implemented).toList()..sort();
+        if (missing.isEmpty) {
+          ctx.ok(sec, '$copy/src implements every $stem spec method');
+        } else {
+          ctx.err(
+            sec,
+            '$copy/src is missing ${missing.length} $stem method(s): ${missing.take(5).join(', ')}${missing.length > 5 ? ' …' : ''}',
+            hint: 'Copy the new override(s) from src/ — the desktop build cannot instantiate an abstract impl',
+          );
+        }
+      }
+    }
+  }
+
   void _checkCppDirect(_DoctorCtx ctx) {
     final cppSec = DoctorSection('NativeImpl.cpp Direct Implementation');
     ctx.sections.add(cppSec);

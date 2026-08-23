@@ -11,6 +11,7 @@ import 'emitters/swift_stream_emitter.dart';
 import 'emitters/swift_type_mapper.dart';
 import 'emitters/swift_type_mapper_extended.dart';
 import 'emitters/swift_variant_emitter.dart';
+import '../../../map_wire.dart';
 
 part 'emitters/swift_protocol_registry_emitter.dart';
 part 'emitters/swift_map_typed_data_emitter.dart';

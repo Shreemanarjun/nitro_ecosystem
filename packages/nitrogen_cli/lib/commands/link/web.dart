@@ -105,10 +105,8 @@ void _scaffoldWebTests(String base, List<ModuleInfo> webModules, File pubspecFil
 
   File(p.join(testDir.path, 'asset_server.dart')).writeAsStringSync(_webAssetServerTemplate);
 
-  // The PACKAGE name, which is not necessarily the module's lib name — the
-  // benchmark package is `benchmark` while its module lib is `benchmark_cpp`,
-  // and a stub that guessed `package:benchmark_cpp/...` from the lib name
-  // simply did not compile.
+  // The PACKAGE name, not the module lib name — they differ (`benchmark` vs
+  // `benchmark_cpp`), and guessing from the lib name does not compile.
   final pkgName = _packageNameOf(pubspecFile) ?? p.basename(p.normalize(p.absolute(base)));
 
   for (final m in webModules) {

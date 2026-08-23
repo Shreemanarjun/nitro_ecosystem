@@ -136,7 +136,7 @@ class CppSpecGenerator {
   }
 
   static String _recordFieldToCpp(BridgeRecordField f, BridgeSpec spec) {
-    final bare = f.dartType.replaceFirst('?', '');
+    final bare = bareTypeName(f.dartType);
     if (f.isNullable) {
       final inner = _recordFieldToCpp(
         BridgeRecordField(name: f.name, dartType: bare, kind: f.kind, itemTypeName: f.itemTypeName),

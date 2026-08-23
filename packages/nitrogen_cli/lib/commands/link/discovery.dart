@@ -14,20 +14,19 @@ String resolveNitroNativePath(String pluginDir) {
     final configFile = File(p.join(searchDir.path, '.dart_tool', 'package_config.json'));
     if (configFile.existsSync()) {
       try {
-        final config = jsonDecode(configFile.readAsStringSync()) as Map<String, dynamic>;
-        final packages = (config['packages'] as List<dynamic>?) ?? [];
+        final packages = switch (jsonDecode(configFile.readAsStringSync())) {
+          {'packages': final List<Object?> list} => list,
+          _ => const <Object?>[],
+        };
         for (final pkg in packages) {
-          final pkgMap = pkg as Map<String, dynamic>;
-          if (pkgMap['name'] == 'nitro') {
-            final rootUri = pkgMap['rootUri'] as String;
-            final uri = Uri.parse(rootUri);
-            if (uri.scheme == 'file') {
-              return p.join(uri.toFilePath(), 'src', 'native');
-            } else {
-              final dartToolDir = p.join(searchDir.path, '.dart_tool');
-              final resolved = p.normalize(p.join(dartToolDir, rootUri));
-              return p.join(resolved, 'src', 'native');
-            }
+          if (pkg case {'name': 'nitro', 'rootUri': final String rootUri}) {
+            // rootUri is a file: URI in some SDKs and relative to .dart_tool
+            // in others.
+            final root = switch (Uri.parse(rootUri)) {
+              final u when u.isScheme('file') => u.toFilePath(),
+              _ => p.normalize(p.join(searchDir.path, '.dart_tool', rootUri)),
+            };
+            return p.join(root, 'src', 'native');
           }
         }
       } on FormatException catch (e) {

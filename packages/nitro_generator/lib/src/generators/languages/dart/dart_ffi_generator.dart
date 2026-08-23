@@ -7,6 +7,7 @@ import '../../struct_generator.dart';
 import '../../record_generator.dart';
 import '../../variant_generator.dart';
 import 'dart_ffi_return_helpers.dart';
+import '../../../map_wire.dart';
 
 part 'emitters/dart_impl_class_emitter.dart';
 part 'emitters/dart_function_emitter.dart';

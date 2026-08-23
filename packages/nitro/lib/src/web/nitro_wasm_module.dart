@@ -36,11 +36,8 @@ const int _maxExactInJsNumber = 9007199254740991;
 
 /// Dart int → JS BigInt, for `int64_t` parameters.
 ///
-/// Exact across the whole int64 range on dart2wasm. `v.toJS` makes a JS
-/// NUMBER, so `BigInt(v.toJS)` rounds anything past 2^53 BEFORE the BigInt
-/// exists — Int64.max became 2^63 and wrapped to Int64.min on the way OUT,
-/// before the return trip could even be blamed. Decimal text carries the
-/// value exactly, so large magnitudes go through `BigInt("…")`.
+/// `v.toJS` makes a JS number, so `BigInt(v.toJS)` would round past 2^53
+/// before the BigInt exists. Large magnitudes go through `BigInt("…")`.
 JSAny jsI64(int v) {
   if (v >= -_maxExactInJsNumber && v <= _maxExactInJsNumber) {
     return _jsBigInt.callAsFunction(null, v.toJS)!;
@@ -50,9 +47,8 @@ JSAny jsI64(int v) {
 
 /// JS BigInt (or number) → Dart int, for `int64_t` returns and callback args.
 ///
-/// Exact for the full int64 range on dart2wasm, where a Dart int really is
-/// 64 bits. Still 53-bit on dart2js, where Dart ints ARE JS doubles and no
-/// amount of care can represent Int64.max.
+/// Exact over the full int64 range on dart2wasm; 53-bit on dart2js, where a
+/// Dart int is a JS double.
 int dartI64(JSAny? v) {
   if (v == null) return 0;
   if (v.typeofEquals('number')) return (v as JSNumber).toDartDouble.toInt();
@@ -63,9 +59,7 @@ int dartI64(JSAny? v) {
     return asDouble.toInt();
   }
 
-  // Slow, exact path. `Number(9223372036854775807n)` rounds UP to 2^63, which
-  // then wraps to Int64.MIN — Int64.max came back as Int64.min. Decimal text
-  // is a lossless carrier for a BigInt, so parse that instead.
+  // `Number(bigint)` rounds past 2^53; decimal text is lossless.
   return BigInt.parse(v.toString()).toSigned(64).toInt();
 }
 
@@ -223,12 +217,9 @@ final class NitroWasmModule {
 
   /// Releases a function-table entry created by [addFunction].
   ///
-  /// A no-op when the module was linked without `removeFunction` in
-  /// `EXPORTED_RUNTIME_METHODS` (build scripts generated before that flag was
-  /// added). Leaking one table slot per replaced callback is recoverable;
-  /// throwing out of the release microtask is not — it surfaces as an
-  /// unhandled `NoSuchMethodError` in whichever test happens to run next,
-  /// nowhere near the callback that caused it.
+  /// No-op when the module was linked without `removeFunction` in
+  /// `EXPORTED_RUNTIME_METHODS`: leaking a table slot beats throwing out of
+  /// the release microtask, far from the callback that caused it.
   void removeFunction(int fnPtr) {
     if (!module.has('removeFunction')) return;
     module.removeFunction(fnPtr);

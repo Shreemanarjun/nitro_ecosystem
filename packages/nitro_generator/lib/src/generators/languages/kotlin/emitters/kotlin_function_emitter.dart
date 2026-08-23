@@ -2,6 +2,7 @@ import '../../../../bridge_spec.dart';
 import '../../../code_writer.dart';
 import '../../../record_generator.dart';
 import 'kotlin_type_mapper.dart';
+import '../../../../map_wire.dart';
 
 /// Emits the `_call` JNI bridge method for a single [BridgeFunction].
 ///
@@ -30,7 +31,7 @@ class KotlinFunctionEmitter {
     }
 
     // ── Regular (sync / @nitroAsync) ─────────────────────────────────────────
-    final retBaseName = func.returnType.name.replaceFirst('?', '');
+    final retBaseName = bareTypeName(func.returnType.name);
     final isUnit = retType == 'Unit';
     final isEnum = mapper.enumNames.contains(retBaseName);
     final isNullableEnum = isEnum && func.returnType.name.endsWith('?');
@@ -78,22 +79,23 @@ class KotlinFunctionEmitter {
 
     // Decode nullable primitive params from NitroOpt* ByteArray ([1B hasValue][N bytes value]).
     for (final p in optPrimParams) {
-      final bn = p.type.name.replaceFirst('?', '');
-      if (bn == 'int') {
-        writer.line('        val ${p.name}Arg: Long? = NitroOptInt64.decode(${p.name}).nullable');
-      } else if (bn == 'bool') {
-        writer.line('        val ${p.name}Arg: Boolean? = NitroOptBool.decode(${p.name}).nullable');
-      } else if (bn == 'double') {
-        writer.line('        val ${p.name}Arg: Double? = NitroOptFloat64.decode(${p.name}).nullable');
-      } else if (bn == 'DateTime') {
-        writer.line('        val ${p.name}Arg: Long? = NitroOptInt64.decode(${p.name}).nullable');
-      } else if (bn == 'uint64') {
-        writer.line('        val ${p.name}Arg: Long? = NitroOptInt64.decode(${p.name}).nullable');
+      final bn = bareTypeName(p.type.name);
+      switch (bn) {
+        case 'int':
+          writer.line('        val ${p.name}Arg: Long? = NitroOptInt64.decode(${p.name}).nullable');
+        case 'bool':
+          writer.line('        val ${p.name}Arg: Boolean? = NitroOptBool.decode(${p.name}).nullable');
+        case 'double':
+          writer.line('        val ${p.name}Arg: Double? = NitroOptFloat64.decode(${p.name}).nullable');
+        case 'DateTime':
+          writer.line('        val ${p.name}Arg: Long? = NitroOptInt64.decode(${p.name}).nullable');
+        case 'uint64':
+          writer.line('        val ${p.name}Arg: Long? = NitroOptInt64.decode(${p.name}).nullable');
       }
     }
     // Decode nullable enum params from Long sentinel (-1 = null).
     for (final p in func.params) {
-      final bn = p.type.name.replaceFirst('?', '');
+      final bn = bareTypeName(p.type.name);
       final isNull = p.type.name.endsWith('?') || p.isOptional;
       if (isNull && mapper.enumNames.contains(bn)) {
         writer.line('        // Dart layer sends -1L as sentinel when caller passes null for ${p.name}.');
@@ -142,7 +144,7 @@ class KotlinFunctionEmitter {
     bool isOptPrim(BridgeParam p) => p.type.isNullableNitroPrim || (p.isOptional && BridgeType.nitroPrimBases.contains(p.type.baseName));
     return func.params
         .map((p) {
-          final baseName = p.type.name.replaceFirst('?', '');
+          final baseName = bareTypeName(p.type.name);
           final isNull = p.type.name.endsWith('?') || p.isOptional;
           if (isOptPrim(p)) return '${p.name}Arg';
           if (isNull && mapper.enumNames.contains(baseName)) return '${p.name}Arg';
@@ -167,7 +169,7 @@ class KotlinFunctionEmitter {
     String bridgeParamsDecl,
   ) {
     final isUnit = retType == 'Unit';
-    final retBaseName = func.returnType.name.replaceFirst('?', '');
+    final retBaseName = bareTypeName(func.returnType.name);
     final isEnum = mapper.enumNames.contains(retBaseName);
     final isNullableReturn = func.returnType.name.endsWith('?') || func.returnType.isNullable;
     final isEnumListReturn = func.returnType.isEnumList;
@@ -200,24 +202,25 @@ class KotlinFunctionEmitter {
     writer.line('        }');
 
     for (final p in optPrims) {
-      final bn = p.type.name.replaceFirst('?', '');
-      if (bn == 'int') {
-        writer.line('        val ${p.name}Arg: Long? = NitroOptInt64.decode(${p.name}).nullable');
-      } else if (bn == 'bool') {
-        writer.line('        val ${p.name}Arg: Boolean? = NitroOptBool.decode(${p.name}).nullable');
-      } else if (bn == 'double') {
-        writer.line('        val ${p.name}Arg: Double? = NitroOptFloat64.decode(${p.name}).nullable');
-      } else if (bn == 'DateTime') {
-        writer.line('        val ${p.name}Arg: Long? = NitroOptInt64.decode(${p.name}).nullable');
-      } else if (bn == 'uint64') {
-        writer.line('        val ${p.name}Arg: Long? = NitroOptInt64.decode(${p.name}).nullable');
+      final bn = bareTypeName(p.type.name);
+      switch (bn) {
+        case 'int':
+          writer.line('        val ${p.name}Arg: Long? = NitroOptInt64.decode(${p.name}).nullable');
+        case 'bool':
+          writer.line('        val ${p.name}Arg: Boolean? = NitroOptBool.decode(${p.name}).nullable');
+        case 'double':
+          writer.line('        val ${p.name}Arg: Double? = NitroOptFloat64.decode(${p.name}).nullable');
+        case 'DateTime':
+          writer.line('        val ${p.name}Arg: Long? = NitroOptInt64.decode(${p.name}).nullable');
+        case 'uint64':
+          writer.line('        val ${p.name}Arg: Long? = NitroOptInt64.decode(${p.name}).nullable');
       }
     }
     // Decode nullable enum params from Long sentinel (-1 = null) — mirrors the
     // sync path's equivalent block; native-async previously skipped this and
     // forwarded the raw Long where a nullable enum was expected.
     for (final p in func.params) {
-      final bn = p.type.name.replaceFirst('?', '');
+      final bn = bareTypeName(p.type.name);
       final isNull = p.type.name.endsWith('?') || p.isOptional;
       if (isNull && mapper.enumNames.contains(bn)) {
         writer.line('        // Dart layer sends -1L as sentinel when caller passes null for ${p.name}.');
@@ -243,127 +246,128 @@ class KotlinFunctionEmitter {
 
     writer.line('        _asyncExecutor.execute {');
     writer.line('            try {');
-    if (isUnit) {
-      writer.line('            ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      writer.line('            postNullToPort(dartPort)');
-    } else if (isEnum) {
-      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      if (isNullableReturn) {
-        writer.line('            if (result == null) postInt64ToPort(dartPort, -1L) else postInt64ToPort(dartPort, result.nativeValue)');
-      } else {
-        writer.line('            postInt64ToPort(dartPort, result.nativeValue)');
-      }
-    } else if (retType == 'String') {
-      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      writer.line('            postStringToPort(dartPort, result)');
-    } else if (retType == 'String?') {
-      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      writer.line('            if (result == null) postNullToPort(dartPort) else postStringToPort(dartPort, result)');
-    } else if (retType == 'Boolean') {
-      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      writer.line('            postBoolToPort(dartPort, result)');
-    } else if (retType == 'Boolean?') {
-      // bool? NativeAsync: post pointer to NitroOptBool (2 bytes); Dart decodes via fromAddress.
-      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      writer.line('            postOptBoolToPort(dartPort, result ?: false, result != null)');
-    } else if (func.returnType.isNativeHandle) {
-      // NativeHandle NativeAsync (issue #18): the impl returns the raw
-      // pointer address as Long — post it as kInt64. Address 0 means null
-      // for a nullable handle (the Kotlin interface declares Long on every
-      // path, so null is expressed as 0, matching the Dart-side unpack).
-      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      writer.line('            postInt64ToPort(dartPort, result)');
-    } else if (retType == 'Long' || retType == 'Int') {
-      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      writer.line('            postInt64ToPort(dartPort, result.toLong())');
-    } else if (retType == 'Long?' || retType == 'Int?') {
-      // Long?/Int? NativeAsync: post pointer to NitroOptInt64 (9 bytes); Dart decodes via fromAddress.
-      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      writer.line('            postOptInt64ToPort(dartPort, result?.toLong() ?: 0L, result != null)');
-    } else if (retType == 'Double') {
-      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      writer.line('            postDoubleToPort(dartPort, result)');
-    } else if (retType == 'Double?') {
-      // Double? NativeAsync: post pointer to NitroOptFloat64 (9 bytes); Dart decodes via fromAddress.
-      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      writer.line('            postOptFloat64ToPort(dartPort, result ?: 0.0, result != null)');
-    } else if (isEnumListReturn) {
-      // List<@HybridEnum> NativeAsync: checked BEFORE isRecord — spec_extractor
-      // sets isRecord alongside isEnumList, so without this branch these fell
-      // into the isRecord path's single-record fallback and called `.encode()`
-      // on a Kotlin List (not a member — compile error). Mirrors the encoding
-      // _emitEnumListBody uses for the sync/@nitroAsync path.
-      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      _emitNativeAsyncEnumListEncode(writer, func);
-      writer.line('            postBytesToPort(dartPort, _bytes)');
-    } else if (isVariantListReturn) {
-      // List<@NitroVariant> NativeAsync: same reasoning as isEnumListReturn
-      // above. Mirrors the encoding _emitVariantListBody uses for the
-      // sync/@nitroAsync path.
-      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      _emitNativeAsyncVariantListEncode(writer, func);
-      writer.line('            postBytesToPort(dartPort, _bytes)');
-    } else if (isVariantReturn) {
-      // Bare @NitroVariant NativeAsync: previously fell to the generic else
-      // (discard + always-null), the same bug class as the fixed record
-      // return. Mirrors _emitVariantReturnBody's wire format.
-      writer.line('            val _vResult = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      writer.line('            val _vw = RecordWriter()');
-      writer.line('            _vResult.writeFields(_vw)');
-      writer.line('            val _vPayload = _vw.toByteArray()');
-      writer.line('            val _vBuf = java.nio.ByteBuffer.allocate(4 + _vPayload.size).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
-      writer.line('            _vBuf.putInt(_vPayload.size)');
-      writer.line('            _vBuf.put(_vPayload)');
-      writer.line('            postBytesToPort(dartPort, _vBuf.array())');
-    } else if (isAnyMapReturn) {
-      // NitroAnyMap NativeAsync: previously fell to the generic else. Only
-      // the return side is handled here — a NitroAnyMap *parameter* on a
-      // @NitroNativeAsync method remains unfixed (deferred, see param-phase
-      // notes) since it needs its own decode step this branch doesn't add.
-      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      writer.line('            @Suppress("UNCHECKED_CAST")');
-      writer.line('            val _outMap = result as? Map<String, Any?> ?: emptyMap()');
-      writer.line('            postBytesToPort(dartPort, NitroAnyMapCodec.encode(_outMap))');
-    } else if (isMapReturn) {
-      // Map<String,V> NativeAsync: previously fell to the generic else. Same
-      // return-only scope note as isAnyMapReturn above.
-      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      _emitNativeAsyncMapEncode(writer, func, spec);
-      writer.line('            postBytesToPort(dartPort, _bytes)');
-    } else if (isCustomTypeReturn) {
-      // @NitroCustomType NativeAsync: the impl already returns a raw,
-      // user-encoded ByteArray (custom types have no generator-side
-      // encode/decode) — post it directly instead of discarding it.
-      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      writer.line('            postBytesToPort(dartPort, result)');
-    } else if (isStructReturn) {
-      // Bare @HybridStruct NativeAsync: previously had no wire format at all
-      // (structs are plain Kotlin data classes at the JNI boundary, not
-      // ByteArray-encoded, so nothing in the generic dispatch chain applied —
-      // fell to discard + postNullToPort). The struct-specific post*ToPort
-      // helper (declared in kotlin_generator.dart) packs the object to a
-      // native struct via the JNI side's existing pack_${struct}_from_jni and
-      // posts its address, reusing the postBytesToPort null-as-address-0
-      // convention.
-      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      writer.line('            post${retBaseName}ToPort(dartPort, result)');
-    } else if (isRecord) {
-      // @HybridRecord (single, list, or primitive-item-list) NativeAsync: encode to the
-      // same [4B len][payload] wire format every other record-returning path uses
-      // (see _emitRecordBody), then post the ByteArray — mirrors the pointer-posting
-      // idiom above instead of the previous discard-and-always-null trampoline.
-      //
-      // A null record is posted as a null ByteArray (not Dart_CObject_kNull) — the
-      // Dart-side unpack for nullable records unconditionally does `raw as int` and
-      // treats address 0 (nullptr) as "no value", exactly like the NitroOptXxx and
-      // struct pointer-return paths above. Posting kNull here would throw the same
-      // TypeError this fix exists to eliminate.
-      writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      _emitNativeAsyncRecordEncode(writer, func, spec, isListRecord);
-      writer.line('            postBytesToPort(dartPort, _bytes)');
-    } else {
-      writer.line('            ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-      writer.line('            postNullToPort(dartPort)');
+    switch (retType) {
+      case _ when isUnit:
+        writer.line('            ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        writer.line('            postNullToPort(dartPort)');
+      case _ when isEnum:
+        writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        if (isNullableReturn) {
+          writer.line('            if (result == null) postInt64ToPort(dartPort, -1L) else postInt64ToPort(dartPort, result.nativeValue)');
+        } else {
+          writer.line('            postInt64ToPort(dartPort, result.nativeValue)');
+        }
+      case 'String':
+        writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        writer.line('            postStringToPort(dartPort, result)');
+      case 'String?':
+        writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        writer.line('            if (result == null) postNullToPort(dartPort) else postStringToPort(dartPort, result)');
+      case 'Boolean':
+        writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        writer.line('            postBoolToPort(dartPort, result)');
+      case 'Boolean?':
+        // bool? NativeAsync: post pointer to NitroOptBool (2 bytes); Dart decodes via fromAddress.
+        writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        writer.line('            postOptBoolToPort(dartPort, result ?: false, result != null)');
+      case _ when func.returnType.isNativeHandle:
+        // NativeHandle NativeAsync (issue #18): the impl returns the raw
+        // pointer address as Long — post it as kInt64. Address 0 means null
+        // for a nullable handle (the Kotlin interface declares Long on every
+        // path, so null is expressed as 0, matching the Dart-side unpack).
+        writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        writer.line('            postInt64ToPort(dartPort, result)');
+      case 'Long' || 'Int':
+        writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        writer.line('            postInt64ToPort(dartPort, result.toLong())');
+      case 'Long?' || 'Int?':
+        // Long?/Int? NativeAsync: post pointer to NitroOptInt64 (9 bytes); Dart decodes via fromAddress.
+        writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        writer.line('            postOptInt64ToPort(dartPort, result?.toLong() ?: 0L, result != null)');
+      case 'Double':
+        writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        writer.line('            postDoubleToPort(dartPort, result)');
+      case 'Double?':
+        // Double? NativeAsync: post pointer to NitroOptFloat64 (9 bytes); Dart decodes via fromAddress.
+        writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        writer.line('            postOptFloat64ToPort(dartPort, result ?: 0.0, result != null)');
+      case _ when isEnumListReturn:
+        // List<@HybridEnum> NativeAsync: checked BEFORE isRecord — spec_extractor
+        // sets isRecord alongside isEnumList, so without this branch these fell
+        // into the isRecord path's single-record fallback and called `.encode()`
+        // on a Kotlin List (not a member — compile error). Mirrors the encoding
+        // _emitEnumListBody uses for the sync/@nitroAsync path.
+        writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        _emitNativeAsyncEnumListEncode(writer, func);
+        writer.line('            postBytesToPort(dartPort, _bytes)');
+      case _ when isVariantListReturn:
+        // List<@NitroVariant> NativeAsync: same reasoning as isEnumListReturn
+        // above. Mirrors the encoding _emitVariantListBody uses for the
+        // sync/@nitroAsync path.
+        writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        _emitNativeAsyncVariantListEncode(writer, func);
+        writer.line('            postBytesToPort(dartPort, _bytes)');
+      case _ when isVariantReturn:
+        // Bare @NitroVariant NativeAsync: previously fell to the generic else
+        // (discard + always-null), the same bug class as the fixed record
+        // return. Mirrors _emitVariantReturnBody's wire format.
+        writer.line('            val _vResult = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        writer.line('            val _vw = RecordWriter()');
+        writer.line('            _vResult.writeFields(_vw)');
+        writer.line('            val _vPayload = _vw.toByteArray()');
+        writer.line('            val _vBuf = java.nio.ByteBuffer.allocate(4 + _vPayload.size).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
+        writer.line('            _vBuf.putInt(_vPayload.size)');
+        writer.line('            _vBuf.put(_vPayload)');
+        writer.line('            postBytesToPort(dartPort, _vBuf.array())');
+      case _ when isAnyMapReturn:
+        // NitroAnyMap NativeAsync: previously fell to the generic else. Only
+        // the return side is handled here — a NitroAnyMap *parameter* on a
+        // @NitroNativeAsync method remains unfixed (deferred, see param-phase
+        // notes) since it needs its own decode step this branch doesn't add.
+        writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        writer.line('            @Suppress("UNCHECKED_CAST")');
+        writer.line('            val _outMap = result as? Map<String, Any?> ?: emptyMap()');
+        writer.line('            postBytesToPort(dartPort, NitroAnyMapCodec.encode(_outMap))');
+      case _ when isMapReturn:
+        // Map<String,V> NativeAsync: previously fell to the generic else. Same
+        // return-only scope note as isAnyMapReturn above.
+        writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        _emitNativeAsyncMapEncode(writer, func, spec);
+        writer.line('            postBytesToPort(dartPort, _bytes)');
+      case _ when isCustomTypeReturn:
+        // @NitroCustomType NativeAsync: the impl already returns a raw,
+        // user-encoded ByteArray (custom types have no generator-side
+        // encode/decode) — post it directly instead of discarding it.
+        writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        writer.line('            postBytesToPort(dartPort, result)');
+      case _ when isStructReturn:
+        // Bare @HybridStruct NativeAsync: previously had no wire format at all
+        // (structs are plain Kotlin data classes at the JNI boundary, not
+        // ByteArray-encoded, so nothing in the generic dispatch chain applied —
+        // fell to discard + postNullToPort). The struct-specific post*ToPort
+        // helper (declared in kotlin_generator.dart) packs the object to a
+        // native struct via the JNI side's existing pack_${struct}_from_jni and
+        // posts its address, reusing the postBytesToPort null-as-address-0
+        // convention.
+        writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        writer.line('            post${retBaseName}ToPort(dartPort, result)');
+      case _ when isRecord:
+        // @HybridRecord (single, list, or primitive-item-list) NativeAsync: encode to the
+        // same [4B len][payload] wire format every other record-returning path uses
+        // (see _emitRecordBody), then post the ByteArray — mirrors the pointer-posting
+        // idiom above instead of the previous discard-and-always-null trampoline.
+        //
+        // A null record is posted as a null ByteArray (not Dart_CObject_kNull) — the
+        // Dart-side unpack for nullable records unconditionally does `raw as int` and
+        // treats address 0 (nullptr) as "no value", exactly like the NitroOptXxx and
+        // struct pointer-return paths above. Posting kNull here would throw the same
+        // TypeError this fix exists to eliminate.
+        writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        _emitNativeAsyncRecordEncode(writer, func, spec, isListRecord);
+        writer.line('            postBytesToPort(dartPort, _bytes)');
+      default:
+        writer.line('            ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
+        writer.line('            postNullToPort(dartPort)');
     }
     writer.line('            } catch (e: Throwable) {');
     writer.line('                reportNativeAsyncError(errPtr, e.javaClass.simpleName, e.message ?: "An unknown native exception occurred.")');
@@ -506,19 +510,24 @@ class KotlinFunctionEmitter {
       final m = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(func.returnType.name);
       return m?.group(1)?.trim() ?? 'Any?';
     })();
-    final isOutputEnum = spec.isEnumName(mapValueType);
-    final isOutputRecord = spec.recordTypes.any((r) => r.name == mapValueType);
-    final isOutputVariant = spec.isVariantName(mapValueType);
-    final outKtValueType = switch (mapValueType) {
+    // Tag 0 = null. Only the tagged String-key wire carries it; 'Any?' is the
+    // dynamic fallback, not a nullable value type.
+    final valIsNullable = mapValueType != 'Any?' && mapValueType.endsWith('?');
+    final mapValueBase = valIsNullable ? mapValueType.substring(0, mapValueType.length - 1) : mapValueType;
+    final isOutputEnum = spec.isEnumName(mapValueBase);
+    final isOutputRecord = spec.recordTypes.any((r) => r.name == mapValueBase);
+    final isOutputVariant = spec.isVariantName(mapValueBase);
+    final outKtValueBase = switch (mapValueBase) {
       'int' => 'Long',
       'double' => 'Double',
       'bool' => 'Boolean',
       'String' => 'String',
-      _ when isOutputEnum => mapValueType,
-      _ when isOutputRecord => mapValueType,
-      _ when isOutputVariant => mapValueType,
+      _ when isOutputEnum => mapValueBase,
+      _ when isOutputRecord => mapValueBase,
+      _ when isOutputVariant => mapValueBase,
       _ => 'Any?',
     };
+    final outKtValueType = valIsNullable ? '$outKtValueBase?' : outKtValueBase;
     writer.line('            @Suppress("UNCHECKED_CAST")');
     writer.line('            val _outMap = result as? Map<String, $outKtValueType> ?: emptyMap()');
     writer.line('            val _outBb = java.io.ByteArrayOutputStream()');
@@ -529,32 +538,36 @@ class KotlinFunctionEmitter {
     writer.line('            _writeInt32(_outMap.size)');
     writer.line('            for ((k, v) in _outMap) {');
     writer.line('                val kb = k.toByteArray(Charsets.UTF_8); _writeInt32(kb.size); _outBb.write(kb)');
-    if (mapValueType == 'int' || mapValueType == 'Long') {
-      writer.line('                _outBb.write(1) // tag: int64');
-      writer.line('                _writeInt64(v)');
-    } else if (mapValueType == 'double' || mapValueType == 'Double') {
-      writer.line('                _outBb.write(2) // tag: float64');
-      writer.line('                _writeDouble(v)');
-    } else if (mapValueType == 'bool' || mapValueType == 'Boolean') {
-      writer.line('                _outBb.write(3) // tag: bool');
-      writer.line('                _outBb.write(if (v) 1 else 0)');
-    } else if (mapValueType == 'String') {
-      writer.line('                _outBb.write(4) // tag: string');
-      writer.line('                val vb = v.toByteArray(Charsets.UTF_8); _writeInt32(vb.size); _outBb.write(vb)');
-    } else if (isOutputEnum) {
-      writer.line('                _outBb.write(1) // tag: int64 (enum rawValue)');
-      writer.line('                _writeInt64((v as $mapValueType).nativeValue)');
-    } else if (isOutputRecord) {
-      writer.line('                _outBb.write(5) // tag: binary record');
-      writer.line('                val _rBytes = (v as $mapValueType).encode()');
-      writer.line('                _writeInt32(_rBytes.size); _outBb.write(_rBytes)');
-    } else if (isOutputVariant) {
-      writer.line('                _outBb.write(5) // tag: binary variant');
-      writer.line('                val _rBytes = (v as $mapValueType).encode()');
-      writer.line('                _writeInt32(_rBytes.size); _outBb.write(_rBytes)');
-    } else {
-      writer.line('                _outBb.write(4) // tag: string (generic fallback)');
-      writer.line('                val vb = v.toString().toByteArray(Charsets.UTF_8); _writeInt32(vb.size); _outBb.write(vb)');
+    if (valIsNullable) {
+      writer.line('                if (v == null) { _outBb.write(${MapValueWire.nul.tag}); continue }');
+    }
+    switch (mapValueBase) {
+      case 'int' || 'Long':
+        writer.line('                _outBb.write(${MapValueWire.int64.tag}) // tag: int64');
+        writer.line('                _writeInt64(v)');
+      case 'double' || 'Double':
+        writer.line('                _outBb.write(${MapValueWire.float64.tag}) // tag: float64');
+        writer.line('                _writeDouble(v)');
+      case 'bool' || 'Boolean':
+        writer.line('                _outBb.write(${MapValueWire.boolean.tag}) // tag: bool');
+        writer.line('                _outBb.write(if (v) 1 else 0)');
+      case 'String':
+        writer.line('                _outBb.write(${MapValueWire.string.tag}) // tag: string');
+        writer.line('                val vb = v.toByteArray(Charsets.UTF_8); _writeInt32(vb.size); _outBb.write(vb)');
+      case _ when isOutputEnum:
+        writer.line('                _outBb.write(${MapValueWire.int64.tag}) // tag: int64 (enum rawValue)');
+        writer.line('                _writeInt64((v as $mapValueBase).nativeValue)');
+      case _ when isOutputRecord:
+        writer.line('                _outBb.write(${MapValueWire.blob.tag}) // tag: binary record');
+        writer.line('                val _rBytes = (v as $mapValueBase).encode()');
+        writer.line('                _writeInt32(_rBytes.size); _outBb.write(_rBytes)');
+      case _ when isOutputVariant:
+        writer.line('                _outBb.write(${MapValueWire.blob.tag}) // tag: binary variant');
+        writer.line('                val _rBytes = (v as $mapValueBase).encode()');
+        writer.line('                _writeInt32(_rBytes.size); _outBb.write(_rBytes)');
+      default:
+        writer.line('                _outBb.write(${MapValueWire.string.tag}) // tag: string (generic fallback)');
+        writer.line('                val vb = v.toString().toByteArray(Charsets.UTF_8); _writeInt32(vb.size); _outBb.write(vb)');
     }
     writer.line('            }');
     writer.line('            val _payload = _outBb.toByteArray()');
@@ -579,20 +592,25 @@ class KotlinFunctionEmitter {
       final m = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(p.type.name);
       return m?.group(1)?.trim() ?? 'Any?';
     })();
-    final isValEnum = spec.isEnumName(mapValueType);
-    final isValRecord = spec.recordTypes.any((r) => r.name == mapValueType);
-    final isValVariant = spec.isVariantName(mapValueType);
-    final ktValueType = switch (mapValueType) {
+    // Tag 0 = null. Only the tagged String-key wire carries it; 'Any?' is the
+    // dynamic fallback, not a nullable value type.
+    final valIsNullable = mapValueType != 'Any?' && mapValueType.endsWith('?');
+    final mapValueBase = valIsNullable ? mapValueType.substring(0, mapValueType.length - 1) : mapValueType;
+    final isValEnum = spec.isEnumName(mapValueBase);
+    final isValRecord = spec.recordTypes.any((r) => r.name == mapValueBase);
+    final isValVariant = spec.isVariantName(mapValueBase);
+    final ktValueBase = switch (mapValueBase) {
       'int' => 'Long',
       'double' => 'Double',
       'bool' => 'Boolean',
       'String' => 'String',
-      _ when isValEnum => mapValueType,
-      _ when isValRecord => mapValueType,
-      _ when isValVariant => mapValueType,
+      _ when isValEnum => mapValueBase,
+      _ when isValRecord => mapValueBase,
+      _ when isValVariant => mapValueBase,
       _ => 'Any?',
     };
-    final useTyped = ktValueType != 'Any?';
+    final ktValueType = valIsNullable ? '$ktValueBase?' : ktValueBase;
+    final useTyped = ktValueBase != 'Any?';
     writer.line('        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
     writer.line('        ${p.name}Buf.position(4) // skip 4-byte payload length prefix');
     writer.line('        val ${p.name}Count = ${p.name}Buf.int');
@@ -604,30 +622,35 @@ class KotlinFunctionEmitter {
     writer.line('        repeat(${p.name}Count) {');
     writer.line('            val _${p.name}KLen = ${p.name}Buf.int; val _${p.name}KBytes = ByteArray(_${p.name}KLen); ${p.name}Buf.get(_${p.name}KBytes)');
     writer.line('            val _${p.name}K = _${p.name}KBytes.toString(Charsets.UTF_8)');
-    writer.line('            ${p.name}Buf.get() // skip 1-byte type tag');
-    if (mapValueType == 'int' || mapValueType == 'Long') {
-      writer.line('            ${p.name}Decoded[_${p.name}K] = ${p.name}Buf.long');
-    } else if (mapValueType == 'double' || mapValueType == 'Double') {
-      writer.line('            ${p.name}Decoded[_${p.name}K] = ${p.name}Buf.double');
-    } else if (mapValueType == 'bool' || mapValueType == 'Boolean') {
-      writer.line('            ${p.name}Decoded[_${p.name}K] = ${p.name}Buf.get().toInt() != 0');
-    } else if (isValEnum) {
-      writer.line('            ${p.name}Decoded[_${p.name}K] = $mapValueType.fromNative(${p.name}Buf.long)');
-    } else if (isValRecord) {
-      writer.line('            val _${p.name}BLen = ${p.name}Buf.int; val _${p.name}BBytes = ByteArray(_${p.name}BLen); ${p.name}Buf.get(_${p.name}BBytes)');
-      writer.line(
-        '            val _${p.name}BBuf = java.nio.ByteBuffer.wrap(_${p.name}BBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN); _${p.name}BBuf.getInt()',
-      );
-      writer.line('            ${p.name}Decoded[_${p.name}K] = $mapValueType.decodeFrom(_${p.name}BBuf)');
-    } else if (isValVariant) {
-      writer.line('            val _${p.name}BLen = ${p.name}Buf.int; val _${p.name}BBytes = ByteArray(_${p.name}BLen); ${p.name}Buf.get(_${p.name}BBytes)');
-      writer.line(
-        '            val _${p.name}BBuf = java.nio.ByteBuffer.wrap(_${p.name}BBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN); _${p.name}BBuf.getInt()',
-      );
-      writer.line('            ${p.name}Decoded[_${p.name}K] = $mapValueType.fromReader(RecordReader(_${p.name}BBuf))');
+    if (valIsNullable) {
+      writer.line('            if (${p.name}Buf.get().toInt() == \${MapValueWire.nul.tag}) { ${p.name}Decoded[_${p.name}K] = null; return@repeat }');
     } else {
-      writer.line('            val _${p.name}VLen = ${p.name}Buf.int; val _${p.name}VBytes = ByteArray(_${p.name}VLen); ${p.name}Buf.get(_${p.name}VBytes)');
-      writer.line('            ${p.name}Decoded[_${p.name}K] = _${p.name}VBytes.toString(Charsets.UTF_8)');
+      writer.line('            ${p.name}Buf.get() // skip 1-byte type tag');
+    }
+    switch (mapValueBase) {
+      case 'int' || 'Long':
+        writer.line('            ${p.name}Decoded[_${p.name}K] = ${p.name}Buf.long');
+      case 'double' || 'Double':
+        writer.line('            ${p.name}Decoded[_${p.name}K] = ${p.name}Buf.double');
+      case 'bool' || 'Boolean':
+        writer.line('            ${p.name}Decoded[_${p.name}K] = ${p.name}Buf.get().toInt() != 0');
+      case _ when isValEnum:
+        writer.line('            ${p.name}Decoded[_${p.name}K] = $mapValueBase.fromNative(${p.name}Buf.long)');
+      case _ when isValRecord:
+        writer.line('            val _${p.name}BLen = ${p.name}Buf.int; val _${p.name}BBytes = ByteArray(_${p.name}BLen); ${p.name}Buf.get(_${p.name}BBytes)');
+        writer.line(
+          '            val _${p.name}BBuf = java.nio.ByteBuffer.wrap(_${p.name}BBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN); _${p.name}BBuf.getInt()',
+        );
+        writer.line('            ${p.name}Decoded[_${p.name}K] = $mapValueBase.decodeFrom(_${p.name}BBuf)');
+      case _ when isValVariant:
+        writer.line('            val _${p.name}BLen = ${p.name}Buf.int; val _${p.name}BBytes = ByteArray(_${p.name}BLen); ${p.name}Buf.get(_${p.name}BBytes)');
+        writer.line(
+          '            val _${p.name}BBuf = java.nio.ByteBuffer.wrap(_${p.name}BBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN); _${p.name}BBuf.getInt()',
+        );
+        writer.line('            ${p.name}Decoded[_${p.name}K] = $mapValueBase.fromReader(RecordReader(_${p.name}BBuf))');
+      default:
+        writer.line('            val _${p.name}VLen = ${p.name}Buf.int; val _${p.name}VBytes = ByteArray(_${p.name}VLen); ${p.name}Buf.get(_${p.name}VBytes)');
+        writer.line('            ${p.name}Decoded[_${p.name}K] = _${p.name}VBytes.toString(Charsets.UTF_8)');
     }
     writer.line('        }');
   }
@@ -637,7 +660,7 @@ class KotlinFunctionEmitter {
   static void _emitParamDecodes(CodeWriter writer, BridgeFunction func, KotlinTypeMapper mapper) {
     // Decode @NitroVariant params from ByteArray [4B len][1B tag][fields].
     for (final p in func.params) {
-      final bn = p.type.name.replaceFirst('?', '');
+      final bn = bareTypeName(p.type.name);
       if (mapper.variantNames.contains(bn)) {
         writer.line('        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
         writer.line('        ${p.name}Buf.getInt() // skip 4-byte length prefix');
@@ -686,7 +709,7 @@ class KotlinFunctionEmitter {
 
       if (p.type.recordListItemType == null) {
         // Single @HybridRecord param
-        final recordName = p.type.name.replaceFirst('?', '');
+        final recordName = bareTypeName(p.type.name);
         final isNullableRec = p.type.isNullable || p.type.name.endsWith('?');
         if (isNullableRec) {
           writer.line('        val ${p.name}Decoded: $recordName? = if (${p.name} == null) null else {');
@@ -882,6 +905,10 @@ class KotlinFunctionEmitter {
       final m = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(func.returnType.name);
       return m?.group(1)?.trim() ?? 'Any?';
     })();
+    // Tag 0 = null. Only the tagged String-key wire carries it; 'Any?' is the
+    // dynamic fallback, not a nullable value type.
+    final valIsNullable = mapValueType != 'Any?' && mapValueType.endsWith('?');
+    final mapValueBase = valIsNullable ? mapValueType.substring(0, mapValueType.length - 1) : mapValueType;
     // Use the INPUT param's value type for the input map (may differ from return type).
     final inputMapValueType = (() {
       if (func.params.isNotEmpty && func.params.first.type.isMap) {
@@ -890,13 +917,15 @@ class KotlinFunctionEmitter {
       }
       return mapValueType;
     })();
-    final isInputEnum = spec.isEnumName(inputMapValueType);
-    final isOutputEnum = spec.isEnumName(mapValueType);
-    final isInputRecord = spec.recordTypes.any((r) => r.name == inputMapValueType);
-    final isOutputRecord = spec.recordTypes.any((r) => r.name == mapValueType);
-    final isInputVariant = spec.isVariantName(inputMapValueType);
-    final isOutputVariant = spec.isVariantName(mapValueType);
-    final inputKtValueType = switch (inputMapValueType) {
+    final inputIsNullable = inputMapValueType != 'Any?' && inputMapValueType.endsWith('?');
+    final inputMapValueBase = inputIsNullable ? inputMapValueType.substring(0, inputMapValueType.length - 1) : inputMapValueType;
+    final isInputEnum = spec.isEnumName(inputMapValueBase);
+    final isOutputEnum = spec.isEnumName(mapValueBase);
+    final isInputRecord = spec.recordTypes.any((r) => r.name == inputMapValueBase);
+    final isOutputRecord = spec.recordTypes.any((r) => r.name == mapValueBase);
+    final isInputVariant = spec.isVariantName(inputMapValueBase);
+    final isOutputVariant = spec.isVariantName(mapValueBase);
+    final inputKtValueBase = switch (inputMapValueBase) {
       'int' => 'Long',
       'double' => 'Double',
       'bool' => 'Boolean',
@@ -906,7 +935,8 @@ class KotlinFunctionEmitter {
       _ when isInputVariant => inputMapValueType,
       _ => 'Any?',
     };
-    final useTypedInput = inputKtValueType != 'Any?';
+    final inputKtValueType = inputIsNullable ? '$inputKtValueBase?' : inputKtValueBase;
+    final useTypedInput = inputKtValueBase != 'Any?';
 
     writer.line('        val _mapBuf = java.nio.ByteBuffer.wrap($mapParam).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
     writer.line('        _mapBuf.position(4) // skip 4-byte payload length prefix');
@@ -919,29 +949,34 @@ class KotlinFunctionEmitter {
     writer.line('        repeat(_mapCount) {');
     writer.line('            val kLen = _mapBuf.int; val kBytes = ByteArray(kLen); _mapBuf.get(kBytes)');
     writer.line('            val k = kBytes.toString(Charsets.UTF_8)');
-    writer.line('            _mapBuf.get() // skip 1-byte type tag');
-    if (mapValueType == 'int' || mapValueType == 'Long') {
-      writer.line('            _inputMap[k] = _mapBuf.long');
-    } else if (mapValueType == 'double' || mapValueType == 'Double') {
-      writer.line('            _inputMap[k] = _mapBuf.double');
-    } else if (mapValueType == 'bool' || mapValueType == 'Boolean') {
-      writer.line('            _inputMap[k] = _mapBuf.get().toInt() != 0');
-    } else if (isInputEnum) {
-      // @HybridEnum: decode Int64 rawValue → enum via fromNative companion factory.
-      writer.line('            _inputMap[k] = $inputMapValueType.fromNative(_mapBuf.long)');
-    } else if (isInputRecord) {
-      // @HybridRecord: tag 5 + 4B blob_len + record encode() bytes [4B payload_len][field bytes].
-      writer.line('            val _bLen = _mapBuf.int; val _bBytes = ByteArray(_bLen); _mapBuf.get(_bBytes)');
-      writer.line('            val _bBuf = java.nio.ByteBuffer.wrap(_bBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bBuf.getInt()');
-      writer.line('            _inputMap[k] = $inputMapValueType.decodeFrom(_bBuf)');
-    } else if (isInputVariant) {
-      // @NitroVariant: tag 5 + 4B blob_len + variant encode() bytes [4B payload_len][1B tag][fields].
-      writer.line('            val _bLen = _mapBuf.int; val _bBytes = ByteArray(_bLen); _mapBuf.get(_bBytes)');
-      writer.line('            val _bBuf = java.nio.ByteBuffer.wrap(_bBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bBuf.getInt()');
-      writer.line('            _inputMap[k] = $inputMapValueType.fromReader(RecordReader(_bBuf))');
+    if (inputIsNullable) {
+      writer.line('            if (_mapBuf.get().toInt() == ${MapValueWire.nul.tag}) { _inputMap[k] = null; return@repeat }');
     } else {
-      writer.line('            val vLen = _mapBuf.int; val vBytes = ByteArray(vLen); _mapBuf.get(vBytes)');
-      writer.line('            _inputMap[k] = vBytes.toString(Charsets.UTF_8)');
+      writer.line('            _mapBuf.get() // skip 1-byte type tag');
+    }
+    switch (mapValueBase) {
+      case 'int' || 'Long':
+        writer.line('            _inputMap[k] = _mapBuf.long');
+      case 'double' || 'Double':
+        writer.line('            _inputMap[k] = _mapBuf.double');
+      case 'bool' || 'Boolean':
+        writer.line('            _inputMap[k] = _mapBuf.get().toInt() != 0');
+      case _ when isInputEnum:
+        // @HybridEnum: decode Int64 rawValue → enum via fromNative companion factory.
+        writer.line('            _inputMap[k] = $inputMapValueBase.fromNative(_mapBuf.long)');
+      case _ when isInputRecord:
+        // @HybridRecord: tag 5 + 4B blob_len + record encode() bytes [4B payload_len][field bytes].
+        writer.line('            val _bLen = _mapBuf.int; val _bBytes = ByteArray(_bLen); _mapBuf.get(_bBytes)');
+        writer.line('            val _bBuf = java.nio.ByteBuffer.wrap(_bBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bBuf.getInt()');
+        writer.line('            _inputMap[k] = $inputMapValueBase.decodeFrom(_bBuf)');
+      case _ when isInputVariant:
+        // @NitroVariant: tag 5 + 4B blob_len + variant encode() bytes [4B payload_len][1B tag][fields].
+        writer.line('            val _bLen = _mapBuf.int; val _bBytes = ByteArray(_bLen); _mapBuf.get(_bBytes)');
+        writer.line('            val _bBuf = java.nio.ByteBuffer.wrap(_bBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bBuf.getInt()');
+        writer.line('            _inputMap[k] = $inputMapValueBase.fromReader(RecordReader(_bBuf))');
+      default:
+        writer.line('            val vLen = _mapBuf.int; val vBytes = ByteArray(vLen); _mapBuf.get(vBytes)');
+        writer.line('            _inputMap[k] = vBytes.toString(Charsets.UTF_8)');
     }
     writer.line('        }');
 
@@ -964,16 +999,17 @@ class KotlinFunctionEmitter {
       writer.line('        val _result = ${KotlinTypeMapper.syncImplCall(func, "impl.${func.dartName}(_inputMap)")}');
     }
 
-    final outKtValueType = switch (mapValueType) {
+    final outKtValueBase = switch (mapValueBase) {
       'int' => 'Long',
       'double' => 'Double',
       'bool' => 'Boolean',
       'String' => 'String',
-      _ when isOutputEnum => mapValueType,
-      _ when isOutputRecord => mapValueType,
-      _ when isOutputVariant => mapValueType,
+      _ when isOutputEnum => mapValueBase,
+      _ when isOutputRecord => mapValueBase,
+      _ when isOutputVariant => mapValueBase,
       _ => 'Any?',
     };
+    final outKtValueType = valIsNullable ? '$outKtValueBase?' : outKtValueBase;
     if (outKtValueType != 'Any?') {
       writer.line('        @Suppress("UNCHECKED_CAST")');
       writer.line('        val _outMap = _result as? Map<String, $outKtValueType> ?: emptyMap()');
@@ -989,36 +1025,40 @@ class KotlinFunctionEmitter {
     writer.line('        _writeInt32(_outMap.size)');
     writer.line('        for ((k, v) in _outMap) {');
     writer.line('            val kb = k.toByteArray(Charsets.UTF_8); _writeInt32(kb.size); _outBb.write(kb)');
-    if (mapValueType == 'int' || mapValueType == 'Long') {
-      writer.line('            _outBb.write(1) // tag: int64');
-      writer.line('            _writeInt64(v)');
-    } else if (mapValueType == 'double' || mapValueType == 'Double') {
-      writer.line('            _outBb.write(2) // tag: float64');
-      writer.line('            _writeDouble(v)');
-    } else if (mapValueType == 'bool' || mapValueType == 'Boolean') {
-      writer.line('            _outBb.write(3) // tag: bool');
-      writer.line('            _outBb.write(if (v) 1 else 0)');
-    } else if (mapValueType == 'String') {
-      writer.line('            _outBb.write(4) // tag: string');
-      writer.line('            val vb = v.toByteArray(Charsets.UTF_8); _writeInt32(vb.size); _outBb.write(vb)');
-    } else if (isOutputEnum) {
-      // @HybridEnum: encode rawValue as tag 1 (int64). Mirrors Dart/Swift encoding.
-      writer.line('            _outBb.write(1) // tag: int64 (enum rawValue)');
-      writer.line('            _writeInt64((v as $mapValueType).nativeValue)');
-    } else if (isOutputRecord) {
-      // @HybridRecord: tag 5 + 4B blob_len + record encode() bytes [4B payload_len][field bytes].
-      writer.line('            _outBb.write(5) // tag: binary record');
-      writer.line('            val _rBytes = (v as $mapValueType).encode()');
-      writer.line('            _writeInt32(_rBytes.size); _outBb.write(_rBytes)');
-    } else if (isOutputVariant) {
-      // @NitroVariant: tag 5 + 4B blob_len + variant encode() bytes [4B payload_len][1B tag][fields].
-      writer.line('            _outBb.write(5) // tag: binary variant');
-      writer.line('            val _rBytes = (v as $mapValueType).encode()');
-      writer.line('            _writeInt32(_rBytes.size); _outBb.write(_rBytes)');
-    } else {
-      writer.line('            _outBb.write(4) // tag: string (generic fallback)');
-      writer.line('            @Suppress("UNCHECKED_CAST")');
-      writer.line('            val vb = v.toString().toByteArray(Charsets.UTF_8); _writeInt32(vb.size); _outBb.write(vb)');
+    if (valIsNullable) {
+      writer.line('            if (v == null) { _outBb.write(${MapValueWire.nul.tag}); continue }');
+    }
+    switch (mapValueBase) {
+      case 'int' || 'Long':
+        writer.line('            _outBb.write(${MapValueWire.int64.tag}) // tag: int64');
+        writer.line('            _writeInt64(v)');
+      case 'double' || 'Double':
+        writer.line('            _outBb.write(${MapValueWire.float64.tag}) // tag: float64');
+        writer.line('            _writeDouble(v)');
+      case 'bool' || 'Boolean':
+        writer.line('            _outBb.write(${MapValueWire.boolean.tag}) // tag: bool');
+        writer.line('            _outBb.write(if (v) 1 else 0)');
+      case 'String':
+        writer.line('            _outBb.write(${MapValueWire.string.tag}) // tag: string');
+        writer.line('            val vb = v.toByteArray(Charsets.UTF_8); _writeInt32(vb.size); _outBb.write(vb)');
+      case _ when isOutputEnum:
+        // @HybridEnum: encode rawValue as tag 1 (int64). Mirrors Dart/Swift encoding.
+        writer.line('            _outBb.write(${MapValueWire.int64.tag}) // tag: int64 (enum rawValue)');
+        writer.line('            _writeInt64((v as $mapValueBase).nativeValue)');
+      case _ when isOutputRecord:
+        // @HybridRecord: tag 5 + 4B blob_len + record encode() bytes [4B payload_len][field bytes].
+        writer.line('            _outBb.write(${MapValueWire.blob.tag}) // tag: binary record');
+        writer.line('            val _rBytes = (v as $mapValueBase).encode()');
+        writer.line('            _writeInt32(_rBytes.size); _outBb.write(_rBytes)');
+      case _ when isOutputVariant:
+        // @NitroVariant: tag 5 + 4B blob_len + variant encode() bytes [4B payload_len][1B tag][fields].
+        writer.line('            _outBb.write(${MapValueWire.blob.tag}) // tag: binary variant');
+        writer.line('            val _rBytes = (v as $mapValueBase).encode()');
+        writer.line('            _writeInt32(_rBytes.size); _outBb.write(_rBytes)');
+      default:
+        writer.line('            _outBb.write(${MapValueWire.string.tag}) // tag: string (generic fallback)');
+        writer.line('            @Suppress("UNCHECKED_CAST")');
+        writer.line('            val vb = v.toString().toByteArray(Charsets.UTF_8); _writeInt32(vb.size); _outBb.write(vb)');
     }
     writer.line('        }');
     writer.line('        val _payload = _outBb.toByteArray()');
@@ -1157,7 +1197,7 @@ class KotlinFunctionEmitter {
     KotlinTypeMapper mapper,
     String callParams,
   ) {
-    final retBaseName = func.returnType.name.replaceFirst('?', '');
+    final retBaseName = bareTypeName(func.returnType.name);
     final encodeExpr = _kotlinResultEncodeOk(retBaseName, mapper);
     writer.line('        return try {');
     if (func.isAsync) {

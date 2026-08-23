@@ -128,7 +128,7 @@ class KotlinVariantEmitter {
   // ── Type helpers ─────────────────────────────────────────────────────────────
 
   static String _fieldKotlinType(BridgeRecordField f, KotlinTypeMapper mapper) {
-    final base = f.dartType.replaceFirst('?', '');
+    final base = bareTypeName(f.dartType);
     final nullable = f.isNullable ? '?' : '';
     return switch (f.kind) {
       RecordFieldKind.primitive => '${mapper.type(base)}$nullable',
@@ -142,7 +142,7 @@ class KotlinVariantEmitter {
   }
 
   static String _fieldReadExpr(BridgeRecordField f, KotlinTypeMapper mapper) {
-    final base = f.dartType.replaceFirst('?', '');
+    final base = bareTypeName(f.dartType);
     if (f.isNullable) {
       final nonNull = BridgeRecordField(
         name: f.name,
@@ -187,7 +187,7 @@ class KotlinVariantEmitter {
   }
 
   static String _fieldWriteExpr(BridgeRecordField f, KotlinTypeMapper mapper, String expr) {
-    final base = f.dartType.replaceFirst('?', '');
+    final base = bareTypeName(f.dartType);
     return switch (f.kind) {
       RecordFieldKind.primitive when base == 'int' => 'w.writeInt64($expr)',
       RecordFieldKind.primitive when base == 'double' => 'w.writeFloat64($expr)',

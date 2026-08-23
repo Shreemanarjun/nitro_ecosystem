@@ -42,7 +42,7 @@ String _generateCppRecords(BridgeSpec spec) {
   void visit(BridgeRecordType r) {
     if (!visited.add(r.name)) return;
     for (final f in r.fields) {
-      final deps = [f.dartType.replaceFirst('?', ''), if (f.itemTypeName != null) f.itemTypeName!];
+      final deps = [bareTypeName(f.dartType), if (f.itemTypeName != null) f.itemTypeName!];
       for (final d in deps) {
         final dep = byName[d];
         if (dep != null && dep.name != r.name) visit(dep);
@@ -121,37 +121,39 @@ String generateCppStructCodecs(BridgeSpec spec) {
     s.writeln('inline ${st.name} nitro_${st.name}_fromReader(NitroRecordReader& _r) {');
     s.writeln('    ${st.name} _s{};');
     for (final f in st.fields) {
-      final base = f.type.name.replaceFirst('?', '');
-      if (base == 'double') {
-        s.writeln('    _s.${f.name} = _r.readDouble();');
-      } else if (base == 'int') {
-        s.writeln('    _s.${f.name} = _r.readInt();');
-      } else if (base == 'bool') {
-        s.writeln('    _s.${f.name} = _r.readBool() ? 1 : 0;');
-      } else if (base == 'String') {
-        s.writeln('    { std::string _tmp = _r.readString(); _s.${f.name} = strdup(_tmp.c_str()); }');
-      } else if (spec.structs.any((x) => x.name == base)) {
-        // Nested struct pointer fields are not representable inline — skip.
-        s.writeln('    // ${f.name}: nested struct field not supported in inline codec');
-      } else {
-        s.writeln('    // ${f.name}: unsupported field type ${f.type.name} in inline codec');
+      final base = bareTypeName(f.type.name);
+      switch (base) {
+        case 'double':
+          s.writeln('    _s.${f.name} = _r.readDouble();');
+        case 'int':
+          s.writeln('    _s.${f.name} = _r.readInt();');
+        case 'bool':
+          s.writeln('    _s.${f.name} = _r.readBool() ? 1 : 0;');
+        case 'String':
+          s.writeln('    { std::string _tmp = _r.readString(); _s.${f.name} = strdup(_tmp.c_str()); }');
+        case _ when spec.structs.any((x) => x.name == base):
+          // Nested struct pointer fields are not representable inline — skip.
+          s.writeln('    // ${f.name}: nested struct field not supported in inline codec');
+        default:
+          s.writeln('    // ${f.name}: unsupported field type ${f.type.name} in inline codec');
       }
     }
     s.writeln('    return _s;');
     s.writeln('}');
     s.writeln('inline void nitro_${st.name}_encodeInto(const ${st.name}& _s, NitroRecordWriter& w) {');
     for (final f in st.fields) {
-      final base = f.type.name.replaceFirst('?', '');
-      if (base == 'double') {
-        s.writeln('    w.writeDouble(_s.${f.name});');
-      } else if (base == 'int') {
-        s.writeln('    w.writeInt(_s.${f.name});');
-      } else if (base == 'bool') {
-        s.writeln('    w.writeBool(_s.${f.name} != 0);');
-      } else if (base == 'String') {
-        s.writeln('    w.writeString(_s.${f.name} ? std::string(_s.${f.name}) : std::string());');
-      } else {
-        s.writeln('    // ${f.name}: unsupported field type ${f.type.name} in inline codec');
+      final base = bareTypeName(f.type.name);
+      switch (base) {
+        case 'double':
+          s.writeln('    w.writeDouble(_s.${f.name});');
+        case 'int':
+          s.writeln('    w.writeInt(_s.${f.name});');
+        case 'bool':
+          s.writeln('    w.writeBool(_s.${f.name} != 0);');
+        case 'String':
+          s.writeln('    w.writeString(_s.${f.name} ? std::string(_s.${f.name}) : std::string());');
+        default:
+          s.writeln('    // ${f.name}: unsupported field type ${f.type.name} in inline codec');
       }
     }
     s.writeln('}');
@@ -165,7 +167,8 @@ String generateCppStructCodecs(BridgeSpec spec) {
 /// emplaced value of a `std::optional<std::vector<T>>` when the field is
 /// nullable.
 String _cppListFieldRead(BridgeRecordField f, String pushStmt) {
-  final fill = 'int32_t _n = _r.readInt32(); _target.reserve((size_t)_n); '
+  final fill =
+      'int32_t _n = _r.readInt32(); _target.reserve((size_t)_n); '
       'for (int32_t _i = 0; _i < _n; _i++) { $pushStmt }';
   if (!f.isNullable) {
     return '        { auto& _target = _obj.${f.name}; $fill }';
@@ -176,14 +179,14 @@ String _cppListFieldRead(BridgeRecordField f, String pushStmt) {
 String _cppFieldType(BridgeRecordField f, Set<String> enumNames) {
   switch (f.kind) {
     case RecordFieldKind.primitive:
-      final t = _cppPrimType(f.dartType.replaceFirst('?', ''));
+      final t = _cppPrimType(bareTypeName(f.dartType));
       return f.isNullable ? 'std::optional<$t>' : t;
     case RecordFieldKind.enumValue:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       final t = enumNames.contains(base) ? base : 'int64_t';
       return f.isNullable ? 'std::optional<$t>' : t;
     case RecordFieldKind.recordObject:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       return f.isNullable ? 'std::optional<$base>' : base;
     case RecordFieldKind.listPrimitive:
       final primVec = 'std::vector<${_cppPrimType(f.itemTypeName ?? 'int')}>';
@@ -198,7 +201,7 @@ String _cppFieldType(BridgeRecordField f, Set<String> enumNames) {
     case RecordFieldKind.typedData:
       return f.isNullable ? 'std::optional<std::vector<uint8_t>>' : 'std::vector<uint8_t>';
     case RecordFieldKind.struct:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       return f.isNullable ? 'std::optional<$base>' : base;
   }
 }
@@ -236,7 +239,7 @@ String _cppPrimRead(String dartType) {
 void _cppEmitFieldRead(CodeWriter s, BridgeRecordField f, Set<String> enumNames, Set<String> structNames) {
   switch (f.kind) {
     case RecordFieldKind.primitive:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       final t = _cppPrimType(base);
       final read = _cppPrimRead(base);
       if (f.isNullable) {
@@ -246,7 +249,7 @@ void _cppEmitFieldRead(CodeWriter s, BridgeRecordField f, Set<String> enumNames,
       }
       break;
     case RecordFieldKind.enumValue:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       final t = enumNames.contains(base) ? base : 'int64_t';
       final readExpr = enumNames.contains(base) ? 'static_cast<$base>(_r.readInt())' : '_r.readInt()';
       if (f.isNullable) {
@@ -256,7 +259,7 @@ void _cppEmitFieldRead(CodeWriter s, BridgeRecordField f, Set<String> enumNames,
       }
       break;
     case RecordFieldKind.recordObject:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       if (f.isNullable) {
         s.writeln('        { bool _null = _r.readNullTag(); _obj.${f.name} = _null ? std::nullopt : std::optional<$base>($base::fromReader(_r)); }');
       } else {
@@ -289,7 +292,7 @@ void _cppEmitFieldRead(CodeWriter s, BridgeRecordField f, Set<String> enumNames,
     case RecordFieldKind.struct:
       // Structs are plain C typedefs from bridge.g.h — decoded via the
       // nitro_<Name>_fromReader free function (see generateCppStructCodecs).
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       if (f.isNullable) {
         s.writeln('        { bool _null = _r.readNullTag(); if (!_null) _obj.${f.name} = nitro_${base}_fromReader(_r); }');
       } else {
@@ -306,7 +309,7 @@ void _cppEmitFieldWrite(CodeWriter s, BridgeRecordField f, Set<String> enumNames
   String core;
   switch (f.kind) {
     case RecordFieldKind.primitive:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       core = base == 'String'
           ? 'w.writeString($v);'
           : base == 'double'
@@ -316,7 +319,7 @@ void _cppEmitFieldWrite(CodeWriter s, BridgeRecordField f, Set<String> enumNames
           : 'w.writeInt($v);';
       break;
     case RecordFieldKind.enumValue:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       // Record enum fields use nativeValue on the wire (mirrors Dart
       // `writer.writeInt(field.nativeValue)`) — unlike variant fields (index).
       core = enumNames.contains(base) ? 'w.writeInt(static_cast<int64_t>($v));' : 'w.writeInt($v);';
@@ -347,7 +350,7 @@ void _cppEmitFieldWrite(CodeWriter s, BridgeRecordField f, Set<String> enumNames
       core = '{ w.writeInt32((int32_t)$v.size()); w.writeBytes($v.data(), $v.size()); }';
       break;
     case RecordFieldKind.struct:
-      final base = f.dartType.replaceFirst('?', '');
+      final base = bareTypeName(f.dartType);
       core = 'nitro_${base}_encodeInto($v, w);';
       break;
   }

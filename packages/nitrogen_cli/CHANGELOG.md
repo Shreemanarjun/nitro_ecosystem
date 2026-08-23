@@ -1,3 +1,27 @@
+## 0.7.1
+
+- Ecosystem sync for `nitro_generator` 0.7.1 (web `@HybridStruct` field
+  support, nullable Map values, E018). **Re-run `nitrogen generate`** — the
+  web struct layout changed.
+
+Fixed
+- `generate` skipped a spec whose contents were unchanged even when
+  `nitro_generator` had changed, silently keeping stale output after an
+  upgrade. The incremental cache is now keyed on the generator too.
+- `createSharedHeaders` re-copied `nitro_wasm_compat.h` into Apple SwiftPM
+  include dirs on every `generate`, so each run re-broke the macOS/iOS build
+  until `nitrogen link` was run again. 0.7.0 fixed the `link` path only.
+- `nitrogen --version` reported 0.7.0 while the package was 0.7.1, and the
+  fallback walked the filesystem for its own pubspec. The constant is now
+  authoritative and a test fails the build if it ever drifts again.
+
+Added
+- `nitrogen doctor`: Desktop C++ impl parity — a plugin's hand-maintained
+  `linux/src/` and `windows/src/` copies must implement every pure virtual in
+  the generated header. A method added to the spec used to reach `src/` only,
+  and the desktop build then failed to instantiate an abstract impl far from
+  the edit that caused it.
+
 ## 0.7.0
 
 **Web support.** See [migration/0.7.0.md](../../migration/0.7.0.md).

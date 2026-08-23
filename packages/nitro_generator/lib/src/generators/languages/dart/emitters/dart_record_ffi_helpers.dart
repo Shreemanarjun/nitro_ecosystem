@@ -71,7 +71,7 @@ String _decodeRecordExpr(BridgeType type, String ptrVar, BridgeSpec spec) {
     return 'LazyRecordList.decode($ptrVar, (r) => ${item}RecordExt.fromReader(r), nativeFree: _nitroFreeFinalizer)';
   }
   // Strip nullable '?' suffix — the extension/class is always named after the base type.
-  final rt = type.name.replaceFirst('?', '');
+  final rt = bareTypeName(type.name);
   // Built-in library types decode via package:nitro's free functions (the
   // class statics were removed in the 0.7.0 web split).
   const libraryDecoders = {
@@ -92,7 +92,7 @@ void _emitTypedDataDecodeReturn(
   String indent, {
   bool zeroCopy = false,
 }) {
-  final rt = type.name.replaceFirst('?', '');
+  final rt = bareTypeName(type.name);
   final ffiElem = _typedDataFfiElement(rt);
   final lengthExpr = _typedDataElementSize(rt) == 1 ? 'byteLength' : 'byteLength ~/ ${_typedDataElementSize(rt)}';
   writer.line('${indent}if ($ptrVar == nullptr) {');
@@ -273,7 +273,7 @@ void _emitResultDecode(
 
   // Success branch — decode T from res + 1
   final rt = returnType.name;
-  final base = rt.replaceFirst('?', '');
+  final base = bareTypeName(rt);
 
   if (returnType.isRecord) {
     // @HybridRecord / Map / List<Record>

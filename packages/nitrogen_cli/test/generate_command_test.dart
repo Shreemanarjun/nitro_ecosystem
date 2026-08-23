@@ -138,6 +138,33 @@ void main() {
       );
     });
 
+    test('re-generates an unchanged spec when the generator changed', () {
+      // Hashing the spec alone left a nitro_generator upgrade silently skipped:
+      // same spec, different output, and the stale files were kept.
+      final spec = _writePluginFixture(tempDir);
+      final output = File(p.join(tempDir.path, 'lib', 'src', 'camera.g.dart'));
+      output.parent.createSync(recursive: true);
+      output.writeAsStringSync('// generated');
+
+      final genLib = Directory(p.join(tempDir.path, 'gen', 'lib'))..createSync(recursive: true);
+      final genSrc = File(p.join(genLib.path, 'g.dart'))..writeAsStringSync('// v1');
+      final cfg = File(p.join(tempDir.path, '.dart_tool', 'package_config.json'));
+      cfg.parent.createSync(recursive: true);
+      cfg.writeAsStringSync('{"packages":[{"name":"nitro_generator","rootUri":"../gen"}]}');
+
+      final cache = IncrementalGenerationCache(tempDir.path);
+      cache.write(specs: [spec], outputPathsForSpec: (_) => [output.path]);
+      expect(cache.plan(specs: [spec], outputPathsForSpec: (_) => [output.path]).changedSpecs, isEmpty);
+
+      genSrc.writeAsStringSync('// v2');
+      genSrc.setLastModifiedSync(DateTime.now().add(const Duration(minutes: 1)));
+
+      expect(
+        cache.plan(specs: [spec], outputPathsForSpec: (_) => [output.path]).changedSpecs,
+        equals([spec]),
+      );
+    });
+
     test('skips unchanged specs when hashes and outputs match the manifest', () {
       final spec = _writePluginFixture(tempDir);
       final output = File(p.join(tempDir.path, 'lib', 'src', 'camera.g.dart'));

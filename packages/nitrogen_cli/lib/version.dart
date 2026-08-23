@@ -1,40 +1,10 @@
-import 'dart:io';
+/// The CLI's version. Kept in lockstep with `pubspec.yaml` by
+/// `test/version_test.dart`, which fails the build if the two ever diverge —
+/// previously this drifted (0.7.0 here vs 0.7.1 in the pubspec), so
+/// `nitrogen --version` reported a version that did not exist and made
+/// "is my globally-activated CLI stale?" impossible to answer.
+const String nitrogenVersion = '0.7.1';
 
-/// The hardcoded baseline version.
-/// In a true "automatic" setup, this could be updated by a build script,
-/// but here we use it as a fallback if pubspec detection fails.
-const String nitrogenVersion = '0.7.0';
-
-/// Dynamically resolves the version of nitrogen from its own pubspec.yaml.
-/// This works even when globally activated by looking near the script file.
-String _getOwnVersion() {
-  try {
-    // 1. Try to find pubspec.yaml relative to the script entry point.
-    // Platform.script points to the entry script (e.g. bin/nitrogen.dart)
-    final scriptPath = Platform.script.toFilePath();
-    final scriptFile = File(scriptPath);
-
-    // We expect the script to be in bin/ or a snapshot nearby.
-    // If bin/nitrogen.dart, then root is parent of bin/.
-    var current = scriptFile.parent;
-    while (current.path != current.parent.path) {
-      final pubspec = File('${current.path}/pubspec.yaml');
-      if (pubspec.existsSync()) {
-        final content = pubspec.readAsStringSync();
-        if (content.contains('name: nitrogen_cli')) {
-          for (final line in content.split('\n')) {
-            if (line.trim().startsWith('version:')) {
-              return line.replaceFirst('version:', '').trim();
-            }
-          }
-        }
-      }
-      current = current.parent;
-    }
-  } catch (_) {
-    // Fallback
-  }
-  return nitrogenVersion;
-}
-
-final String activeVersion = _getOwnVersion();
+/// The version reported by `nitrogen --version` and the doctor/dashboard
+/// headers.
+const String activeVersion = nitrogenVersion;

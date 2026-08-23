@@ -1,6 +1,7 @@
 import 'package:nitro_annotations/nitro_annotations.dart' show CppImpl, KotlinImpl, NativeImpl, WasmImpl;
 
 import 'bridge_spec.dart';
+import 'map_wire.dart';
 
 enum ValidationSeverity { error, warning }
 
@@ -253,7 +254,7 @@ class SpecValidator {
       // and nested structs are supported.
       for (final st in spec.structs) {
         final unsupported = st.fields.where((f) {
-          final base = f.type.name.replaceFirst('?', '');
+          final base = bareTypeName(f.type.name);
           // Mirrors _fieldSlot in web_bridge_generator.dart — keep in sync.
           if (spec.isEnumName(base) || spec.isStructName(base) || f.type.isTypedData) return false;
           if (base == 'String') return false;
@@ -327,6 +328,9 @@ class SpecValidator {
           );
         }
       }
+
+      final retNullableMap = _nullableMapValueIssue(func.returnType, '${spec.dartClassName}.${func.dartName}() return type');
+      if (retNullableMap != null) issues.add(retNullableMap);
 
       // E003: Nested Map (Map<String, Map<…>>) is not supported — the binary
       // encoder only handles flat Map<String, scalar/record> values.
@@ -416,7 +420,7 @@ class SpecValidator {
       }
 
       // Return type
-      final retName = func.returnType.name.replaceFirst('?', '');
+      final retName = bareTypeName(func.returnType.name);
       if (func.returnType.isFunction) {
         issues.add(
           ValidationIssue(
@@ -588,6 +592,8 @@ class SpecValidator {
         // @HybridEnum is now supported (Gap 2): decoded from tag 1 + int64 rawValue.
         if (param.type.isMap) {
           final mapMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(param.type.name);
+          final paramNullableMap = _nullableMapValueIssue(param.type, '${spec.dartClassName}.${func.dartName}() parameter "${param.name}"');
+          if (paramNullableMap != null) issues.add(paramNullableMap);
           final valueType = mapMatch?.group(1)?.trim() ?? '';
           final isStructVal = spec.isStructName(valueType);
           if (isStructVal) {
@@ -602,7 +608,7 @@ class SpecValidator {
           }
         }
 
-        final pName = param.type.name.replaceFirst('?', '');
+        final pName = bareTypeName(param.type.name);
         if (!param.type.isRecord && // @HybridRecord params bridge as String
             !param.type.isAnyMap && // NitroAnyMap — isAnyMap is a separate flag from isRecord
             !param.type.isPointer && // raw FFI pointers
@@ -631,8 +637,8 @@ class SpecValidator {
         // W001 for all other (primitive) types.
         final paramIsNullable = param.type.isNullable || param.type.name.endsWith('?');
         if (param.isNamed && param.isOptional && !paramIsNullable && param.defaultLiteral == null) {
-          final bareTypeName = param.type.name.replaceFirst('?', '');
-          if (enumNames.contains(bareTypeName)) {
+          final bareParamType = bareTypeName(param.type.name);
+          if (enumNames.contains(bareParamType)) {
             issues.add(
               ValidationIssue(
                 severity: ValidationSeverity.warning,
@@ -646,7 +652,7 @@ class SpecValidator {
                     'or make the param nullable (`${param.type.name}? ${param.name}`).',
               ),
             );
-          } else if (structNames.contains(bareTypeName)) {
+          } else if (structNames.contains(bareParamType)) {
             issues.add(
               ValidationIssue(
                 severity: ValidationSeverity.warning,
@@ -681,7 +687,7 @@ class SpecValidator {
 
     // ── Properties ─────────────────────────────────────────────────────────
     for (final prop in spec.properties) {
-      final pName = prop.type.name.replaceFirst('?', '');
+      final pName = bareTypeName(prop.type.name);
 
       // E004: Stream<T> as a property type is not supported. The property bridge
       // generates a C getter/setter — it cannot register a Dart port for streaming.
@@ -725,6 +731,8 @@ class SpecValidator {
         );
         continue;
       }
+      final propNullableMap = _nullableMapValueIssue(prop.type, '${spec.dartClassName}.${prop.dartName}');
+      if (propNullableMap != null) issues.add(propNullableMap);
       if (!prop.type.isRecord && !prop.type.isPointer && !_isKnownType(pName, knownTypes) && !_isKnownType(prop.type.name, knownTypes)) {
         issues.add(
           ValidationIssue(
@@ -753,13 +761,15 @@ class SpecValidator {
 
     // ── Streams ────────────────────────────────────────────────────────────
     for (final stream in spec.streams) {
+      final streamNullableMap = _nullableMapValueIssue(stream.itemType, '${spec.dartClassName}.${stream.dartName} stream item');
+      if (streamNullableMap != null) issues.add(streamNullableMap);
       // E009 removed: nullable stream item types are now fully supported.
       // Native posts Dart_CObject_kNull when the item is null; Dart's unpack
       // lambda checks `message == null` before decoding the value.
       // Supported nullable types: int?, double?, bool?, String?, @HybridEnum?,
       // @HybridStruct?, @HybridRecord?  (TypedData? remains unsupported — E012).
 
-      final iName = stream.itemType.name.replaceFirst('?', '');
+      final iName = bareTypeName(stream.itemType.name);
       if (!_isKnownType(iName, knownTypes) && !_isKnownType(stream.itemType.name, knownTypes)) {
         issues.add(
           ValidationIssue(
@@ -864,7 +874,7 @@ class SpecValidator {
         // Only report E013 for primitive-kind fields whose dartType base name
         // is not in the known types set, which signals an unresolved reference.
         if (field.kind != RecordFieldKind.primitive) continue;
-        final fName = field.dartType.replaceFirst('?', '').split('<').first.trim();
+        final fName = bareTypeName(field.dartType).split('<').first.trim();
         if (!_isKnownType(fName, knownTypes)) {
           issues.add(
             ValidationIssue(
@@ -938,7 +948,7 @@ class SpecValidator {
     // ── Structs ────────────────────────────────────────────────────────────
     for (final st in spec.structs) {
       for (final field in st.fields) {
-        final fName = field.type.name.replaceFirst('?', '');
+        final fName = bareTypeName(field.type.name);
         if (!_knownPrimitives.contains(fName) && !structNames.contains(fName) && !enumNames.contains(fName)) {
           issues.add(
             ValidationIssue(
@@ -979,7 +989,7 @@ class SpecValidator {
     // Build adjacency: structName → names of other structs referenced by fields.
     final adj = <String, List<String>>{};
     for (final st in spec.structs) {
-      adj[st.name] = st.fields.map((f) => f.type.name.replaceFirst('?', '')).where(spec.isStructName).toList();
+      adj[st.name] = st.fields.map((f) => bareTypeName(f.type.name)).where(spec.isStructName).toList();
     }
 
     // 0 = unvisited, 1 = in DFS stack, 2 = fully processed.
@@ -1025,10 +1035,45 @@ class SpecValidator {
     return issues;
   }
 
+  /// The value type of a `Map<K, V>` type string, or null when it is not a map.
+  /// Splits on the LAST comma so `Map<String, List<int>>` yields `List<int>`.
+  static String? _mapValueType(String typeName) {
+    if (!typeName.startsWith('Map<')) return null;
+    final inner = typeName.substring(4, typeName.lastIndexOf('>'));
+    final comma = inner.lastIndexOf(',');
+    return comma < 0 ? null : inner.substring(comma + 1).trim();
+  }
+
+  /// Nullable map values ride the String-key wire's per-value type tag as
+  /// tag 0. Two cases still cannot: an int-key map's values are untagged
+  /// (homogeneous, no room for a null marker), and enum/record/variant values
+  /// go through Swift's `compactMapValues`, which silently DROPS nil entries
+  /// rather than keeping the key.
+
+  static ValidationIssue? _nullableMapValueIssue(BridgeType t, String where) {
+    if (!t.isMap) return null;
+    if (_mapValueType(t.name) case final String v when v.endsWith('?')) {
+      final bare = v.substring(0, v.length - 1);
+      final intKey = !t.name.startsWith('Map<String,');
+      if (!intKey && nullableMapValueTypes.contains(bare)) return null;
+      return ValidationIssue(
+        severity: ValidationSeverity.error,
+        code: 'E018',
+        message: intKey
+            ? '$where — an int-keyed map cannot have a nullable value type ("$v"); its values carry no type tag.'
+            : '$where — Map value type "$v" is nullable, which only ${nullableMapValueTypes.join('/')} values support.',
+        hint:
+            'Use NitroAnyMap, whose wire format tags each value and already carries nulls; '
+            'or Map<..., $bare> omitting absent keys; or a @HybridRecord with a nullable field.',
+      );
+    }
+    return null;
+  }
+
   static bool _isKnownType(String typeName, Set<String> knownTypes) {
     if (knownTypes.contains(typeName)) return true;
 
-    final withoutNullability = typeName.replaceFirst('?', '');
+    final withoutNullability = bareTypeName(typeName);
     if (knownTypes.contains(withoutNullability)) return true;
 
     final genericMatch = RegExp(r'^(\w+)<(.+)>$').firstMatch(typeName);
@@ -1037,7 +1082,7 @@ class SpecValidator {
       final innerType = genericMatch.group(2)!;
 
       if (containerType == 'List' || containerType == 'Set') {
-        final innerWithoutNullability = innerType.replaceFirst('?', '');
+        final innerWithoutNullability = bareTypeName(innerType);
         return knownTypes.contains(innerWithoutNullability) || knownTypes.contains(innerType);
       }
     }
@@ -1052,7 +1097,7 @@ class SpecValidator {
   ) {
     final issues = <ValidationIssue>[];
     final callback = param.type;
-    final returnName = (callback.functionReturnType ?? 'void').replaceFirst('?', '');
+    final returnName = bareTypeName((callback.functionReturnType ?? 'void'));
     final enumNames = spec.enums.map((e) => e.name).toSet();
 
     // E016: callback param on a plain @NitroAsync (non-native-async) method.
@@ -1064,9 +1109,11 @@ class SpecValidator {
         ValidationIssue(
           severity: ValidationSeverity.error,
           code: 'E016',
-          message: '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" is a callback type, '
+          message:
+              '${spec.dartClassName}.${func.dartName}() — parameter "${param.name}" is a callback type, '
               'which is not supported on @NitroAsync methods.',
-          hint: 'Callback replacement relies on the native registration call being synchronous on the calling '
+          hint:
+              'Callback replacement relies on the native registration call being synchronous on the calling '
               'isolate. Remove @NitroAsync from ${func.dartName}() (registering a callback pointer is normally '
               'cheap), or use @NitroNativeAsync if native must register it off the calling thread.',
         ),
@@ -1099,7 +1146,7 @@ class SpecValidator {
     }
 
     for (final callbackParam in callback.functionParams) {
-      final name = callbackParam.name.replaceFirst('?', '');
+      final name = bareTypeName(callbackParam.name);
       final structNames = spec.structs.map((s) => s.name).toSet();
       final recordNames = spec.recordTypes.map((r) => r.name).toSet();
       final variantNames = spec.variants.map((v) => v.name).toSet();

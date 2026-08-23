@@ -78,14 +78,15 @@ class CppImplGenerator {
       for (final func in spec.functions) {
         w.writeln('');
         if (func.isNativeAsync) {
-          final params = CppInterfaceGenerator.cppMethodParamsFor(
-            func.params,
-            enumNames,
-            structNames,
-            recordNames,
-          )
-            ..add('NitroError* _nitro_err')
-            ..add('int64_t dartPort');
+          final params =
+              CppInterfaceGenerator.cppMethodParamsFor(
+                  func.params,
+                  enumNames,
+                  structNames,
+                  recordNames,
+                )
+                ..add('NitroError* _nitro_err')
+                ..add('int64_t dartPort');
           w.writeln('    void ${func.dartName}(${params.join(', ')}) override {');
           w.writeln('        // TODO: on error, populate _nitro_err (hasError/name/message via strdup) before posting.');
           w.writeln('        // TODO: post result via Dart_PostCObject_DL(dartPort, ...)');

@@ -36,7 +36,7 @@ void _emitNativeAsyncBody(
     final plainCallArgs = func.params
         .map((p) {
           final t = p.type.name;
-          final tBase = t.replaceFirst('?', '');
+          final tBase = bareTypeName(t);
           // Enum (including nullable enum: TcStatus? uses -1 as null sentinel) —
           // mirrors dart_function_emitter.dart's arena-needed callArgs. Bare
           // spec.isEnumName(t) (without stripping '?') never matches a nullable
@@ -90,7 +90,7 @@ String _nativeAsyncOpenType(BridgeFunction func, BridgeSpec spec) {
 ///  • enum                   → kInt64          → call .toEnumType()
 String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   final rt = func.returnType.name;
-  final rtBase = rt.replaceFirst('?', '');
+  final rtBase = bareTypeName(rt);
   final isNullable = rt.endsWith('?');
 
   if (rt == 'void') return '(_) {}';
@@ -209,6 +209,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
         ? 'if (raw == null || raw == 0) return null; '
         : 'if (raw == null || raw == 0) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the handle address as kInt64, or make the return type nullable"); } ';
     if (func.isOwned) {
+      // Placeholder: an @NitroOwned block's size is not in the C ABI.
       return '(raw) { ${nullGuard}final handle = NativeHandle<$tp>.fromAddress(raw as int); _${func.dartName}Finalizer.attach(handle, Pointer<Void>.fromAddress(raw), detach: handle, externalSize: 128); handle.attachReleaseCallback((addr) { _${func.dartName}ReleaseFn(Pointer<Void>.fromAddress(addr)); _${func.dartName}Finalizer.detach(handle); }); return handle; }';
     }
     return '(raw) { ${nullGuard}return NativeHandle<$tp>.fromAddress(raw as int); }';
@@ -348,7 +349,7 @@ void _emitReturnDecode(
     case ReturnKind.variant:
       // @NitroVariant: C returns Pointer<Uint8> = [4B len][1B tag][fields].
       // Dart VariantExt.fromNative reads [4B len] then [tag][fields].
-      final vBase = returnType.name.replaceFirst('?', '');
+      final vBase = bareTypeName(returnType.name);
       writer.line('${indent}if ($resVar == nullptr) throw StateError(\'$vBase returned null\');');
       writer.line('${indent}final _variant;');
       writer.line('${indent}try {');
@@ -431,7 +432,7 @@ bool _isPrimitiveType(BridgeType bt, BridgeSpec spec) {
   if (bt.isRecord || bt.isTypedData || bt.isPointer || bt.isFunction || bt.isNativeHandle) return false;
   // Custom types always go as Pointer<Uint8> — not scalar.
   if (spec.isCustomTypeName(bt.baseName)) return false;
-  final name = bt.name.replaceFirst('?', '');
+  final name = bareTypeName(bt.name);
   if (name == 'String' || name == 'void') return false;
   if (spec.isStructName(name)) return false;
   // Nullable primitives count as "primitive-like" for leaf detection purposes.
