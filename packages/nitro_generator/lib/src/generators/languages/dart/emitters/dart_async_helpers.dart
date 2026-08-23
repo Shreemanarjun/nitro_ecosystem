@@ -168,7 +168,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   }
 
   // uint64 / uint64?  — reuses the NitroOptInt64 wire layout (same 9-byte
-  // packed struct as int?; bit pattern is preserved). Previously unhandled
+  // packed struct as int?; bit pattern is preserved). Not handled by the generic path.
   // here, so nullable uint64? fell through to the generic `raw as $rt` cast
   // below — which "succeeded" (uint64? is just int? under the hood) but
   // silently returned the raw pointer address instead of decoding it.

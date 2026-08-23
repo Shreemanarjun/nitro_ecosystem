@@ -406,7 +406,7 @@ class SwiftFunctionEmitter {
         case _ when p.type.isMap:
           // _nitroDecodeMapBinary(...) copies the map's entries out of the
           // pointer into an owned Swift Dictionary the moment this runs — safe
-          // to capture. Previously unhandled for native-async — the only param
+          // to capture. The last param category
           // category left deferred from the earlier param-decoding fix.
           _emitNativeAsyncMapParamDecode(writer, p, spec);
         case _ when p.type.isAnyMap:
@@ -505,7 +505,7 @@ class SwiftFunctionEmitter {
             writer.line('        _obj.type = Dart_CObject_kInt64');
             writer.line('        _obj.value.as_int64 = Int64(bitPattern: UInt64(UInt(bitPattern: _out_ni)))');
           case _ when isNullUint64:
-            // uint64? NativeAsync: previously fell to the generic else, which
+            // uint64? NativeAsync: needs its own branch, which
             // collapses a thrown/nil result to 0 via `?? 0` — silently wrong
             // (0 is a valid uint64 value), not a compile failure, since it
             // compiles fine either way. Pointer approach matches int?/double?
@@ -518,7 +518,7 @@ class SwiftFunctionEmitter {
             writer.line('        _obj.type = Dart_CObject_kInt64');
             writer.line('        _obj.value.as_int64 = Int64(bitPattern: UInt64(UInt(bitPattern: _out_nu)))');
           case _ when isAnyNativeObjectReturn && isNullableRet:
-            // Nullable AnyNativeObject NativeAsync: previously fell to the
+            // Nullable AnyNativeObject NativeAsync: needs its own branch, not the
             // generic else, using 0 instead of -1 as the "no value" sentinel —
             // silently wrong (0 is a valid instanceId), not a compile failure.
             // -1 matches the sentinel convention AnyNativeObject params and the
@@ -555,14 +555,14 @@ class SwiftFunctionEmitter {
             // UnsafeMutableRawPointer? (same protocol type as the sync path) —
             // post the pointer bits as kInt64. nil posts address 0, which the
             // Dart unpack maps to null for a nullable handle (and to a
-            // descriptive StateError for a non-nullable one). Previously this
+            // descriptive StateError for a non-nullable one). This
             // fell to the generic else (`Int64(_result)`) — compile failure.
             writer.line('        let _result: UnsafeMutableRawPointer? = try await impl.${func.dartName}($callArgs)');
             writer.line('        var _obj = Dart_CObject()');
             writer.line('        _obj.type = Dart_CObject_kInt64');
             writer.line('        _obj.value.as_int64 = _result != nil ? Int64(bitPattern: UInt64(UInt(bitPattern: _result!))) : 0');
           case _ when isVariantRet:
-            // Bare @NitroVariant NativeAsync: previously fell to the generic else
+            // Bare @NitroVariant NativeAsync: needs its own branch
             // (`(try? await ...) ?? 0`), which doesn't type-check against an enum —
             // compile failure. Mirrors the sync path's NitroRecordWriter encoding,
             // then posts the pointer as kInt64 (a thrown/absent result posts
@@ -577,7 +577,7 @@ class SwiftFunctionEmitter {
             writer.line('        _obj.type = Dart_CObject_kInt64');
             writer.line('        _obj.value.as_int64 = _recPtr != nil ? Int64(bitPattern: UInt64(UInt(bitPattern: _recPtr!))) : 0');
           case _ when isStruct:
-            // Bare @HybridStruct NativeAsync: previously fell to the generic else
+            // Bare @HybridStruct NativeAsync: needs its own branch
             // — compile failure (a struct doesn't coerce to Int64). Mirrors the
             // sync path's _${sn}C.fromSwift(...) malloc'd-copy encoding.
             final sn = bareTypeName(func.returnType.name);
@@ -591,7 +591,7 @@ class SwiftFunctionEmitter {
             writer.line('        _obj.type = Dart_CObject_kInt64');
             writer.line('        _obj.value.as_int64 = _recPtr != nil ? Int64(bitPattern: UInt64(UInt(bitPattern: _recPtr!))) : 0');
           case _ when isAnyMap:
-            // NitroAnyMap NativeAsync: previously fell to the generic else —
+            // NitroAnyMap NativeAsync: needs its own branch —
             // compile failure. Now implemented via _nitroEncodeAnyMapBinary
             // (a new codec — NitroAnyMap had no encode/decode path anywhere in
             // the Swift emitter until now, sync included).
@@ -602,7 +602,7 @@ class SwiftFunctionEmitter {
             writer.line('        _obj.type = Dart_CObject_kInt64');
             writer.line('        _obj.value.as_int64 = _recPtr != nil ? Int64(bitPattern: UInt64(UInt(bitPattern: _recPtr!))) : 0');
           case _ when isMap:
-            // Map<String,V> NativeAsync: previously fell to the generic else —
+            // Map<String,V> NativeAsync: needs its own branch —
             // compile failure (protocol return type is `Any`, not Int64-
             // convertible). Mirrors the sync path's _nitroEncodeMapBinary
             // encoding — return-only, does not decode a map *parameter* (see the
@@ -613,7 +613,7 @@ class SwiftFunctionEmitter {
             writer.line('        _obj.type = Dart_CObject_kInt64');
             writer.line('        _obj.value.as_int64 = _recPtr != nil ? Int64(bitPattern: UInt64(UInt(bitPattern: _recPtr!))) : 0');
           case _ when isTypedDataReturn:
-            // TypedData NativeAsync (Uint8List/Float32List/etc.): previously fell
+            // TypedData NativeAsync (Uint8List/Float32List/etc.): is not covered by the generic path
             // to the generic else — compile failure (Data/[Int16]/etc. aren't
             // Int64-convertible). Mirrors the sync path's _nitroCopyTypedData*
             // helpers, which already return UnsafeMutablePointer<UInt8>?.
@@ -629,7 +629,7 @@ class SwiftFunctionEmitter {
             writer.line('        _obj.type = Dart_CObject_kInt64');
             writer.line('        _obj.value.as_int64 = _recPtr != nil ? Int64(bitPattern: UInt64(UInt(bitPattern: _recPtr!))) : 0');
           case _ when isCustomTypeReturn:
-            // @NitroCustomType NativeAsync: previously fell to the generic else
+            // @NitroCustomType NativeAsync: needs its own branch
             // — compile failure ([UInt8] isn't Int64-convertible). Mirrors the
             // sync path's fixed-size malloc'd-copy encoding (custom types have a
             // known, agreed encodedSize — no length prefix, unlike records).

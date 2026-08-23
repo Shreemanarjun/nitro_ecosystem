@@ -924,7 +924,7 @@ void _emitJniPropertyBridges(
     // This replaces the previous manually-maintained boolean flag soup
     // (isEnum, isVariantProp, isNullablePrimGet/Prop, propBase, etc.) with a
     // single canonical source, and fixes the DateTime / DateTime? cases that
-    // previously fell through to incorrect default branches.
+    // the generic default branch is wrong for these.
     final propKind = classifyBridgeItem(prop.type, spec);
 
     // C return type for the getter (and const-qualified param type for the setter).

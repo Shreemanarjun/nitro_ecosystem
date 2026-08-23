@@ -308,7 +308,7 @@ class KotlinFunctionEmitter {
         _emitNativeAsyncVariantListEncode(writer, func);
         writer.line('            postBytesToPort(dartPort, _bytes)');
       case _ when isVariantReturn:
-        // Bare @NitroVariant NativeAsync: previously fell to the generic else
+        // Bare @NitroVariant NativeAsync: needs its own branch
         // (discard + always-null), the same bug class as the fixed record
         // return. Mirrors _emitVariantReturnBody's wire format.
         writer.line('            val _vResult = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
@@ -320,7 +320,7 @@ class KotlinFunctionEmitter {
         writer.line('            _vBuf.put(_vPayload)');
         writer.line('            postBytesToPort(dartPort, _vBuf.array())');
       case _ when isAnyMapReturn:
-        // NitroAnyMap NativeAsync: previously fell to the generic else. Only
+        // NitroAnyMap NativeAsync: needs its own branch. Only
         // the return side is handled here — a NitroAnyMap *parameter* on a
         // @NitroNativeAsync method remains unfixed (deferred, see param-phase
         // notes) since it needs its own decode step this branch doesn't add.
@@ -329,7 +329,7 @@ class KotlinFunctionEmitter {
         writer.line('            val _outMap = result as? Map<String, Any?> ?: emptyMap()');
         writer.line('            postBytesToPort(dartPort, NitroAnyMapCodec.encode(_outMap))');
       case _ when isMapReturn:
-        // Map<String,V> NativeAsync: previously fell to the generic else. Same
+        // Map<String,V> NativeAsync: needs its own branch. Same
         // return-only scope note as isAnyMapReturn above.
         writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
         _emitNativeAsyncMapEncode(writer, func, spec);
@@ -341,7 +341,7 @@ class KotlinFunctionEmitter {
         writer.line('            val result = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
         writer.line('            postBytesToPort(dartPort, result)');
       case _ when isStructReturn:
-        // Bare @HybridStruct NativeAsync: previously had no wire format at all
+        // Bare @HybridStruct NativeAsync: needs an explicit wire format
         // (structs are plain Kotlin data classes at the JNI boundary, not
         // ByteArray-encoded, so nothing in the generic dispatch chain applied —
         // fell to discard + postNullToPort). The struct-specific post*ToPort
@@ -577,7 +577,7 @@ class KotlinFunctionEmitter {
   }
 
   /// Decodes a `NitroAnyMap` param (param [p]) into `val ${p.name}Decoded`.
-  /// Previously unhandled for native-async — the only param category left
+  /// Not handled by the generic path — the only param category left
   /// deferred from the earlier param-decoding fix.
   static void _emitNativeAsyncAnyMapParamDecode(CodeWriter writer, BridgeParam p) {
     writer.line('        val ${p.name}Decoded: Map<String, Any?> = NitroAnyMapCodec.decode(${p.name})');
@@ -586,7 +586,7 @@ class KotlinFunctionEmitter {
   /// Decodes a `Map<String,V>` param (param [p]) into `val ${p.name}Decoded`,
   /// mirroring the input-decode half of `_emitMapBody`'s wire format. Local
   /// variable names are namespaced by `${p.name}` so multiple map params on
-  /// the same function don't collide. Previously unhandled for native-async.
+  /// the same function don't collide. Not handled by the generic path.
   static void _emitNativeAsyncMapParamDecode(CodeWriter writer, BridgeParam p, BridgeSpec spec) {
     final mapValueType = (() {
       final m = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(p.type.name);
