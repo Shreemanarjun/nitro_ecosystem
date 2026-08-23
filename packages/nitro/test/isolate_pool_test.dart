@@ -138,11 +138,14 @@ void main() {
   group('IsolatePool.dispatch — error propagation', () {
     test('propagates exceptions thrown by the dispatched function', () async {
       await withPool(2, (pool) async {
-        expect(
-          () => pool.dispatch<int>(_throws, ['boom']),
+        // BOTH dispatches must be awaited: withPool disposes in its `finally`,
+        // and a still-in-flight call is completed with "disposed while call was
+        // in flight" instead of the function's own error. An un-awaited
+        // expectation raced dispose and failed on slower CI runners.
+        await expectLater(
+          pool.dispatch<int>(_throws, ['boom']),
           throwsA(isA<ArgumentError>().having((e) => e.message, 'message', 'boom')),
         );
-        // Wait for the error to propagate before the pool is disposed.
         await expectLater(
           pool.dispatch<int>(_throws, ['boom']),
           throwsA(isA<ArgumentError>()),
