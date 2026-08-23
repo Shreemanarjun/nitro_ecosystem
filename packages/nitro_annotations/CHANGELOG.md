@@ -1,3 +1,8 @@
+## 0.7.2
+
+- Ecosystem sync for `nitro_generator` 0.7.2. **Re-run `nitrogen generate`.**
+  No changes to this package.
+
 ## 0.7.1
 
 - Ecosystem sync for `nitro_generator` 0.7.1. **Re-run `nitrogen generate`** —

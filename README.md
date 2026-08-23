@@ -40,10 +40,10 @@ No method channels. No manual FFI. No boilerplate.
 ```yaml
 # pubspec.yaml
 dependencies:
-  nitro: ^0.7.1
+  nitro: ^0.7.2
 
 dev_dependencies:
-  nitro_generator: ^0.7.1
+  nitro_generator: ^0.7.2
   build_runner: ^2.4.0
 ```
 
@@ -828,7 +828,8 @@ typedef struct __attribute__((packed)) { uint8_t hasValue; uint8_t  value; } Nit
 
 ## Known Limitations
 
-> Upgrading? See [migration/0.7.1.md](migration/0.7.1.md) (nullable struct fields, nullable map values) and [migration/0.7.0.md](migration/0.7.0.md) (web/WASM).
+> Upgrading? **0.7.2 requires `nitrogen generate`** — it fixes named parameters on the web bridge.
+> See [migration/0.7.1.md](migration/0.7.1.md) (nullable struct fields, nullable map values) and [migration/0.7.0.md](migration/0.7.0.md) (web/WASM).
 
 | ID | Limitation | Workaround |
 |---|---|---|

@@ -1,3 +1,13 @@
+## 0.7.2
+
+Fixed
+- The web bridge emitted NAMED parameters as positional, so the generated
+  `_XWebImpl` was not a valid override of the spec — any method with a named
+  parameter failed to compile on web. **Re-run `nitrogen generate`.**
+- `SYNC_RECORD_RETURN` fired on `@NitroNativeAsync` methods returning a
+  `@HybridRecord`. The rule ignored `isNativeAsync`, so a method that returns a
+  `Future` was reported as a blocking synchronous decode.
+
 ## 0.7.1
 
 Added
@@ -14,8 +24,6 @@ Fixed
   `String?`, and could never decode a nullable enum to null.
 - Android: nullable struct fields need a boxed JNI ctor descriptor; the
   primitive one aborted at plugin registration.
-- Web bridge flattened named params to positional — not a valid override.
-- `SYNC_RECORD_RETURN` fired on `@NitroNativeAsync` record returns.
 - `DateTime` `@HybridStruct` fields did not compile. Now ms-epoch.
 - `@HybridRecord` TypedData fields serialised the whole backing buffer for a
   view; now bounded to the view.

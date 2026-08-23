@@ -1,3 +1,8 @@
+## 0.7.2
+
+- Ecosystem sync for `nitro_generator` 0.7.2 (web named-parameter fix).
+  **Re-run `nitrogen generate`.**
+
 ## 0.7.1
 
 - Ecosystem sync for `nitro_generator` 0.7.1. **Re-run `nitrogen generate`**.
