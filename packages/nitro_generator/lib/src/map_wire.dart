@@ -1,15 +1,11 @@
 /// The String-key map wire contract, in one place.
 ///
 /// A map entry is `[4B keyLen][key bytes][1B tag][value bytes]`. Five backends
-/// (Dart FFI, Kotlin, Swift, C++, web) encode and decode this independently,
-/// and each used to carry its own literal tag numbers plus a prose comment
-/// describing the table. Those comments had already drifted apart — one listed
-/// a `9=bytes` tag that exists nowhere, and two omitted `0=null` after it was
-/// added — which is how the nullable-value gap went unnoticed.
+/// encode and decode it independently, so the tags live here rather than as
+/// literals in each.
 ///
-/// Int-keyed maps are a DIFFERENT wire: their values are homogeneous and carry
-/// no tag at all, which is why a nullable value type has nowhere to record
-/// null there (E018).
+/// Int-keyed maps are a DIFFERENT wire: values are homogeneous and carry no
+/// tag, which is why a nullable value type cannot record null there (E018).
 library;
 
 /// One wire category for a map value. The set is closed, so a `switch` over it

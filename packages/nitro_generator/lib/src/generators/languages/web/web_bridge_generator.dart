@@ -206,7 +206,21 @@ class WebBridgeGenerator {
     }
   }
 
-  static String _dartParams(List<BridgeParam> params) => params.map((p) => '${_dartTypeFor(p.type)} ${p.name}').join(', ');
+  // Mirrors the FFI emitter's _paramList: named params must stay named or the
+  // web impl's signature is not a valid override of the spec (Bug: 0.7.1 web).
+  static String _dartParams(List<BridgeParam> params) {
+    final positional = params.where((p) => !p.isNamed).map((p) => '${_dartTypeFor(p.type)} ${p.name}').join(', ');
+    final named = params.where((p) => p.isNamed).toList();
+    if (named.isEmpty) return positional;
+    final namedStr = named
+        .map((p) {
+          if (p.defaultLiteral != null) return '${_dartTypeFor(p.type)} ${p.name} = ${p.defaultLiteral}';
+          return '${_dartTypeFor(p.type)} ${p.name}';
+        })
+        .join(', ');
+    final sep = positional.isEmpty ? '' : ', ';
+    return '$positional$sep{$namedStr}';
+  }
 
   // ══ Methods ═════════════════════════════════════════════════════════════
 

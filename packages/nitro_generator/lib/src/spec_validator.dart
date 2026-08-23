@@ -503,14 +503,16 @@ class SpecValidator {
         );
       }
 
-      // Warn: @HybridRecord returned synchronously (JSON decode is non-trivial)
-      if (!func.isAsync && func.returnType.isRecord) {
+      // Warn: @HybridRecord returned synchronously — decoding blocks the caller.
+      // @NitroNativeAsync is NOT synchronous: it returns a Future and posts the
+      // result from the native side, so it must not be flagged here.
+      if (!func.isAsync && !func.isNativeAsync && func.returnType.isRecord) {
         issues.add(
           ValidationIssue(
             severity: ValidationSeverity.warning,
             code: 'SYNC_RECORD_RETURN',
             message: '${spec.dartClassName}.${func.dartName}() returns a @HybridRecord type synchronously.',
-            hint: 'Add @nitroAsync to dispatch on a background isolate; JSON serialization blocks the calling thread.',
+            hint: 'Add @nitroAsync (background isolate) or @NitroNativeAsync (native posts the result); decoding blocks the calling thread.',
           ),
         );
       }

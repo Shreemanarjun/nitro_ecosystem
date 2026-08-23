@@ -729,4 +729,61 @@ void main() {
       expect(out, contains('_module.addFunction'));
     });
   });
+
+  group('named parameters stay named in the web impl signature', () {
+    // Regression: 0.7.1 emitted named optional params positionally, so the
+    // web impl was not a valid override of the spec (invalid_override on
+    // every method with a {named} param).
+    BridgeSpec namedSpec() => BridgeSpec(
+      dartClassName: 'Math',
+      lib: 'math',
+      namespace: 'math',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      webImpl: NativeImpl.wasm,
+      sourceUri: 'math.native.dart',
+      functions: [
+        BridgeFunction(
+          dartName: 'scale',
+          cSymbol: 'math_scale',
+          isAsync: false,
+          returnType: BridgeType(name: 'double'),
+          params: [
+            BridgeParam(name: 'value', type: BridgeType(name: 'double')),
+            BridgeParam(
+              name: 'factor',
+              type: BridgeType(name: 'double?'),
+              isNamed: true,
+              isOptional: true,
+            ),
+          ],
+        ),
+        BridgeFunction(
+          dartName: 'label',
+          cSymbol: 'math_label',
+          isAsync: false,
+          returnType: BridgeType(name: 'String'),
+          params: [
+            BridgeParam(
+              name: 'mode',
+              type: BridgeType(name: 'String'),
+              isNamed: true,
+              isOptional: true,
+              defaultLiteral: "'fast'",
+            ),
+          ],
+        ),
+      ],
+    );
+
+    test('positional + named optional param renders as {Type name}', () {
+      final out = WebBridgeGenerator.generate(namedSpec());
+      expect(out, contains('scale(double value, {double? factor})'));
+    });
+
+    test('named param with a default keeps the default literal', () {
+      final out = WebBridgeGenerator.generate(namedSpec());
+      expect(out, contains("label({String mode = 'fast'})"));
+    });
+  });
 }

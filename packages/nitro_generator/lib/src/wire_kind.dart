@@ -1,15 +1,9 @@
 /// One closed classification of how a bridged type crosses the boundary.
 ///
-/// [BridgeType] carries a dozen overlapping `is*` booleans — `isTuple` implies
-/// `isRecord`, `isMap` implies `isRecord`, `isEnumList` overlaps
-/// `recordListItemType` — so "what kind of thing is this?" was answered by an
-/// if/else ladder whose ORDER encoded the precedence. Every backend wrote its
-/// own ladder, so the five orders could disagree, and a newly added wire type
-/// silently fell into whichever `default:` branch it reached first.
-///
-/// [wireKindOf] is that precedence, written once. Because the result is a
-/// closed enum, a `switch` over it is exhaustive: adding a variant fails to
-/// compile in every backend that does not handle it.
+/// [BridgeType]'s `is*` booleans overlap — `isTuple` and `isMap` both imply
+/// `isRecord` — so the answer depends on CHECK ORDER. [wireKindOf] holds that
+/// order once, and a `switch` over the enum is exhaustive: a new variant fails
+/// to compile in every backend that ignores it.
 library;
 
 import 'bridge_spec.dart';
@@ -74,21 +68,21 @@ enum WireKind {
 /// record, not its own kind, because they share a wire.
 WireKind wireKindOf(BridgeType t, {required bool Function(String) isEnum, required bool Function(String) isStruct, required bool Function(String) isVariant}) {
   final base = t.baseName;
-  if (base == 'void' || base.isEmpty) return WireKind.none;
-  // Containers first: isRecord is ALSO true for maps, lists and tuples.
-  if (t.isAnyMap) return WireKind.anyMap;
-  if (t.isMap) return WireKind.map;
-  if (t.isEnumList || t.isVariantList || t.recordListItemType != null) return WireKind.list;
-  if (t.isFunction) return WireKind.function;
-  if (t.isNativeHandle || t.isAnyNativeObject) return WireKind.handle;
-  if (t.isTypedData) return WireKind.typedData;
-  if (t.isPointer) return WireKind.pointer;
-  if (isStruct(base)) return WireKind.struct;
-  if (isVariant(base)) return WireKind.variant;
-  if (isEnum(base)) return WireKind.enumeration;
-  // A tuple shares the record wire; isRecord covers both.
-  if (t.isRecord || t.isTuple) return WireKind.record;
+  // Arm order IS the precedence — containers first, because isRecord is also
+  // true for maps, lists and tuples, and a tuple shares the record wire.
   return switch (base) {
+    'void' || '' => WireKind.none,
+    _ when t.isAnyMap => WireKind.anyMap,
+    _ when t.isMap => WireKind.map,
+    _ when t.isEnumList || t.isVariantList || t.recordListItemType != null => WireKind.list,
+    _ when t.isFunction => WireKind.function,
+    _ when t.isNativeHandle || t.isAnyNativeObject => WireKind.handle,
+    _ when t.isTypedData => WireKind.typedData,
+    _ when t.isPointer => WireKind.pointer,
+    _ when isStruct(base) => WireKind.struct,
+    _ when isVariant(base) => WireKind.variant,
+    _ when isEnum(base) => WireKind.enumeration,
+    _ when t.isRecord || t.isTuple => WireKind.record,
     'double' || 'float' => WireKind.float,
     'bool' => WireKind.bool_,
     'String' => WireKind.string,

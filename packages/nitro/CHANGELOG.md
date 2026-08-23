@@ -4,21 +4,16 @@
   the web struct layout changed.
 
 Fixed
-- `IsolatePool`: a worker whose reply could not be sent died, leaving its
-  in-flight calls pending forever. The worker always replies now, and the pool
-  fails a dead worker's calls via `onExit`/`onError`.
-- `loadWebModule`: a failed load stayed cached, so every retry replayed the
-  rejection; concurrent callers shared one refcount, so the first
-  `releaseLib` evicted a module others held.
-- `RecordReader` trusted the length prefix and could build a view past the
-  allocation. Negative and >256 MiB lengths are rejected.
-- `RecordWriterBase(0)` hung — growth doubled from zero.
-- `readCString` spun forever on an unterminated pointer, and skipped bytes on
-  a short read near the end of memory.
-- `NitroCoalescer.submit` leaked its pending slot when the native call threw
-  synchronously.
-- `NitroInstanceRegistry`: the GC finalizer evicted a live entry when native
-  reused an instance id.
+- `IsolatePool`: a worker whose reply could not be sent died, hanging its
+  in-flight calls forever. It now always replies, and the pool fails a dead
+  worker's calls.
+- `loadWebModule`: failed loads stayed cached (retries replayed the rejection)
+  and concurrent callers shared one refcount.
+- `RecordReader` trusted the length prefix and could read past the allocation.
+- `RecordWriterBase(0)` hung; growth doubled from zero.
+- `readCString` spun forever on an unterminated pointer.
+- `NitroCoalescer.submit` leaked its pending slot when the call threw.
+- `NitroInstanceRegistry`: the GC finalizer evicted a live entry on id reuse.
 
 ## 0.7.0
 

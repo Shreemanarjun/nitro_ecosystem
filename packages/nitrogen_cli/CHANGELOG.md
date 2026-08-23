@@ -3,25 +3,21 @@
 - Ecosystem sync for `nitro_generator` 0.7.1. **Re-run `nitrogen generate`**.
 
 Added
-- CI: `dart analyze` over every package, and a `nitrogen_cli tests` job — the
-  CLI's tests had never run in CI.
-- `nitrogen doctor`: Desktop C++ impl parity — `linux/src` and `windows/src`
+- CI: `dart analyze` over every package, plus a `nitrogen_cli tests` job.
+- `nitrogen doctor`: desktop C++ impl parity — `linux/src` and `windows/src`
   must implement every pure virtual in the generated header.
 
 Fixed
-- `generate` skipped specs when only `nitro_generator` had changed, keeping
-  stale output. The cache is keyed on the generator too.
+- `generate` kept stale output when only `nitro_generator` had changed.
 - `createSharedHeaders` re-copied `nitro_wasm_compat.h` into Apple SwiftPM
-  includes on every `generate`, re-breaking the macOS/iOS build.
-- `pkill -f build_runner` killed every build_runner on the machine. Now scoped
-  to the project's own processes.
-- `PlatformTargetAnalyzer.fromSpec` threw an unhandled `FileSystemException`
-  for a spec not at `lib/src/<lib>.native.dart`.
+  includes on every run, re-breaking the macOS/iOS build.
+- `pkill -f build_runner` killed every build_runner on the machine; now scoped
+  to the project.
+- `PlatformTargetAnalyzer.fromSpec` threw on a spec outside
+  `lib/src/<lib>.native.dart`.
 - `nitrogen --version` reported 0.7.0 for a 0.7.1 package.
-- Generated build script omitted `removeFunction` from
-  `EXPORTED_RUNTIME_METHODS`.
-- Scaffolded browser test derived imports from the module lib name instead of
-  the package name.
+- Build script omitted `removeFunction` from `EXPORTED_RUNTIME_METHODS`.
+- Scaffolded browser test used the module lib name, not the package name.
 
 ## 0.7.0
 
