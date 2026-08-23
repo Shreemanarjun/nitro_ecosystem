@@ -70,7 +70,10 @@ Last updated: 2026-06-29. Generator unit tests: 3982. macOS integration tests: 6
 - `List<@HybridRecord>` — indexed offset-table `[4B count][8B×N offsets][items]`
 - `List<@HybridStruct>` — `LazyRecordList` + zero-copy proxy decode
 - `List<@NitroVariant>` — sequential `[4B count][tag+fields×N]`
-- `Map<String, primitive>` — JSON bridge
+- `Map<String, primitive>` — binary, one type tag per value
+  (0=null 1=int64 2=float64 3=bool 4=string); JSON is only the fallback
+  for a value type with no dedicated wire
+- `Map<String, primitive?>` — same wire, null is tag 0
 - `Map<String, @HybridEnum>` — int64 value encoding
 - `Map<String, @HybridRecord>` — binary blob encoding (tag 5)
 - `Map<String, @NitroVariant>` — binary blob encoding (tag 5)

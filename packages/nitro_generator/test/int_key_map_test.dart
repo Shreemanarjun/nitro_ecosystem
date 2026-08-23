@@ -235,4 +235,36 @@ void main() {
       expect(out, contains('bd.getInt32(pos, Endian.little)'));
     });
   });
+  // The int-key emitter is NOT covered by the byte-identity gate (no canary
+  // spec uses an int-keyed map), so mis-dispatch has to be caught here: every
+  // value type must emit its OWN body and never silently fall to the JSON
+  // fallback, which is a different wire than native decodes.
+  group('int-key map values never fall through to the JSON fallback', () {
+    final emptySpec = BridgeSpec(
+      dartClassName: 'Mod',
+      lib: 'mod',
+      namespace: 'mod',
+      iosImpl: NativeImpl.swift,
+      androidImpl: NativeImpl.kotlin,
+      sourceUri: 'mod.native.dart',
+    );
+    const bodies = {
+      'int': 'hdr.setInt64(0, e.value, Endian.little)',
+      'double': 'hdr.setFloat64(0, e.value, Endian.little)',
+      'bool': 'bb.addByte(e.value ? 1 : 0)',
+      'String': 'utf8.encode(e.value)',
+    };
+    for (final MapEntry(key: valueType, value: body) in bodies.entries) {
+      test('Map<int, $valueType> emits its own body', () {
+        final out = DartFfiGenerator.generateIntKeyMapHelpers('int', valueType, emptySpec);
+        expect(out, contains(body), reason: '$valueType lost its dedicated encode');
+        expect(
+          out,
+          isNot(contains('jsonEncode(e.value)')),
+          reason: '$valueType fell through to the dynamic JSON fallback',
+        );
+      });
+    }
+  });
+
 }

@@ -1,8 +1,9 @@
 ## 0.7.1
 
 - Ecosystem sync for `nitro_generator` 0.7.1 (web `@HybridStruct` field
-  support, E018). **Re-run `nitrogen generate`** — the web struct layout
-  changed. No changes to this package.
+  support, nullable `Map<String, T?>` values, E018). **Re-run
+  `nitrogen generate`** — the web struct layout changed. No changes to this
+  package.
 
 ## 0.7.0
 

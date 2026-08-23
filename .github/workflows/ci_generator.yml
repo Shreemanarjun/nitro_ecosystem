@@ -61,6 +61,28 @@ jobs:
         run: flutter test --reporter expanded
         working-directory: packages/nitro
 
+  cli:
+    name: nitrogen_cli tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get workspace dependencies
+        run: flutter pub get
+
+      # The CLI owns the init/link/doctor/generate wiring AND the guards that
+      # catch stale output, a drifted --version and the Emscripten-only header
+      # leaking into Apple SwiftPM targets. None of that was covered by CI.
+      - name: Run nitrogen_cli tests
+        run: flutter test --reporter expanded
+        working-directory: packages/nitrogen_cli
+
   build-yaml-drift:
     name: build.yaml drift check
     runs-on: ubuntu-latest
