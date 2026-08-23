@@ -48,7 +48,7 @@ abstract class Math extends HybridObject {
 
 ### `@HybridStruct`
 
-Generates a packed C struct for zero-copy data transfer across the FFI boundary. All fields must be primitive (`int`, `double`, `bool`) or other `@HybridStruct` types.
+Generates a packed C struct for zero-copy data transfer across the FFI boundary. Fields may be `int`, `double`, `bool`, `DateTime`, `String`, TypedData, a `@HybridEnum`, or another `@HybridStruct`. Nullable fields are supported: a pointer-shaped field encodes absence as `nullptr`, a nullable scalar or enum gains a synthesized `<field>HasValue` byte.
 
 ```dart
 @HybridStruct(packed: true)

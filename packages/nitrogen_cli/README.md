@@ -683,7 +683,8 @@ The generator emits correct `#include "types.bridge.g.h"` in `scanner.bridge.g.h
 | `@NitroTuple` | `uint8_t*, int64_t len` | `ByteArray` | `UnsafePointer<UInt8>?` |
 | `@NitroCustomType` | `uint8_t*, int64_t len` | `ByteArray` | `UnsafePointer<UInt8>?` |
 | `List<T>` | record codec | `List<T>` | `[T]` |
-| `Map<String, T>` | JSON `const char*` | `Map<String, T>` | `[String: T]` |
+| `Map<String, T>` | Binary, tagged values (`uint8_t*`) | `Map<String, T>` | `[String: T]` |
+| `Map<String, T?>` | Same wire; null is tag 0 | `Map<String, T?>` | `[String: T?]` |
 | `NativeHandle<Void>` | `void*` | `Long` | `Int64` |
 | `Future<T>` (`@nitroAsync`) | — | `suspend fun` | `async throws` |
 | `Future<T>` (`@nitroNativeAsync`) | — | `fun` + `Long port` | `func` + `Int64 port` |

@@ -371,7 +371,8 @@ Bridged as `@Packed(1)` C structs — same layout as C++ `std::optional<T>`. No 
 | `Uint8List`, `Float32List`, ... | `T* + int64_t len` | `ByteArray`, `FloatArray`, ... | `UnsafeMutablePointer<T>?, Int64` |
 | `TypedData` + `@zeroCopy` | `T*` (raw pin) | `java.nio.ByteBuffer` | `UnsafeMutablePointer<T>?` |
 | `List<primitive>` | `uint8_t*` (record codec) | `List<T>` | `[T]` |
-| `Map<String, T>` | JSON (`const char*`) | `Map<String, T>` | `[String: T]` |
+| `Map<String, T>` | Binary, tagged values (`uint8_t*`) | `Map<String, T>` | `[String: T]` |
+| `Map<String, T?>` | Same wire; null is tag 0 | `Map<String, T?>` | `[String: T?]` |
 
 ### Custom types
 

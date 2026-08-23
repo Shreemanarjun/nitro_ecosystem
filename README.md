@@ -55,8 +55,8 @@ dart pub global activate nitrogen_cli  # one-time
 
 | Tool | Minimum version |
 |---|---|
-| Flutter SDK | 3.22.0+ |
-| Dart SDK | 3.3.0+ |
+| Flutter SDK | 3.35.0+ (any release bundling Dart 3.11.3) |
+| Dart SDK | 3.11.3+ (`sdk: ^3.11.3` in every package) |
 | Android NDK | 26.1+ (r26b) |
 | Kotlin | 1.9.0+ |
 | iOS Deployment Target | 13.0+ |
@@ -64,6 +64,7 @@ dart pub global activate nitrogen_cli  # one-time
 | Xcode | 15.0+ |
 | Windows (desktop C++) | Visual Studio 2022 + CMake 3.14+ |
 | Linux (desktop C++) | GCC/Clang + CMake 3.10+ |
+| Web (WASM) | Emscripten SDK (`emcc` on PATH) — only for `web: WebNativeImpl.wasm` |
 
 ---
 
@@ -215,12 +216,31 @@ static void math_auto_register() { math_register_impl(&g_math); }
   ios: AppleNativeImpl.swift,
   android: AndroidNativeImpl.kotlin,
   macos: AppleNativeImpl.cpp,
+  windows: WindowsNativeImpl.cpp,
+  linux: LinuxNativeImpl.cpp,
+  web: WebNativeImpl.wasm,   // compiles the C++ impl to WASM
 )
 abstract class Camera extends HybridObject {
   static final Camera instance = _CameraImpl();
   bool isAvailable();
 }
 ```
+
+Every platform is optional — declare only the ones you ship.
+
+> **Targeting web?** Two things differ. The instance comes from the generated
+> platform shim rather than `_CameraImpl()`, and the WASM module must be loaded
+> before first use:
+>
+> ```dart
+> import 'camera.platform.g.dart';                  // createCameraInstance, ensureCameraReady
+>
+> static final Camera instance = createCameraInstance();
+>
+> await ensureCameraReady();   // no-op on native; loads the .wasm on web
+> ```
+>
+> See [migration/0.7.0.md](migration/0.7.0.md) for the full web setup.
 
 ### `@HybridEnum` — enum at the C boundary
 
@@ -237,7 +257,7 @@ enum Quality { low, medium, high }
 
 ### `@HybridStruct` — zero-copy C struct
 
-Passes all fields as a packed C struct across the FFI boundary in a single call. Best for hot-path numeric data (frames, sensor readings). Fields may be `int`, `double`, `bool`, or another `@HybridStruct`.
+Passes all fields as a packed C struct across the FFI boundary in a single call. Best for hot-path numeric data (frames, sensor readings). Fields may be `int`, `double`, `bool`, `DateTime`, `String`, TypedData, a `@HybridEnum`, or another `@HybridStruct` — and any of them may be nullable.
 
 ```dart
 @HybridStruct(packed: true)
@@ -250,6 +270,8 @@ class SensorReading {
 ```
 
 > **Note:** `String` fields in a `@HybridStruct` cost ~100–500 ns each (heap copy via `strdup`). If your struct carries string fields used frequently, prefer `@HybridRecord`.
+
+> **Nullable fields:** a pointer-shaped field (`String?`, TypedData, nested struct) encodes absence as `nullptr`. A nullable scalar or enum has no spare bit, so it gains a synthesized `int8_t <field>HasValue` byte in the C struct — the same convention as the `NitroOptInt64`/`Float64`/`Bool` parameter wrappers. Structs without nullable scalars are unaffected.
 
 ### `@HybridRecord` — binary-encoded complex data
 
@@ -487,6 +509,19 @@ class Color {
 | `bool` | `int8_t` | `Boolean` | `Bool` |
 | `String` | `const char*` / `std::string` | `String` | `String` |
 | `void` | `void` | `Unit` | `Void` |
+| `DateTime` | `int64_t` (ms since epoch) | `Long` | `Date` |
+
+**Sized numerics** — use these when the native side needs an exact width:
+
+| Dart | C | Kotlin | Swift |
+|---|---|---|---|
+| `int8` / `int16` / `int32` | `int8_t` / `int16_t` / `int32_t` | `Byte` / `Short` / `Int` | `Int8` / `Int16` / `Int32` |
+| `uint8` / `uint16` / `uint32` | `uint8_t` / `uint16_t` / `uint32_t` | `Byte` / `Short` / `Int` | `UInt8` / `UInt16` / `UInt32` |
+| `uint64` | `uint64_t` | `Long` (same bits) | `UInt64` |
+| `float` | `float` | `Float` | `Float` |
+| `intptr` / `size` | `intptr_t` / `size_t` | `Long` | `Int` |
+
+All are plain `int`/`double` in Dart — the alias only pins the C width.
 
 ### Nullable primitives
 
@@ -523,7 +558,10 @@ void processAudio(Float32List samples);
 | `List<@HybridRecord>` | Indexed binary blob (`LazyRecordList<T>` — O(1) random access) |
 | `List<@HybridEnum>` | `@HybridRecord` binary codec |
 | `List<@NitroVariant>` | `@HybridRecord` binary codec |
-| `Map<String, T>` | JSON via `dart:convert` (String key only) |
+| `Map<String, T>` | Binary, one type tag per value |
+| `Map<String, T?>` | Same wire; null is tag 0 (`int`/`double`/`bool`/`String` values) |
+| `Map<int, T>` / `Map<intN, T>` | Binary, fixed-width keys, **untagged** values |
+| `Map<@HybridEnum, T>` | Binary, enum raw value as the key |
 | `Map<String, @HybridRecord>` | Binary tag-5 blob |
 | `Map<String, @NitroVariant>` | Binary tag-5 blob |
 
@@ -719,13 +757,27 @@ The generator validates your spec before emitting any code:
 
 | Code | Severity | Condition |
 |---|---|---|
-| **E001** | Error | `Map<K, V>` where `K` is not `String` |
+| **E001** | Error | Unsupported `Map` key — only `String`, `int`/`intN`, and `@HybridEnum` keys are allowed |
 | **E002** | Error | `@nitroAsync` on a non-`Future` return type |
-| **E014** | Error | `@NitroVariant` with more than 255 cases |
+| **E003** | Error | Nested `Map` return type |
+| **E004** | Error | `Stream<T>` used as a property type |
+| **E005** | Error | `Backpressure.batch` on an unsupported stream item type |
+| **E006** | Error | `batchMaxSize` is not > 0 |
+| **E008** | Error | `Map<String, @HybridStruct>` value type (see L10) |
+| **E010**–**E013** | Error | Unknown return / stream-item / property / `@HybridRecord` field type |
+| **E014** | Error | `@NitroVariant` with 0 cases or more than 255 |
+| **E015** | Error | `@NitroResult` combined with `@NitroNativeAsync` |
+| **E016** | Error | Callback parameter on a plain `@nitroAsync` method |
+| **E017** | Error | Web + `@HybridStruct` field with no wasm32 layout (record/variant/map) |
+| **E018** | Error | Nullable `Map` value the wire cannot carry — use `NitroAnyMap` |
+| **E020** | Error | Two `@HybridEnum` cases share a native value |
 | **W001** | Warning | Non-nullable `int`/`double`/`bool` named param with no default |
 | **W002** | Warning | Non-nullable `@HybridEnum` named param with no default |
 | **W003** | Warning | Non-nullable `@HybridStruct` named param with no default |
 | **W004** | Warning | `Stream<T>` getter without `@NitroStream` annotation |
+| **W005** | Warning | `Map<String, @HybridRecord>` stream item type is not type-safe |
+| **W008** | Warning | Web + `@nitroAsync` — runs inline on the main thread |
+| **W009** | Warning | Web + `@zeroCopy` — one bulk copy, not a true zero-copy view |
 
 Errors stop generation. Pass `--fail-on-warn` to also stop on warnings (recommended in CI).
 
@@ -776,12 +828,15 @@ typedef struct __attribute__((packed)) { uint8_t hasValue; uint8_t  value; } Nit
 
 ## Known Limitations
 
+> Upgrading? See [migration/0.7.1.md](migration/0.7.1.md) (nullable struct fields, nullable map values) and [migration/0.7.0.md](migration/0.7.0.md) (web/WASM).
+
 | ID | Limitation | Workaround |
 |---|---|---|
 | L6 | `@HybridStruct` and `@HybridRecord` cannot be **returned** from a callback (function parameter). Callbacks that need to return complex data should return `void` and call back via a method. | Use a method channel or reverse callback pattern |
 | L7 | `TypedData?` (nullable `Uint8List`, etc.) is not supported in sync/async params or returns. The two-param C ABI (pointer + length) makes optional transport ambiguous. | Use a `@HybridRecord` wrapper: `@HybridRecord() class MaybeBuffer { final Uint8List? data; }` |
 | ~~L8~~ | Resolved in 0.7.0: web is fully supported — the C++ impl compiles to WASM (Emscripten) and the generated `dart:js_interop` bridge speaks the same binary wire format, including streams and `@nitroNativeAsync`. | See [migration/0.7.0.md](migration/0.7.0.md) to add web to a plugin |
 | L10 | `Map<String, @HybridStruct>` is not supported. | Use `Map<String, @HybridRecord>` instead |
+| L13 | A nullable map value only works for `int`/`double`/`bool`/`String` on a String-keyed map. An int-keyed map's values carry no type tag, and enum/record/variant values are dropped rather than kept as null (E018). | Use `NitroAnyMap`, which tags every value and carries nulls |
 | L12 | `@NitroVariant` callbacks (function parameters returning a variant) are not supported. | Return `void` from callback; use a reverse method call |
 
 ---
