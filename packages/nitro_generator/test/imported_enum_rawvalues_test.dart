@@ -50,7 +50,9 @@ void main() {
     // spec_extractor rebuilds imported enums field-by-field; a field left out
     // of that copy is lost silently. Compare the two constructions in source
     // so a newly added BridgeEnum field cannot be forgotten again.
-    final src = File('lib/src/spec_extractor.dart').readAsStringSync();
+    // Normalise line endings: a CRLF checkout (Windows CI) makes a `\n`-anchored
+    // pattern miss, which looked like "the copy site moved".
+    final src = File('lib/src/spec_extractor.dart').readAsStringSync().replaceAll('\r\n', '\n');
     final copy = RegExp(r'\(e\) => BridgeEnum\((.*?)\),\n', dotAll: true).firstMatch(src)?.group(1);
     expect(copy, isNotNull, reason: 'imported-enum copy site not found — did it move?');
     for (final field in ['name:', 'startValue:', 'values:', 'rawValues:']) {
