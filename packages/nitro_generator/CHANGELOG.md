@@ -1,75 +1,44 @@
 ## 0.7.1
 
 Added
-- `WireKind` — one closed classification of how a type crosses the boundary,
-  replacing the per-backend if/else ladders whose ORDER encoded the
-  precedence (a map is also a record, a tuple is also a record) and could
-  drift apart. A switch over it is exhaustive, so a new wire category fails
-  to compile in any backend that ignores it.
-- Web `@HybridStruct` fields: `String`, TypedData and nested structs (all
-  pointer slots in the wasm32 layout). E017 now only rejects record, variant
-  and map fields.
-- Nullable Map values: `Map<String, int?>`, `<double?>`, `<bool?>` and
-  `<String?>` round-trip on Dart, Kotlin, Swift, C++ and web. The String-key
-  wire already tags every value, so null is tag 0 — no layout change, and
-  non-nullable maps are byte-identical. The key stays present with a null
-  value rather than being dropped.
-- E020 — two `@HybridEnum` cases sharing a native value are now an error.
-  The wire carries the number, so one case became undecodable, and the
-  generated code had duplicate Dart switch cases and an invalid Swift enum.
-- E018 — a nullable Map value that the wire cannot carry is an error: an
-  int-keyed map (its values are untagged) or an enum/record/variant value
-  (Swift's `compactMapValues` drops a nil entry instead of keeping the key).
-  Checked on returns, parameters, properties and stream items; the hint points
-  at `NitroAnyMap`, which tags every value and already carries nulls.
+- Nullable `@HybridStruct` fields. Pointer-shaped fields (String, TypedData,
+  nested struct) use `nullptr`; scalars and enums use a synthesized
+  `<field>HasValue` byte. Structs without them are unchanged.
+- Nullable Map values — `Map<String, int?|double?|bool?|String?>`. Null is
+  tag 0 on the existing String-key wire; non-nullable maps are unchanged.
+- Web `@HybridStruct` fields: `String`, TypedData and nested structs. E017 now
+  only rejects record, variant and map fields.
+- `WireKind` — one closed type classification, replacing the per-backend
+  if/else ladders. A switch over it is exhaustive.
+- E018 — nullable Map value the wire cannot carry (int-keyed map, or an
+  enum/record/variant value). Use `NitroAnyMap`.
+- E020 — two `@HybridEnum` cases sharing a native value.
 
 Fixed
-- Nullable `@HybridStruct` fields were broken in three ways at once, and the
-  validator let the spec through because it stripped `?` before checking:
-  a `String?` field emitted no `nativeFree` (leak) and fell through to
-  `ptr.ref.f = f`, assigning a `String?` to a `Pointer<Utf8>` so the generated
-  part file did not compile; the read path handed back the raw pointer; and a
-  nullable enum decoded unconditionally, so it could never actually be null.
-  Pointer-shaped fields (String, TypedData, nested struct) now encode absence
-  as nullptr, and nullable SCALARS/enums ride a synthesized `<field>HasValue`
-  byte — the same convention `NitroOptInt64`/`Float64`/`Bool` already use.
-  Threaded through the C typedef, the Dart FFI struct, the struct proxy, the
-  Swift C-ABI shadow, the wasm32 web layout and the JNI bridge — on Android
-  a nullable field is `Long?`/`Double?`/`Boolean?` on the Kotlin data class,
-  so the constructor takes a BOXED object; passing the raw primitive made
-  `GetMethodID("<init>")` fail and aborted the process during plugin
-  registration.
-- A `@HybridRecord` TypedData field holding a VIEW (`Int32List.view`,
-  `sublistView`) was serialised with `.buffer.asUint8List()`, which ignores
-  `offsetInBytes`/`lengthInBytes` — the whole backing buffer went on the wire,
-  at the wrong length. Bounded to the view, matching the struct codec.
-- `DateTime` `@HybridStruct` fields assigned a `DateTime` straight into the
-  int64 slot, so any struct with one failed to compile. Encodes as ms-epoch
-  now, in both the nullable and non-nullable forms.
-- Imported `@HybridEnum`s lost their explicit `rawValues` when copied into the
-  importing module, so every downstream lookup table fell back to contiguous
-  indices — a non-contiguous enum silently mapped to the WRONG wire value
-  across module boundaries, with no diagnostic.
-- `replaceFirst('?', '')` removed the FIRST nullability marker, which in a
-  generic is the INNER type's — `Map<String, int?>` became
-  `Map<String, int>` and the value silently lost its nullability. All 384
-  uses now go through `bareTypeName()`, which strips only a trailing marker;
-  a test keeps the idiom from coming back.
-- The map wire contract lived as prose in six places that had already
-  drifted: one listed a `9=bytes` tag that exists nowhere, two omitted
-  `0=null`, and one claimed int-keyed maps "reuse the tag scheme" when they
-  write no tag at all. Tags now come from a single `MapValueWire` table that
-  every backend reads.
-- The Swift map decoder read the string wire through `default:`, so a tag it
-  did not know was silently decoded as a string. Tag 4 is now explicit.
-- Enum struct fields were packed and read as int64 while the C typedef
-  declares `int32_t`, misreading every field after the enum.
+- Nullable `@HybridStruct` fields generated non-compiling code: `String?`
+  emitted no `nativeFree` (leak) and assigned a `String?` to a
+  `Pointer<Utf8>`; a nullable enum could never decode to null. The validator
+  passed such specs.
+- Android: a nullable struct field is boxed on the Kotlin data class, so the
+  JNI constructor descriptor must be boxed too. The primitive descriptor made
+  `GetMethodID("<init>")` fail and aborted at plugin registration.
+- `DateTime` `@HybridStruct` fields assigned a `DateTime` into the int64 slot
+  and failed to compile. Now ms-epoch.
+- `@HybridRecord` TypedData fields serialised the whole backing buffer for a
+  view. Bounded to `offsetInBytes`/`lengthInBytes`.
+- Imported `@HybridEnum`s lost their `rawValues`, so non-contiguous enums
+  mapped to the wrong wire value across modules.
+- `replaceFirst('?', '')` stripped the INNER marker in `Map<String, int?>`.
+  All 384 uses go through `bareTypeName()`.
+- Map wire tags now come from one table; the six prose copies had drifted.
+- The Swift map decoder read the string wire via `default:`, so an unknown tag
+  decoded as a string. Tag 4 is explicit.
+- Enum struct fields were packed as int64 while the C typedef says `int32_t`.
 - The web struct layout ignored C alignment; it now follows natural alignment
-  (and `packed`), so a `bool` before an `int64` no longer shifts the tail.
-- TypedData struct fields carry the pointer plus the synthesized `int64`
-  element count, or a spec-declared companion length field when present.
-- Struct proxies reported a fixed `externalSize: 512` to the GC instead of the
-  real `sizeOf<XFfi>()`.
+  and `packed`.
+- TypedData struct fields carry the pointer plus the synthesized element
+  count, or a spec-declared companion length field.
+- Struct proxies reported `sizeOf<XFfi>()` instead of a hardcoded 512.
 
 ## 0.7.0
 
