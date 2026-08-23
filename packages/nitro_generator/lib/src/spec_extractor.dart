@@ -323,6 +323,11 @@ class SpecExtractor {
             name: e.name,
             startValue: e.startValue,
             values: e.values,
+            // rawValues MUST be carried across: dropping them makes a
+            // non-contiguous imported enum fall back to index-based values in
+            // every downstream lookup table, silently mapping cases to the
+            // wrong wire value across module boundaries.
+            rawValues: e.rawValues,
             isImported: isNativeFile,
           ),
         ),

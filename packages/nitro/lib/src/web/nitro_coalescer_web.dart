@@ -43,7 +43,15 @@ class NitroCoalescer {
     final id = _nextId++;
     final completer = Completer<int>();
     _pending[id] = completer;
-    call(id, nativePort);
+    try {
+      call(id, nativePort);
+    } catch (_) {
+      // The native call never reached the other side, so no batch will ever
+      // carry this id — drop the slot instead of leaving a future that can
+      // only resolve at dispose().
+      _pending.remove(id);
+      rethrow;
+    }
     return completer.future;
   }
 

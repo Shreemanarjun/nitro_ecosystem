@@ -83,6 +83,18 @@ class NitroRuntime {
       _libRefCount[libName] = (_libRefCount[libName] ?? 0) + 1;
       return Future.value(cached);
     }
+    // Every awaiter of a shared in-flight load must count as a holder, and a
+    // FAILED load must not stay cached — otherwise a transient network error
+    // poisons the module forever, and N concurrent callers share one refcount
+    // so the first releaseLib evicts a module the others still hold.
+    final inFlight = _loading[libName];
+    if (inFlight != null) {
+      // Count only on success, so a shared FAILED load leaks no reference.
+      return inFlight.then((m) {
+        _libRefCount[libName] = (_libRefCount[libName] ?? 0) + 1;
+        return m;
+      });
+    }
     return _loading.putIfAbsent(libName, () async {
       final url = jsUrl ?? (assetPackage != null ? 'assets/packages/$assetPackage/assets/web/$libName.js' : 'assets/web/$libName.js');
       _log(NitroLogLevel.verbose, 'loadWebModule', 'Loading WASM module: $libName from $url');
@@ -109,9 +121,8 @@ class NitroRuntime {
       _log(NitroLogLevel.verbose, 'loadWebModule', 'Loaded: $libName in ${sw.elapsedMicroseconds} µs');
       _moduleCache[libName] = module;
       _libRefCount[libName] = (_libRefCount[libName] ?? 0) + 1;
-      _loading.remove(libName);
       return module;
-    });
+    }).whenComplete(() => _loading.remove(libName));
   }
 
   /// Returns the loaded module for [libName], or throws with the fix.

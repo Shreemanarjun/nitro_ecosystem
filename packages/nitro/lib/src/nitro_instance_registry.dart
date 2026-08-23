@@ -19,7 +19,14 @@ class NitroInstanceRegistry {
   static final _registry = <int, WeakReference<Object>>{};
 
   // Automatically removes the entry when the impl is GC'd without dispose().
-  static final _finalizer = Finalizer<int>((id) => _registry.remove(id));
+  //
+  // Native can hand the same id to a NEW instance once the old one is
+  // destroyed. Removing unconditionally then evicted the LIVE object when the
+  // dead one's finalizer eventually ran, so only drop an entry whose target is
+  // already gone.
+  static final _finalizer = Finalizer<int>((id) {
+    if (_registry[id]?.target == null) _registry.remove(id);
+  });
 
   /// Registers [instance] under [id]. Called by every generated `_XxxImpl` constructor.
   static void register(int id, Object instance) {

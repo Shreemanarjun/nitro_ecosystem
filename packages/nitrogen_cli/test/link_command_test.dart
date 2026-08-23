@@ -4596,4 +4596,18 @@ abstract class Printing extends HybridObject {}
       expect(read(), custom);
     });
   });
+  group('PlatformTargetAnalyzer.fromSpec — missing spec file', () {
+    test('a spec path that does not exist does not throw', () {
+      // Callers derive the path by convention (lib/src/<lib>.native.dart), so a
+      // nested spec or a stem/lib-name mismatch lands on a file that is not
+      // there — that used to crash `generate` with a FileSystemException.
+      final missing = File(p.join(Directory.systemTemp.path, 'nitro_no_such_spec_${DateTime.now().microsecondsSinceEpoch}.native.dart'));
+      expect(missing.existsSync(), isFalse);
+      late PlatformTargetAnalyzer analyzer;
+      expect(() => analyzer = PlatformTargetAnalyzer.fromSpec(missing), returnsNormally);
+      expect(analyzer.supportsApple, isFalse);
+      expect(analyzer.requiresCpp, isFalse);
+    });
+  });
+
 }

@@ -74,6 +74,12 @@ Last updated: 2026-06-29. Generator unit tests: 3982. macOS integration tests: 6
   (0=null 1=int64 2=float64 3=bool 4=string); JSON is only the fallback
   for a value type with no dedicated wire
 - `Map<String, primitive?>` — same wire, null is tag 0
+
+**@HybridStruct nullable fields** — a flat C struct carries absence two ways:
+a pointer field (String, TypedData, nested struct) uses `nullptr`; a scalar or
+enum field gets a synthesized `<field>HasValue` byte, mirroring the
+`NitroOptInt64`/`Float64`/`Bool` param wrappers. Both round-trip on every
+backend.
 - `Map<String, @HybridEnum>` — int64 value encoding
 - `Map<String, @HybridRecord>` — binary blob encoding (tag 5)
 - `Map<String, @NitroVariant>` — binary blob encoding (tag 5)

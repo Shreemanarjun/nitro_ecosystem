@@ -54,6 +54,23 @@ void _workerMain(_WorkerInit init) {
       return;
     }
     if (msg is _CallRequest) {
+      // Every path must post exactly one reply. An un-sendable payload — an
+      // error or result holding an FFI pointer or a closure — used to throw
+      // out of this listener, killing the isolate and leaving every call
+      // dispatched to it pending forever, with no timeout to recover.
+      void reply(_CallResponse r, {required int callId}) {
+        try {
+          init.poolReply.send(r);
+        } catch (e) {
+          init.poolReply.send(
+            _CallResponse(
+              callId: callId,
+              error: StateError('nitro: worker reply was not sendable ($e). Original: ${r.error ?? r.result}'),
+            ),
+          );
+        }
+      }
+
       try {
         final result = Function.apply(msg.fn, msg.args);
         if (msg.getError != null && msg.clearError != null) {
@@ -61,9 +78,9 @@ void _workerMain(_WorkerInit init) {
           final clearErrorFn = clearFnCache.putIfAbsent(msg.clearError!.address, () => msg.clearError!.asFunction());
           NitroRuntime.checkError(getErrorFn, clearErrorFn);
         }
-        init.poolReply.send(_CallResponse(callId: msg.callId, result: result));
+        reply(_CallResponse(callId: msg.callId, result: result), callId: msg.callId);
       } catch (e, st) {
-        init.poolReply.send(_CallResponse(callId: msg.callId, error: e, stack: st));
+        reply(_CallResponse(callId: msg.callId, error: e, stack: st), callId: msg.callId);
       }
     }
   });
@@ -102,9 +119,37 @@ class _PendingCall {
 /// one worker from blocking the next task that would have landed there via
 /// round-robin.
 class IsolatePool {
-  IsolatePool._(this._workers, ReceivePort replyPort) : _inflight = List.filled(_workers.length, 0), _workerHeap = List.generate(_workers.length, (i) => i), _heapPositions = List.generate(_workers.length, (i) => i) {
+  IsolatePool._(this._workers, ReceivePort replyPort, List<ReceivePort> deathPorts)
+    : _inflight = List.filled(_workers.length, 0),
+      _workerHeap = List.generate(_workers.length, (i) => i),
+      _heapPositions = List.generate(_workers.length, (i) => i),
+      _deathPorts = deathPorts {
     _replyPort = replyPort;
     replyPort.listen(_onReply);
+    for (var i = 0; i < deathPorts.length; i++) {
+      final idx = i;
+      deathPorts[i].listen((dynamic m) => _onWorkerDeath(idx, m));
+    }
+  }
+
+  final List<ReceivePort> _deathPorts;
+
+  /// Fails every call still dispatched to a worker that has died, so the
+  /// caller sees an error instead of a future that never settles.
+  void _onWorkerDeath(int workerIdx, Object? message) {
+    final doomed = _pending.entries.where((e) => e.value.workerIdx == workerIdx).toList();
+    if (doomed.isEmpty) return;
+    for (final entry in doomed) {
+      _pending.remove(entry.key);
+      _inflight[workerIdx]--;
+      _siftUp(_heapPositions[workerIdx]);
+      entry.value.completer.complete(
+        _CallResponse(
+          callId: entry.key,
+          error: StateError('nitro: worker isolate $workerIdx died before replying ($message)'),
+        ),
+      );
+    }
   }
 
   final List<SendPort> _workers;
@@ -135,18 +180,26 @@ class IsolatePool {
     final replyPort = ReceivePort();
     final workers = <SendPort>[];
 
+    // A worker that dies (un-sendable payload, OOM, a native crash) must fail
+    // its in-flight calls. Without this every future dispatched to it stays
+    // pending forever and one bad call permanently poisons 1/N of the pool.
+    final deathPorts = <ReceivePort>[];
     for (var i = 0; i < size; i++) {
       final handshake = ReceivePort();
+      final death = ReceivePort();
+      deathPorts.add(death);
       await Isolate.spawn(
         _workerMain,
         _WorkerInit(handshake.sendPort, replyPort.sendPort),
+        onExit: death.sendPort,
+        onError: death.sendPort,
       );
       final workerPort = await handshake.first as SendPort;
       handshake.close(); // handshake port used once — close immediately
       workers.add(workerPort);
     }
 
-    return IsolatePool._(workers, replyPort);
+    return IsolatePool._(workers, replyPort, deathPorts);
   }
 
   // ── Reply demux ───────────────────────────────────────────────────────────
@@ -272,6 +325,12 @@ class IsolatePool {
     for (final w in _workers) {
       w.send(null); // null signals graceful shutdown to the worker
     }
+    // Close the onExit/onError ports too — a graceful shutdown fires onExit,
+    // and a live listener would otherwise keep the pool's isolate alive.
+    for (final d in _deathPorts) {
+      d.close();
+    }
+    _deathPorts.clear();
     _workers.clear();
     _workerHeap.clear();
     _heapPositions.clear();

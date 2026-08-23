@@ -198,5 +198,50 @@ void main() {
       expect(live, lessThan(8),
           reason: '$live/30 disposed coalescers still live — retained port/subscription');
     });
+    // If the native call throws synchronously (a disposed handle, a bad
+    // pointer, an out-of-memory arena) nothing on the other side ever sees the
+    // id, so no batch can carry it. The slot used to stay in _pending and its
+    // future only completed at dispose() — an await that hung indefinitely.
+    group('a synchronous throw in the call must not leak the pending slot', () {
+      test('the slot is released and the error propagates', () {
+        final c = NitroCoalescer();
+        addTearDown(c.dispose);
+        expect(c.pendingCount, 0);
+
+        expect(
+          () => c.submit((id, port) => throw StateError('native call failed')),
+          throwsA(isA<StateError>()),
+        );
+        expect(c.pendingCount, 0, reason: 'the pending slot outlived a call that never reached native');
+      });
+
+      test('later submits still get working ids after a failed one', () async {
+        final c = NitroCoalescer();
+        addTearDown(c.dispose);
+
+        expect(() => c.submit((_, _) => throw StateError('boom')), throwsA(isA<StateError>()));
+
+        final ids = <int>[];
+        final f = c.submit((id, _) => ids.add(id));
+        expect(c.pendingCount, 1);
+        c.sendPort.send([ids.single, 99]);
+        expect(await f, 99);
+        expect(c.pendingCount, 0);
+      });
+
+      test('a failed submit does not disturb an in-flight one', () async {
+        final c = NitroCoalescer();
+        addTearDown(c.dispose);
+
+        int? liveId;
+        final live = c.submit((id, _) => liveId = id);
+        expect(() => c.submit((_, _) => throw StateError('boom')), throwsA(isA<StateError>()));
+        expect(c.pendingCount, 1, reason: 'only the live call should remain');
+
+        c.sendPort.send([liveId!, 7]);
+        expect(await live, 7);
+      });
+    });
+
   });
 }

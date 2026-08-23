@@ -3,6 +3,7 @@ import '../../code_writer.dart';
 import '../../generator_metadata.dart';
 import '../../../map_wire.dart';
 import '../../../wire_kind.dart';
+import '../../struct_generator.dart';
 
 /// Web bridge generator (0.7.0 pointer-ABI rewrite).
 ///
@@ -1133,9 +1134,10 @@ class WebBridgeGenerator {
   /// zero-copy TypedData field occupies TWO slots — the pointer and, unless
   /// the spec declares a companion length field, a synthesized int64 count.
   /// Returns null when any field kind is not representable on web.
-  static ({Map<String, int> at, Map<String, int> lenAt, int size})? _structLayout(BridgeSpec spec, BridgeStruct st) {
+  static ({Map<String, int> at, Map<String, int> lenAt, Map<String, int> hasAt, int size})? _structLayout(BridgeSpec spec, BridgeStruct st) {
     final at = <String, int>{};
     final lenAt = <String, int>{};
+    final hasAt = <String, int>{};
     var off = 0;
     var maxAlign = 1;
     for (final f in st.fields) {
@@ -1153,8 +1155,14 @@ class WebBridgeGenerator {
         off += 8;
         if (!st.packed && maxAlign < 8) maxAlign = 8;
       }
+      // int8_t <name>HasValue — the presence byte for a nullable scalar/enum.
+      // Alignment 1, so no padding of its own, but it shifts everything after.
+      if (StructGenerator.needsHasValue(f, spec.structs.map((x) => x.name).toSet())) {
+        hasAt[f.name] = off;
+        off += 1;
+      }
     }
-    return (at: at, lenAt: lenAt, size: _alignUp(off, maxAlign));
+    return (at: at, lenAt: lenAt, hasAt: hasAt, size: _alignUp(off, maxAlign));
   }
 
   static int _alignUp(int v, int a) => (v + a - 1) & ~(a - 1);
@@ -1180,6 +1188,20 @@ class WebBridgeGenerator {
       for (final f in st.fields) {
         final base = _bare(f.type.name);
         final off = layout.at[f.name]!;
+        // A nullable scalar/enum carries its value in the normal slot plus a
+        // synthesized presence byte; the slot is zeroed when absent.
+        final hasOff = layout.hasAt[f.name];
+        if (hasOff != null) {
+          final zero = base == 'double' || base == 'float' ? '0.0' : '0';
+          final payload = switch (base) {
+            'bool' => '(v.${f.name}! ? 1 : 0)',
+            _ when spec.isEnumName(base) => 'v.${f.name}!.nativeValue',
+            _ => 'v.${f.name}!',
+          };
+          w.line('  bd.setUint8($hasOff, v.${f.name} == null ? 0 : 1);');
+          w.line('  ${_structScalarWrite(spec, base, off, 'v.${f.name} == null ? $zero : $payload')}');
+          continue;
+        }
         switch (base) {
           case _ when f.type.isTypedData:
             final bytes = base == 'Uint8List' ? 'v.${f.name}' : 'v.${f.name}.buffer.asUint8List(v.${f.name}.offsetInBytes, v.${f.name}.lengthInBytes)';
@@ -1216,6 +1238,17 @@ class WebBridgeGenerator {
         final base = _bare(f.type.name);
         final off = layout.at[f.name]!;
         String expr;
+        final hasOff = layout.hasAt[f.name];
+        if (hasOff != null) {
+          final decoded = switch (base) {
+            'bool' => 'bd.getUint8($off) != 0',
+            _ when spec.isEnumName(base) => 'bd.getInt32($off, Endian.little).to$base()',
+            'double' || 'float' => 'bd.getFloat64($off, Endian.little)',
+            _ => 'getInt64LE(bd, $off)',
+          };
+          args.add('${f.name}: bd.getUint8($hasOff) != 0 ? $decoded : null');
+          continue;
+        }
         switch (base) {
           case _ when f.type.isTypedData:
             final elem = _typedDataElementSizeWeb(base);
@@ -1459,7 +1492,9 @@ class WebBridgeGenerator {
       case RecordFieldKind.listRecordObject:
         return 'w.writeInt32($expr.length); for (final e in $expr) { e.writeFields(w); }';
       case RecordFieldKind.typedData:
-        final toBytes = base == 'Uint8List' ? expr : '$expr.buffer.asUint8List()';
+        // Bound to the VIEW: a shared backing buffer would otherwise be
+        // serialised whole (see the struct codec, which already does this).
+        final toBytes = base == 'Uint8List' ? expr : '$expr.buffer.asUint8List($expr.offsetInBytes, $expr.lengthInBytes)';
         return 'w.writeBlob($toBytes);';
     }
   }
@@ -1632,6 +1667,16 @@ class WebBridgeGenerator {
     isRecord: spec.isRecordName,
     isVariant: spec.isVariantName,
   );
+
+  /// Emits the scalar write for a struct slot, matching the non-nullable
+  /// arms below — used by the nullable path, which supplies its own value
+  /// expression.
+  static String _structScalarWrite(BridgeSpec spec, String base, int off, String value) => switch (base) {
+    _ when spec.isEnumName(base) => 'bd.setInt32($off, $value, Endian.little);',
+    'int' || 'uint64' || 'int64' || 'DateTime' => 'setInt64LE(bd, $off, $value);',
+    'double' || 'float' => 'bd.setFloat64($off, $value, Endian.little);',
+    _ => 'bd.setUint8($off, $value);',
+  };
 
   static String _bare(String t) => t.endsWith('?') ? t.substring(0, t.length - 1) : t;
 

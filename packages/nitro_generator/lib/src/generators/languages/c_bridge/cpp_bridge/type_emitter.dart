@@ -35,6 +35,40 @@ void _emitJniTypeHelpers(
       final isEnumField = enumNames.contains(bareTypeName(f.type.name));
       final isZeroCopyField = _isZeroCopy(st, f.name);
       final getter = isEnumField ? 'GetLongField' : _jniGetter(f.type.name);
+      // A nullable scalar/enum arrives BOXED (Long?/Double?/Boolean?). Unbox
+      // it and set the presence byte; a Java null leaves the payload slot
+      // zeroed with the byte clear.
+      if (StructGenerator.needsHasValue(f, structNames)) {
+        final base = bareTypeName(f.type.name);
+        final (boxCls, unboxMethod, unboxSig, cCast) = switch (base) {
+          'bool' => ('java/lang/Boolean', 'booleanValue', '()Z', 'int8_t'),
+          'double' || 'float' => ('java/lang/Double', 'doubleValue', '()D', 'double'),
+          _ => ('java/lang/Long', 'longValue', '()J', 'int64_t'),
+        };
+        final callMethod = switch (base) {
+          'bool' => 'CallBooleanMethod',
+          'double' || 'float' => 'CallDoubleMethod',
+          _ => 'CallLongMethod',
+        };
+        writer.line('    result.${f.name} = ($cCast)0;');
+        writer.line('    result.${f.name}HasValue = 0;');
+        writer.line('    {');
+        writer.line('        jobject boxed_${f.name} = env->GetObjectField(obj, g_fid_${st.name}_${f.name});');
+        writer.line('        if (boxed_${f.name} != nullptr) {');
+        writer.line('            jclass bc_${f.name} = env->FindClass("$boxCls");');
+        writer.line('            if (bc_${f.name}) {');
+        writer.line('                jmethodID uv_${f.name} = env->GetMethodID(bc_${f.name}, "$unboxMethod", "$unboxSig");');
+        writer.line('                if (uv_${f.name}) {');
+        writer.line('                    result.${f.name} = ($cCast)env->$callMethod(boxed_${f.name}, uv_${f.name});');
+        writer.line('                    result.${f.name}HasValue = 1;');
+        writer.line('                }');
+        writer.line('                env->DeleteLocalRef(bc_${f.name});');
+        writer.line('            }');
+        writer.line('            env->DeleteLocalRef(boxed_${f.name});');
+        writer.line('        }');
+        writer.line('    }');
+        continue;
+      }
       if (isZeroCopyField) {
         final elemCast = _zeroCopyCElementCast(f.type.name);
         writer.line(
@@ -155,8 +189,32 @@ void _emitJniTypeHelpers(
       writer.line('        env->${ops[2]}(j_${f.name}, 0, (jsize)st->$lenField, (const ${ops[3]}*)st->${f.name});');
       writer.line('    }');
     }
+    // A nullable scalar/enum field is `Long?`/`Double?`/`Boolean?` on the
+    // Kotlin data class, so the constructor takes a BOXED object, not a
+    // primitive. Build it from the payload slot plus its presence byte —
+    // passing the raw primitive produced a NoSuchMethodError for <init> and
+    // aborted the process during plugin registration.
+    for (final f in st.fields) {
+      if (!StructGenerator.needsHasValue(f, structNames)) continue;
+      final base = bareTypeName(f.type.name);
+      final (boxCls, boxSig, valueExpr) = switch (base) {
+        'bool' => ('java/lang/Boolean', '(Z)Ljava/lang/Boolean;', '(jboolean)st->${f.name}'),
+        'double' || 'float' => ('java/lang/Double', '(D)Ljava/lang/Double;', '(jdouble)st->${f.name}'),
+        _ => ('java/lang/Long', '(J)Ljava/lang/Long;', '(jlong)st->${f.name}'),
+      };
+      writer.line('    jobject j_${f.name} = nullptr;');
+      writer.line('    if (st->${f.name}HasValue) {');
+      writer.line('        jclass box_${f.name} = env->FindClass("$boxCls");');
+      writer.line('        if (box_${f.name}) {');
+      writer.line('            jmethodID vo_${f.name} = env->GetStaticMethodID(box_${f.name}, "valueOf", "$boxSig");');
+      writer.line('            if (vo_${f.name}) j_${f.name} = env->CallStaticObjectMethod(box_${f.name}, vo_${f.name}, $valueExpr);');
+      writer.line('            env->DeleteLocalRef(box_${f.name});');
+      writer.line('        }');
+      writer.line('    }');
+    }
     final ctorArgs = st.fields
         .map((f) {
+          if (StructGenerator.needsHasValue(f, structNames)) return 'j_${f.name}';
           final isEnum = enumNames.contains(bareTypeName(f.type.name));
           final isNestedStruct = structNames.contains(bareTypeName(f.type.name));
           if (_isZeroCopy(st, f.name)) {
@@ -176,6 +234,10 @@ void _emitJniTypeHelpers(
         .join(', ');
     writer.line('    jobject result = env->NewObject(g_cls_${st.name}, g_ctor_${st.name}, $ctorArgs);');
     for (final f in st.fields) {
+      if (StructGenerator.needsHasValue(f, structNames)) {
+        writer.line('    if (j_${f.name}) env->DeleteLocalRef(j_${f.name});');
+        continue;
+      }
       if (_isZeroCopy(st, f.name)) {
         writer.line('    if (dbuf_${f.name}) env->DeleteLocalRef(dbuf_${f.name});');
       } else if (!_isZeroCopy(st, f.name) && f.type.isTypedData) {

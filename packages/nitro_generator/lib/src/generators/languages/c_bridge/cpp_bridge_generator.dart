@@ -5,6 +5,7 @@ import '../../../bridge_spec.dart';
 import '../../code_writer.dart';
 import '../../generator_metadata.dart';
 import '../cpp_native/cpp_interface_generator.dart';
+import '../../struct_generator.dart';
 
 part 'cpp_bridge/swift_shim_emitter.dart';
 part 'cpp_bridge/cpp_direct_emitter.dart';

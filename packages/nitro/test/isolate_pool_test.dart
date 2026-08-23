@@ -23,6 +23,23 @@ int _add(int a, int b) => a + b;
 String _greet(String name) => 'Hello, $name!';
 int _double(int x) => x * 2;
 Never _throws(String msg) => throw ArgumentError(msg);
+
+// ── C2 regression helpers ──────────────────────────────────────────────────
+// A ReceivePort can never cross an isolate port. Throwing (or returning) one
+// used to make the worker's reply send() throw INSIDE the listener, killing
+// the isolate — and every call already dispatched to it then never settled.
+// (A closure literal IS sendable in modern Dart, so it does not reproduce.)
+class UnsendableError implements Exception {
+  UnsendableError(this.port);
+  final ReceivePort port;
+  @override
+  String toString() => 'UnsendableError';
+}
+
+Never _throwsUnsendable() => throw UnsendableError(ReceivePort());
+
+ReceivePort _returnsUnsendable() => ReceivePort();
+
 int _slowAdd(int a, int b) {
   // simulate a small amount of work (no actual sleep — just arithmetic)
   var sum = 0;
@@ -350,4 +367,36 @@ void main() {
       }
     }, timeout: const Timeout(Duration(seconds: 60)));
   });
+  group('worker survival — un-sendable payloads must not hang the pool', () {
+    test('an un-sendable ERROR fails the call instead of hanging', () async {
+      await withPool(1, (pool) async {
+        await expectLater(
+          pool.dispatch<void>(_throwsUnsendable, const []),
+          throwsA(anything),
+        );
+        // The worker must still be alive and serving.
+        expect(await pool.dispatch<int>(_add, [2, 3]), 5);
+      });
+    }, timeout: const Timeout(Duration(seconds: 20)));
+
+    test('an un-sendable RESULT fails the call instead of hanging', () async {
+      await withPool(1, (pool) async {
+        await expectLater(
+          pool.dispatch<ReceivePort>(_returnsUnsendable, const []),
+          throwsA(anything),
+        );
+        expect(await pool.dispatch<int>(_add, [4, 4]), 8);
+      });
+    }, timeout: const Timeout(Duration(seconds: 20)));
+
+    test('calls queued behind an un-sendable payload still settle', () async {
+      await withPool(1, (pool) async {
+        final bad = pool.dispatch<void>(_throwsUnsendable, const []);
+        final queued = [for (var i = 0; i < 4; i++) pool.dispatch<int>(_add, [i, i])];
+        await expectLater(bad, throwsA(anything));
+        expect(await Future.wait(queued), [0, 2, 4, 6]);
+      });
+    }, timeout: const Timeout(Duration(seconds: 20)));
+  });
+
 }

@@ -11,11 +11,22 @@ Fixed
 - `createSharedHeaders` re-copied `nitro_wasm_compat.h` into Apple SwiftPM
   include dirs on every `generate`, so each run re-broke the macOS/iOS build
   until `nitrogen link` was run again. 0.7.0 fixed the `link` path only.
+- `pkill -f build_runner` killed EVERY build_runner on the machine — another
+  checkout, a teammate on a shared box, a sibling job on the same CI runner.
+  The fallback now kills only processes whose working directory is inside the
+  project, and does nothing at all when there is no project to scope to.
+- `PlatformTargetAnalyzer.fromSpec` read the spec file without checking it
+  exists, and callers build that path by convention
+  (`lib/src/<lib>.native.dart`). A nested spec, or one whose filename stem
+  differs from the module's lib name, crashed `generate` with an unhandled
+  FileSystemException.
 - `nitrogen --version` reported 0.7.0 while the package was 0.7.1, and the
   fallback walked the filesystem for its own pubspec. The constant is now
   authoritative and a test fails the build if it ever drifts again.
 
 Added
+- CI: `dart analyze` over every package (nothing gated analysis before) and a
+  `nitrogen_cli tests` job — the CLI's 913 tests had never run in CI.
 - `nitrogen doctor`: Desktop C++ impl parity — a plugin's hand-maintained
   `linux/src/` and `windows/src/` copies must implement every pure virtual in
   the generated header. A method added to the spec used to reach `src/` only,

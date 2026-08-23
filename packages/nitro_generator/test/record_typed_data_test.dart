@@ -130,12 +130,12 @@ void main() {
       expect(dart, contains('writer.writeBlob(bytes)'));
     });
 
-    test('Int32List field write uses writeBlob(values.buffer.asUint8List())', () {
-      expect(dart, contains('writer.writeBlob(values.buffer.asUint8List())'));
+    test('Int32List field write bounds the blob to the view', () {
+      expect(dart, contains('writer.writeBlob(values.buffer.asUint8List(values.offsetInBytes, values.lengthInBytes))'));
     });
 
-    test('Float64List field write uses writeBlob(scores.buffer.asUint8List())', () {
-      expect(dart, contains('writer.writeBlob(scores.buffer.asUint8List())'));
+    test('Float64List field write bounds the blob to the view', () {
+      expect(dart, contains('writer.writeBlob(scores.buffer.asUint8List(scores.offsetInBytes, scores.lengthInBytes))'));
     });
 
     test('String field still uses r.readString()', () {
@@ -171,12 +171,12 @@ void main() {
       expect(dart, contains('writer.writeBlob(u8)'));
     });
 
-    test('Int8List write uses buffer.asUint8List()', () {
-      expect(dart, contains('writer.writeBlob(i8.buffer.asUint8List())'));
+    test('Int8List write bounds the blob to the view', () {
+      expect(dart, contains('writer.writeBlob(i8.buffer.asUint8List(i8.offsetInBytes, i8.lengthInBytes))'));
     });
 
-    test('Float32List write uses buffer.asUint8List()', () {
-      expect(dart, contains('writer.writeBlob(f32.buffer.asUint8List())'));
+    test('Float32List write bounds the blob to the view', () {
+      expect(dart, contains('writer.writeBlob(f32.buffer.asUint8List(f32.offsetInBytes, f32.lengthInBytes))'));
     });
   });
 

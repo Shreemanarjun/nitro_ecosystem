@@ -14,6 +14,9 @@ Added
   wire already tags every value, so null is tag 0 — no layout change, and
   non-nullable maps are byte-identical. The key stays present with a null
   value rather than being dropped.
+- E020 — two `@HybridEnum` cases sharing a native value are now an error.
+  The wire carries the number, so one case became undecodable, and the
+  generated code had duplicate Dart switch cases and an invalid Swift enum.
 - E018 — a nullable Map value that the wire cannot carry is an error: an
   int-keyed map (its values are untagged) or an enum/record/variant value
   (Swift's `compactMapValues` drops a nil entry instead of keeping the key).
@@ -21,6 +24,32 @@ Added
   at `NitroAnyMap`, which tags every value and already carries nulls.
 
 Fixed
+- Nullable `@HybridStruct` fields were broken in three ways at once, and the
+  validator let the spec through because it stripped `?` before checking:
+  a `String?` field emitted no `nativeFree` (leak) and fell through to
+  `ptr.ref.f = f`, assigning a `String?` to a `Pointer<Utf8>` so the generated
+  part file did not compile; the read path handed back the raw pointer; and a
+  nullable enum decoded unconditionally, so it could never actually be null.
+  Pointer-shaped fields (String, TypedData, nested struct) now encode absence
+  as nullptr, and nullable SCALARS/enums ride a synthesized `<field>HasValue`
+  byte — the same convention `NitroOptInt64`/`Float64`/`Bool` already use.
+  Threaded through the C typedef, the Dart FFI struct, the struct proxy, the
+  Swift C-ABI shadow, the wasm32 web layout and the JNI bridge — on Android
+  a nullable field is `Long?`/`Double?`/`Boolean?` on the Kotlin data class,
+  so the constructor takes a BOXED object; passing the raw primitive made
+  `GetMethodID("<init>")` fail and aborted the process during plugin
+  registration.
+- A `@HybridRecord` TypedData field holding a VIEW (`Int32List.view`,
+  `sublistView`) was serialised with `.buffer.asUint8List()`, which ignores
+  `offsetInBytes`/`lengthInBytes` — the whole backing buffer went on the wire,
+  at the wrong length. Bounded to the view, matching the struct codec.
+- `DateTime` `@HybridStruct` fields assigned a `DateTime` straight into the
+  int64 slot, so any struct with one failed to compile. Encodes as ms-epoch
+  now, in both the nullable and non-nullable forms.
+- Imported `@HybridEnum`s lost their explicit `rawValues` when copied into the
+  importing module, so every downstream lookup table fell back to contiguous
+  indices — a non-contiguous enum silently mapped to the WRONG wire value
+  across module boundaries, with no diagnostic.
 - `replaceFirst('?', '')` removed the FIRST nullability marker, which in a
   generic is the INNER type's — `Map<String, int?>` became
   `Map<String, int>` and the value silently lost its nullability. All 384

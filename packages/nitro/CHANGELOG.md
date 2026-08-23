@@ -1,5 +1,33 @@
 ## 0.7.1
 
+Fixed
+- `IsolatePool`: a worker whose reply could not be sent (an error or result
+  holding a `ReceivePort`, an FFI handle, …) threw inside its listener and
+  died, leaving every call already dispatched to it pending FOREVER — there is
+  no timeout. The worker now always posts a reply, and the pool watches
+  `onExit`/`onError` and fails a dead worker's in-flight calls.
+- `loadWebModule`: a failed load stayed in the in-flight cache, so every retry
+  replayed the same rejection; and N concurrent callers shared ONE refcount, so
+  the first `releaseLib` evicted a module the others still held.
+- `RecordReader` trusted the 4-byte length prefix and handed it straight to
+  `asTypedList()`. A `Pointer<Uint8>` carries no length, so a corrupt or
+  already-freed buffer produced a view stretching past the allocation and every
+  read after it returned whatever memory followed. Negative and absurd lengths
+  are now rejected.
+- `NitroCoalescer.submit` left its pending slot behind when the native call
+  threw synchronously: no batch could ever carry that id, so the future only
+  completed at `dispose()`.
+- `NitroInstanceRegistry`: the GC finalizer removed its entry by id
+  unconditionally, so when native reused an id for a NEW instance the dead
+  object's finalizer evicted the LIVE entry and `resolve()` returned null for
+  an object that was still alive.
+- `RecordWriterBase(0)` hung: growth doubles the buffer, and `0 * 2` is still
+  0. Floored at one byte and at the required size.
+- `readCString` spun forever on an unterminated pointer — past the end of
+  linear memory `slice` returns nothing, which read as "no NUL yet". It now
+  throws, and a short read near the end advances by what was actually read
+  instead of the full chunk (which skipped bytes).
+
 - Ecosystem sync for `nitro_generator` 0.7.1 (web `@HybridStruct` field
   support, nullable `Map<String, T?>` values, E018). **Re-run
   `nitrogen generate`** — the web struct layout changed. No changes to this

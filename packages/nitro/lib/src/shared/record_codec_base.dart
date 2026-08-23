@@ -32,7 +32,10 @@ class RecordWriterBase {
     final required = _length + additionalBytes;
     if (required <= _buffer.length) return;
 
-    var next = _buffer.length;
+    // A zero-length buffer never grows by doubling — `0 * 2` is still 0 and
+    // the loop spins forever. Start from at least one byte and floor the
+    // result at `required` so a single huge write cannot loop either.
+    var next = _buffer.isEmpty ? 1 : _buffer.length;
     while (next < required) {
       next *= 2;
     }

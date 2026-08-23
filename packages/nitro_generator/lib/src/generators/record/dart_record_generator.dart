@@ -301,7 +301,10 @@ void _writeTupleFieldStmt(CodeWriter s, BridgeRecordField f, int index) {
       break;
     case RecordFieldKind.typedData:
       final base = bareTypeName(f.dartType);
-      final toBytes = base == 'Uint8List' ? accessor : '$accessor.buffer.asUint8List()';
+      // A TypedData VIEW (Int32List.view / sublistView) shares a larger
+      // backing buffer, so `.buffer.asUint8List()` serialises the WHOLE
+      // buffer — wrong bytes and wrong length. Bound it to the view.
+      final toBytes = base == 'Uint8List' ? accessor : '$accessor.buffer.asUint8List($accessor.offsetInBytes, $accessor.lengthInBytes)';
       if (f.isNullable) {
         s.writeln('  writer.writeNullTag($accessor == null);');
         s.writeln('  if ($accessor != null) { writer.writeBlob($toBytes!); }');
@@ -486,13 +489,16 @@ void _writeFieldStmt(CodeWriter s, BridgeRecordField f) {
       break;
 
     case RecordFieldKind.typedData:
-      // TypedData: convert to Uint8List bytes via .buffer.asUint8List() then writeBlob.
+      // TypedData: convert to Uint8List bytes then writeBlob.
       final base = bareTypeName(f.dartType);
-      final toBytes = base == 'Uint8List' ? f.name : '${f.name}.buffer.asUint8List()';
+      // A TypedData VIEW (Int32List.view / sublistView) shares a larger
+      // backing buffer, so `.buffer.asUint8List()` serialises the WHOLE
+      // buffer — wrong bytes and wrong length. Bound it to the view.
+      final toBytes = base == 'Uint8List' ? f.name : '${f.name}.buffer.asUint8List(${f.name}.offsetInBytes, ${f.name}.lengthInBytes)';
       if (f.isNullable) {
         s.writeln('    writer.writeNullTag(${f.name} == null);');
         s.writeln('    if (${f.name} != null) {');
-        final toBytesNonNull = base == 'Uint8List' ? '${f.name}!' : '${f.name}!.buffer.asUint8List()';
+        final toBytesNonNull = base == 'Uint8List' ? '${f.name}!' : '${f.name}!.buffer.asUint8List(${f.name}!.offsetInBytes, ${f.name}!.lengthInBytes)';
         s.writeln('      writer.writeBlob($toBytesNonNull);');
         s.writeln('    }');
       } else {

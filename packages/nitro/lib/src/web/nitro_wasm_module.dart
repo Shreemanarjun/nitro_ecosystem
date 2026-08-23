@@ -136,13 +136,23 @@ final class NitroWasmModule {
     var base = ptr;
     while (true) {
       final bytes = readBytes(base, chunk);
+      // Past the end of linear memory, `slice` returns fewer bytes than asked
+      // for — and nothing at all at/after the end. Treating that as "no NUL
+      // yet" spun forever; an unterminated string is a bug in the producer,
+      // so surface it instead of burning CPU.
+      if (bytes.isEmpty) {
+        throw StateError(
+          'readCString: unterminated C string at $ptr — scanned to the end of '
+          'linear memory (${base - ptr} bytes) without a NUL terminator.',
+        );
+      }
       final nul = bytes.indexOf(0);
       if (nul >= 0) {
         collected.add(Uint8List.sublistView(bytes, 0, nul));
         break;
       }
       collected.add(bytes);
-      base += chunk;
+      base += bytes.length;
     }
     return decodeUtf8NoBomStrip(collected.takeBytes());
   }

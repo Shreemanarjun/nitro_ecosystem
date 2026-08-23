@@ -1745,6 +1745,7 @@ void _emitJniInitializeAndPostHelpers(
           '(${st.fields.map((f) {
             final isEnum = enumNames.contains(bareTypeName(f.type.name));
             final isNestedStruct = structNames.contains(bareTypeName(f.type.name));
+            if (StructGenerator.needsHasValue(f, structNames)) return _structFieldJniSig(f, structNames, _jniSigType);
             if (isEnum) return 'J';
             if (_isZeroCopy(st, f.name)) return 'Ljava/nio/ByteBuffer;';
             if (isNestedStruct) return 'L$libPkg/${bareTypeName(f.type.name)};';
@@ -1760,7 +1761,9 @@ void _emitJniInitializeAndPostHelpers(
         final isEnum = enumNames.contains(bareTypeName(f.type.name));
         final isZeroCopy = _isZeroCopy(st, f.name);
         final isNestedStruct = structNames.contains(bareTypeName(f.type.name));
-        final sig = isEnum ? 'J' : (isZeroCopy ? 'Ljava/nio/ByteBuffer;' : (isNestedStruct ? 'L$libPkg/${bareTypeName(f.type.name)};' : _jniSigType(f.type.name)));
+        final sig = StructGenerator.needsHasValue(f, structNames)
+            ? _structFieldJniSig(f, structNames, _jniSigType)
+            : (isEnum ? 'J' : (isZeroCopy ? 'Ljava/nio/ByteBuffer;' : (isNestedStruct ? 'L$libPkg/${bareTypeName(f.type.name)};' : _jniSigType(f.type.name))));
         writer.line('            g_fid_${st.name}_${f.name} = env->GetFieldID(g_cls_${st.name}, "${f.name}", "$sig");');
       }
       writer.line('        }');
@@ -2045,4 +2048,17 @@ void _emitJniMethods(
   _emitJniInitializeAndPostHelpers(writer, spec, libStem, libPkg, enumNames, structNames, recordNames);
 
   writer.line('} // extern "C"');
+}
+
+/// JNI descriptor for a struct field. A nullable scalar/enum is a BOXED type
+/// on the Kotlin data class (`Long?` → `Ljava/lang/Long;`), not a primitive —
+/// getting this wrong makes `GetMethodID("<init>")` return null and the process
+/// aborts during plugin registration.
+String _structFieldJniSig(BridgeField f, Set<String> structNames, String Function(String) fallback) {
+  if (!StructGenerator.needsHasValue(f, structNames)) return fallback(f.type.name);
+  return switch (bareTypeName(f.type.name)) {
+    'bool' => 'Ljava/lang/Boolean;',
+    'double' || 'float' => 'Ljava/lang/Double;',
+    _ => 'Ljava/lang/Long;',
+  };
 }

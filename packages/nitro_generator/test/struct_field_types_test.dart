@@ -704,9 +704,11 @@ void main() {
       expect(out, contains('external int mode;'));
     });
 
-    test('nullable enum field toDart() strips ? and calls toEnumName()', () {
+    test('nullable enum field decodes through its presence byte', () {
+      // Previously emitted `mode: mode.toState()` unconditionally, so a
+      // `State?` field could never actually BE null.
       final out = StructGenerator.generateDartExtensions(nullableSpec());
-      expect(out, contains('mode: mode.toState()'));
+      expect(out, contains('mode: modeHasValue != 0 ? mode.toState() : null'));
     });
 
     test('nullable double still maps to @Double() + double in FFI Struct', () {

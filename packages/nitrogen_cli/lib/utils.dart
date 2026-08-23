@@ -78,7 +78,7 @@ Future<int> _killBuildRunnerPosix(String? workingDirectory) async {
   // ── Strategy 2: pkill -f as a broad fallback ────────────────────────────
   // Catches processes whose lock file doesn't exist yet (still starting up)
   // or when lsof is unavailable. On macOS -f searches the full argv.
-  killed += await _killBuildRunnerByPkill();
+  killed += await _killBuildRunnerByPkill(workingDirectory);
 
   return killed;
 }
@@ -109,16 +109,55 @@ Future<int> _killBuildRunnerByLockFile(String workingDirectory) async {
   return killed;
 }
 
-/// Strategy 2: `pkill -f build_runner` as a broad fallback, then a `-9` sweep.
-/// Returns the number of processes killed (0 or 1).
-Future<int> _killBuildRunnerByPkill() async {
+/// Selects the build_runner PIDs that belong to [projectDir].
+///
+/// `pkill -f build_runner` matched EVERY build_runner on the machine — another
+/// checkout, a teammate's session on a shared box, a sibling job on the same CI
+/// runner. build_runner is normally launched with the project as its working
+/// directory (the project path rarely appears in argv, so cwd is the reliable
+/// signal), and the lock it contends for is per-project anyway.
+///
+/// [pidToCwd] maps pid → that process's working directory.
+List<String> selectProjectBuildRunnerPids(Map<String, String> pidToCwd, String projectDir) {
+  final root = p.canonicalize(projectDir);
+  return [
+    for (final MapEntry(key: pid, value: cwd) in pidToCwd.entries)
+      if (cwd.isNotEmpty && p.equals(p.canonicalize(cwd), root) || p.isWithin(root, p.canonicalize(cwd))) pid,
+  ];
+}
+
+/// Strategy 2: find build_runner processes and kill only the ones whose
+/// working directory is inside [workingDirectory], TERM then KILL.
+///
+/// Without a project to scope to there is nothing safe to do — a bare
+/// `pkill -f build_runner` would reach across every other project on the
+/// machine — so this returns 0 rather than guessing.
+Future<int> _killBuildRunnerByPkill(String? workingDirectory) async {
+  if (workingDirectory == null) return 0;
   int killed = 0;
   try {
-    final r = await Process.run('pkill', ['-f', 'build_runner']);
-    if (r.exitCode == 0) {
+    final pgrep = await Process.run('pgrep', ['-f', 'build_runner']);
+    final pids = (pgrep.stdout as String).trim().split(RegExp(r'\s+')).where((s) => RegExp(r'^\d+$').hasMatch(s)).toList();
+    if (pids.isEmpty) return 0;
+
+    final pidToCwd = <String, String>{};
+    for (final pid in pids) {
+      // `lsof -a -d cwd -Fn -p PID` prints the cwd on an `n`-prefixed line.
+      final r = await Process.run('lsof', ['-a', '-d', 'cwd', '-Fn', '-p', pid]);
+      final line = (r.stdout as String).split('\n').firstWhere((l) => l.startsWith('n'), orElse: () => '');
+      pidToCwd[pid] = line.isEmpty ? '' : line.substring(1);
+    }
+
+    final mine = selectProjectBuildRunnerPids(pidToCwd, workingDirectory);
+    for (final pid in mine) {
+      await Process.run('kill', ['-TERM', pid]);
       killed++;
+    }
+    if (mine.isNotEmpty) {
       await Future.delayed(const Duration(milliseconds: 800));
-      await Process.run('pkill', ['-9', '-f', 'build_runner']);
+      for (final pid in mine) {
+        await Process.run('kill', ['-KILL', pid]);
+      }
     }
   } catch (_) {}
   return killed;

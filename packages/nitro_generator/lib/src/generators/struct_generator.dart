@@ -62,6 +62,10 @@ class StructGenerator {
           s.writeln('  @Int64()');
           s.writeln('  external int ${f.name}Length;');
         }
+        if (_needsHasValue(f, structNames)) {
+          s.writeln('  @Uint8()');
+          s.writeln('  external int ${hasValueField(f.name)};');
+        }
       }
       s.writeln('}');
       s.writeln();
@@ -89,7 +93,7 @@ class StructGenerator {
       s.writeln('  void freeFields(void Function(Pointer<NativeType>) nativeFree) {');
       for (final f in st.fields) {
         final typeName = bareTypeName(f.type.name);
-        if (f.type.name == 'String') {
+        if (bareTypeName(f.type.name) == 'String') {
           s.writeln('    if (${f.name} != nullptr) {');
           s.writeln('      nativeFree(${f.name});');
           s.writeln('    }');
@@ -114,24 +118,45 @@ class StructGenerator {
       s.writeln('    final ptr = arena<${st.name}Ffi>();');
       for (final f in st.fields) {
         final typeName = bareTypeName(f.type.name);
-        switch (f.type.name) {
+        final nullable = f.type.name.endsWith('?');
+        // A nullable POINTER field encodes absence as nullptr. Scalars have no
+        // spare bit, which the validator rejects (E019).
+        String orNullptr(String encode) => nullable ? '${f.name} == null ? nullptr : $encode' : encode;
+        switch (typeName) {
           case _ when f.type.isTypedData:
-            s.writeln('    ptr.ref.${f.name} = ${f.name}.toPointer(arena);');
+            s.writeln('    ptr.ref.${f.name} = ${orNullptr('${f.name}${nullable ? '!' : ''}.toPointer(arena)')};');
             // Populate the synthetic length field so C can round-trip the size.
             if (_needsSyntheticLen(st, f.name)) {
-              s.writeln('    ptr.ref.${f.name}Length = ${f.name}.length;');
+              s.writeln('    ptr.ref.${f.name}Length = ${f.name}${nullable ? '?' : ''}.length${nullable ? ' ?? 0' : ''};');
             }
-          case 'bool':
+          case 'bool' when !nullable:
             s.writeln('    ptr.ref.${f.name} = ${f.name} ? 1 : 0;');
+          // A nullable scalar/enum writes a zero payload plus the presence
+          // byte; the payload is meaningless when the byte is 0.
+          case _ when _needsHasValue(f, structNames):
+            final zero = switch (typeName) {
+              'double' || 'float' => '0.0',
+              _ => '0',
+            };
+            final present = switch (typeName) {
+              'bool' => '(${f.name}! ? 1 : 0)',
+              'DateTime' => '${f.name}!.millisecondsSinceEpoch',
+              _ when enumNames.contains(typeName) => '${f.name}!.nativeValue',
+              _ => '${f.name}!',
+            };
+            s.writeln('    ptr.ref.${f.name} = ${f.name} == null ? $zero : $present;');
+            s.writeln('    ptr.ref.${hasValueField(f.name)} = ${f.name} == null ? 0 : 1;');
           case 'String':
             s.writeln(
-              '    ptr.ref.${f.name} = ${f.name}.toNativeUtf8(allocator: arena);',
+              '    ptr.ref.${f.name} = ${orNullptr('${f.name}${nullable ? '!' : ''}.toNativeUtf8(allocator: arena)')};',
             );
+          case 'DateTime':
+            s.writeln('    ptr.ref.${f.name} = ${f.name}.millisecondsSinceEpoch;');
           case _ when enumNames.contains(typeName):
             s.writeln('    ptr.ref.${f.name} = ${f.name}.nativeValue;');
           case _ when structNames.contains(typeName):
             // Nested struct: call its toNative() extension (arena-managed pointer).
-            s.writeln('    ptr.ref.${f.name} = ${f.name}.toNative(arena);');
+            s.writeln('    ptr.ref.${f.name} = ${orNullptr('${f.name}${nullable ? '!' : ''}.toNative(arena)')};');
           default:
             s.writeln('    ptr.ref.${f.name} = ${f.name};');
         }
@@ -220,6 +245,21 @@ class StructGenerator {
         final typeName = bareTypeName(f.type.name);
         final dartFieldType = f.type.name;
         String readExpr;
+        // A nullable scalar/enum reads its synthesized presence byte first —
+        // without this the getter returned the raw payload slot, so an `int?`
+        // getter handed back an int and a `bool?` getter an int, neither of
+        // which type-checks against the overridden field.
+        if (_needsHasValue(f, structNames)) {
+          final decoded = switch (typeName) {
+            'bool' => '_native.ref.${f.name} != 0',
+            'DateTime' => 'DateTime.fromMillisecondsSinceEpoch(_native.ref.${f.name})',
+            _ when enumNames.contains(typeName) => '_native.ref.${f.name}.to$typeName()',
+            _ => '_native.ref.${f.name}',
+          };
+          s.writeln('  @override');
+          s.writeln('  $dartFieldType get ${f.name} => _native.ref.${hasValueField(f.name)} != 0 ? $decoded : null;');
+          continue;
+        }
         switch (f.type.name) {
           case _ when f.type.isTypedData:
             final companion = _zeroCopyCompanionField(st, f.name);
@@ -230,6 +270,8 @@ class StructGenerator {
             readExpr = '_native.ref.${f.name} != 0';
           case 'String':
             readExpr = '_native.ref.${f.name}.toDartString()';
+          case 'DateTime':
+            readExpr = 'DateTime.fromMillisecondsSinceEpoch(_native.ref.${f.name})';
           case _ when enumNames.contains(typeName):
             readExpr = '_native.ref.${f.name}.to$typeName()';
           case _ when structNames.contains(typeName):
@@ -273,20 +315,39 @@ class StructGenerator {
     Set<String> structNames,
   ) {
     final typeName = bareTypeName(f.type.name);
-    switch (f.type.name) {
+    // Dispatch on the BARE name: matching f.type.name exactly meant a `String?`
+    // field fell through to `return f.name`, handing a raw Pointer<Utf8> back
+    // as if it were the Dart value.
+    final nullable = f.type.name.endsWith('?');
+    // Only pointer-shaped fields can carry a null (nullptr) in a flat C struct.
+    String orNull(String decode) => nullable ? '${f.name}.address == 0 ? null : $decode' : decode;
+    // A nullable scalar/enum reads its synthesized presence byte; the payload
+    // slot is meaningless when the byte is 0.
+    if (_needsHasValue(f, structNames)) {
+      final decoded = switch (typeName) {
+        'bool' => '${f.name} != 0',
+        'DateTime' => 'DateTime.fromMillisecondsSinceEpoch(${f.name})',
+        _ when enumNames.contains(typeName) => '${f.name}.to$typeName()',
+        _ => f.name,
+      };
+      return '${hasValueField(f.name)} != 0 ? $decoded : null';
+    }
+    switch (typeName) {
       case _ when f.type.isTypedData:
         final companion = _zeroCopyCompanionField(st, f.name);
         // Prefer explicit companion field; fall back to synthesized ${fieldName}Length.
         final lenExpr = companion ?? '${f.name}Length';
-        return '$typeName.fromList(${f.name}.asTypedList($lenExpr))';
+        return orNull('$typeName.fromList(${f.name}.asTypedList($lenExpr))');
       case 'bool':
         return '${f.name} != 0';
       case 'String':
-        return '${f.name}.toDartString()';
+        return orNull('${f.name}.toDartString()');
+      case 'DateTime':
+        return 'DateTime.fromMillisecondsSinceEpoch(${f.name})';
       case _ when enumNames.contains(typeName):
         return '${f.name}.to$typeName()';
       case _ when structNames.contains(typeName):
-        return '${f.name}.ref.toDart()';
+        return orNull('${f.name}.ref.toDart()');
     }
     return f.name;
   }
@@ -377,6 +438,9 @@ class StructGenerator {
         if (f.type.isTypedData && _needsSyntheticLen(st, f.name)) {
           final comment = f.zeroCopy ? '/* synthesized: element count for zero-copy buffer */' : '/* synthesized: element count for data buffer */';
           s.writeln('  int64_t ${f.name}Length; $comment');
+        }
+        if (_needsHasValue(f, structNames)) {
+          s.writeln('  int8_t ${hasValueField(f.name)}; /* synthesized: 1 = present, 0 = null */');
         }
       }
       s.writeln('} ${st.name};');
@@ -575,7 +639,10 @@ class StructGenerator {
       s.writeln('public struct ${st.name} {');
       for (final f in st.fields) {
         final swiftType = _dartTypeToSwift(f.type.name, f.zeroCopy, enumNames, structNames);
-        s.writeln('  public var ${f.name}: $swiftType');
+        // A nullable scalar/enum is an Optional on the user-facing struct; the
+        // C shadow keeps the flat slot plus its presence byte.
+        final publicType = _needsHasValue(f, structNames) ? '$swiftType?' : swiftType;
+        s.writeln('  public var ${f.name}: $publicType');
         // For zero-copy typed data without an explicit companion, expose the
         // synthesized length field so callers can set it. Non-zero-copy fields
         // derive their length from Data.count — no extra field needed.
@@ -598,6 +665,11 @@ class StructGenerator {
         if (f.type.isTypedData && _needsSyntheticLen(st, f.name)) {
           s.writeln('  var ${f.name}Length: Int64');
         }
+        // Mirror the synthesized presence byte so the shadow keeps EXACTLY
+        // the C typedef's layout.
+        if (_needsHasValue(f, structNames)) {
+          s.writeln('  var ${hasValueField(f.name)}: Int8');
+        }
       }
       s.writeln();
 
@@ -618,6 +690,21 @@ class StructGenerator {
       s.writeln('    return _${st.name}C(');
       final fromFields = <String>[];
       for (final f in st.fields) {
+        if (_needsHasValue(f, structNames)) {
+          final base = bareTypeName(f.type.name);
+          final zero = switch (base) {
+            'double' || 'float' => '0',
+            _ => '0',
+          };
+          final present = switch (base) {
+            'bool' => '(s.${f.name}! ? 1 : 0)',
+            _ when enumNames.contains(base) => 's.${f.name}!.rawValue',
+            _ => 's.${f.name}!',
+          };
+          fromFields.add('      ${f.name}: s.${f.name} == nil ? $zero : $present');
+          fromFields.add('      ${hasValueField(f.name)}: s.${f.name} == nil ? 0 : 1');
+          continue;
+        }
         fromFields.add('      ${f.name}: ${_swiftFromSwiftExpr(f, enumNames, structNames)}');
         if (f.type.isTypedData && _needsSyntheticLen(st, f.name)) {
           // Zero-copy fields carry their synthesized length on the public
@@ -651,6 +738,16 @@ class StructGenerator {
       s.writeln('    return ${st.name}(');
       final toFields = <String>[];
       for (final f in st.fields) {
+        if (_needsHasValue(f, structNames)) {
+          final base = bareTypeName(f.type.name);
+          final decoded = switch (base) {
+            'bool' => '${f.name} != 0',
+            _ when enumNames.contains(base) => '$base(rawValue: ${f.name})',
+            _ => f.name,
+          };
+          toFields.add('      ${f.name}: ${hasValueField(f.name)} != 0 ? $decoded : nil');
+          continue;
+        }
         if (f.type.isTypedData && !f.zeroCopy) {
           toFields.add('      ${f.name}: _arr_${f.name}');
         } else {
@@ -779,6 +876,26 @@ class StructGenerator {
     }
     return '${fieldName}Length'; // synthetic
   }
+
+  /// A nullable SCALAR (or enum) struct field. A flat C struct has no spare
+  /// bit in an `int64_t`/`double`/`int8_t` slot, so absence is carried in a
+  /// synthesized `<field>HasValue` byte — the same convention the
+  /// `NitroOptInt64`/`Float64`/`Bool` param wrappers already use, and the
+  /// mirror of the synthesized `<field>Length` for TypedData.
+  ///
+  /// Pointer-shaped fields (String, TypedData, nested struct) are excluded:
+  /// they encode absence as nullptr and need no companion.
+  static bool needsHasValue(BridgeField f, Set<String> structNames) => _needsHasValue(f, structNames);
+
+  static bool _needsHasValue(BridgeField f, Set<String> structNames) {
+    if (!f.type.name.endsWith('?')) return false;
+    if (f.type.isTypedData) return false;
+    final base = bareTypeName(f.type.name);
+    return base != 'String' && !structNames.contains(base);
+  }
+
+  /// Name of the synthesized presence byte for [fieldName].
+  static String hasValueField(String fieldName) => '${fieldName}HasValue';
 
   static String _dartTypeToCType(String t, [Set<String> enumNames = const {}, Set<String> structNames = const {}]) {
     final base = bareTypeName(t);

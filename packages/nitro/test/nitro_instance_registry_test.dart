@@ -153,4 +153,41 @@ void main() {
       expect(() => AnyNativeObject(0), returnsNormally);
     });
   });
+    // Native hands the same instance id to a NEW object once the old one is
+    // destroyed. The GC finalizer removed the entry by id unconditionally, so
+    // when the dead object's finalizer eventually ran it evicted the LIVE
+    // entry and resolve() returned null for an object that was alive.
+    group('id reuse', () {
+      test('re-registering an id resolves to the NEW instance', () {
+        final first = _Impl('first');
+        NitroInstanceRegistry.register(90, first);
+        final second = _Impl('second');
+        NitroInstanceRegistry.register(90, second);
+        addTearDown(() => NitroInstanceRegistry.unregister(90, second));
+
+        final resolved = NitroInstanceRegistry.resolve<_Impl>(const AnyNativeObject(90));
+        expect(identical(resolved, second), isTrue);
+        expect(resolved!.tag, 'second');
+      });
+
+      test('a collected instance does not evict the live entry that reused its id', () async {
+        NitroInstanceRegistry.register(91, _Impl('dead'));
+        // Drop the only strong reference and force collection so the dead
+        // object's finalizer is queued.
+        await forceGC();
+
+        final live = _Impl('live');
+        NitroInstanceRegistry.register(91, live);
+        addTearDown(() => NitroInstanceRegistry.unregister(91, live));
+
+        // Give any pending finalizer callback a chance to run.
+        await forceGC();
+        await Future<void>.delayed(Duration.zero);
+
+        final resolved = NitroInstanceRegistry.resolve<_Impl>(const AnyNativeObject(91));
+        expect(resolved, isNotNull, reason: 'the dead instance\'s finalizer evicted the live entry');
+        expect(identical(resolved, live), isTrue);
+      });
+    });
+
 }

@@ -61,6 +61,37 @@ jobs:
         run: flutter test --reporter expanded
         working-directory: packages/nitro
 
+  analyze:
+    name: dart analyze (all packages)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get workspace dependencies
+        run: flutter pub get
+
+      # Nothing gated analysis before, so a test that only ever ran under
+      # `-p chrome` could sit broken for the analyzer indefinitely: package:nitro
+      # exports NitroRuntime CONDITIONALLY, and analysis resolves the VM branch,
+      # so a web-only API referenced through the barrel compiles for the browser
+      # but is an undefined_method to `dart analyze`.
+      - name: Analyze every package
+        run: |
+          fail=0
+          for d in packages/nitro packages/nitro_annotations packages/nitro_generator \
+                   packages/nitrogen_cli e2e/nitro_web_e2e benchmark benchmark/example; do
+            [ -f "$d/pubspec.yaml" ] || continue
+            echo "── $d"
+            (cd "$d" && dart analyze) || fail=1
+          done
+          exit $fail
+
   cli:
     name: nitrogen_cli tests
     runs-on: ubuntu-latest

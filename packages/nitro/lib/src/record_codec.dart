@@ -113,13 +113,35 @@ class RecordReader extends RecordReaderBase {
   /// from the start.
   RecordReader.fromPayloadOffset(Pointer<Uint8> ptr, int byteOffset) : super.fromPayload(_payloadOf(ptr, 'RecordReader.fromPayloadOffset'), byteOffset);
 
+  /// Upper bound on a single record payload. A `Pointer<Uint8>` carries no
+  /// length, so a corrupt or attacker-influenced prefix cannot be checked
+  /// against the real allocation — but a negative or absurd value can be
+  /// rejected before it becomes an out-of-bounds view that reads whatever
+  /// follows the buffer. 256 MiB is far above any real record and far below
+  /// the point where the view silently walks off the heap.
+  static const maxPayloadBytes = 256 * 1024 * 1024;
+
   static Uint8List _payloadOf(Pointer<Uint8> ptr, String caller) {
     if (ptr.address == 0) throw StateError('$caller: null pointer');
     final len = ByteData.view(ptr.asTypedList(4).buffer).getInt32(
       0,
       Endian.little,
     );
+    checkPayloadLength(len, caller);
     return (ptr + 4).asTypedList(len);
+  }
+
+  /// Rejects a length prefix that cannot describe a real payload.
+  static void checkPayloadLength(int len, String caller) {
+    if (len < 0) {
+      throw StateError('$caller: negative length prefix ($len) — the buffer is corrupt or was already freed.');
+    }
+    if (len > maxPayloadBytes) {
+      throw StateError(
+        '$caller: length prefix $len exceeds the ${maxPayloadBytes ~/ (1024 * 1024)} MiB limit — '
+        'the buffer is corrupt or was already freed.',
+      );
+    }
   }
 
   /// Decodes a list of @HybridRecord objects from a native pointer.
@@ -231,7 +253,9 @@ final class LazyRecordList<T> extends ListBase<T> implements Finalizable {
     final offsets = List<int>.generate(count, (_) => r.readInt(), growable: false);
     // Buffer layout: [4B payload-length prefix][payload bytes].
     // Read the prefix to give the GC an accurate native-size hint.
-    final totalBytes = 4 + ByteData.view(ptr.asTypedList(4).buffer).getInt32(0, Endian.little);
+    final payloadBytes = ByteData.view(ptr.asTypedList(4).buffer).getInt32(0, Endian.little);
+    RecordReader.checkPayloadLength(payloadBytes, 'RecordReader.decodeList');
+    final totalBytes = 4 + payloadBytes;
     final finalizer = nativeFree == null
         ? _finalizer
         : _nativeFinalizers.putIfAbsent(

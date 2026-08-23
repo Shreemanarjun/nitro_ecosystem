@@ -42,6 +42,11 @@ class PlatformTargetAnalyzer {
 
   /// Parses the annotation from [specFile] (one file read, one regex match).
   factory PlatformTargetAnalyzer.fromSpec(File specFile) {
+    // Callers build this path by convention (lib/src/<lib>.native.dart). A
+    // nested spec, or one whose filename stem differs from the module's lib
+    // name, simply is not there — treat it as "declares no platforms" rather
+    // than throwing an unhandled FileSystemException out of `generate`.
+    if (!specFile.existsSync()) return PlatformTargetAnalyzer.fromContent('');
     return PlatformTargetAnalyzer.fromContent(specFile.readAsStringSync());
   }
 

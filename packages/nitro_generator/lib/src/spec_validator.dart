@@ -891,6 +891,37 @@ class SpecValidator {
       }
     }
 
+    // ── E020: duplicate @HybridEnum native values ─────────────────────────
+    // Two cases sharing a raw value cannot round-trip: the wire carries the
+    // number, so decoding picks whichever case the generated lookup happens to
+    // reach first and the other silently becomes unreachable. It also emits
+    // duplicate Dart switch cases and, on Swift, an invalid enum with two
+    // identical raw values.
+    for (final e in spec.enums) {
+      final raw = e.rawValues;
+      if (raw == null || raw.length != e.values.length) continue;
+      final seen = <int, String>{};
+      final dupes = <String>[];
+      for (var i = 0; i < raw.length; i++) {
+        final first = seen[raw[i]];
+        if (first != null) {
+          dupes.add('${e.values[i]} and $first both = ${raw[i]}');
+        } else {
+          seen[raw[i]] = e.values[i];
+        }
+      }
+      if (dupes.isNotEmpty) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'E020',
+            message: '@HybridEnum ${e.name} has duplicate native values: ${dupes.join(', ')}.',
+            hint: 'Every case needs a distinct native value — the wire carries the number, so duplicates make one case undecodable.',
+          ),
+        );
+      }
+    }
+
     // ── E014: @NitroVariant case count ────────────────────────────────────
     for (final variant in spec.variants) {
       if (variant.cases.isEmpty) {
