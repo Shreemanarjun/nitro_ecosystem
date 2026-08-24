@@ -193,6 +193,34 @@ void main() {
       );
     });
 
+    test('stamps a path-dep generator given as an absolute file: rootUri', () {
+      // pub writes an absolute file: URI for a path dep OUTSIDE the project
+      // (a local generator checkout). Joining that onto .dart_tool produced
+      // '.dart_tool/file:/…', which never exists, so the stamp was the constant
+      // 'path' and editing the generator never invalidated the cache.
+      final spec = _writeSpec(tempDir, 'camera');
+      final output = File(p.join(tempDir.path, 'lib', 'src', 'camera.g.dart'))..writeAsStringSync('// generated');
+      final genSrc = File(p.join(tempDir.path, 'elsewhere', 'gen', 'lib', 'g.dart'))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('// v1');
+      final rootUri = genSrc.parent.parent.uri.toString().replaceAll(RegExp(r'/$'), '');
+      File(p.join(tempDir.path, '.dart_tool', 'package_config.json'))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('{"packages":[{"name":"nitro_generator","rootUri":"$rootUri"}]}');
+
+      final cache = IncrementalGenerationCache(tempDir.path);
+      cache.write(specs: [spec], outputPathsForSpec: (_) => [output.path]);
+      expect(cache.plan(specs: [spec], outputPathsForSpec: (_) => [output.path]).changedSpecs, isEmpty);
+
+      genSrc.writeAsStringSync('// v2');
+      genSrc.setLastModifiedSync(DateTime.now().add(const Duration(minutes: 1)));
+      expect(
+        cache.plan(specs: [spec], outputPathsForSpec: (_) => [output.path]).changedSpecs,
+        equals([spec]),
+        reason: 'the generator changed; an absolute rootUri must still be followed',
+      );
+    });
+
     test('skips unchanged specs when hashes and outputs match the manifest', () {
       final spec = _writePluginFixture(tempDir);
       final output = File(p.join(tempDir.path, 'lib', 'src', 'camera.g.dart'));

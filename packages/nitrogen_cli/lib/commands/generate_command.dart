@@ -903,14 +903,19 @@ class IncrementalGenerationCache {
     try {
       if (jsonDecode(cfg.readAsStringSync()) case {'packages': final List<Object?> pkgs}) {
         for (final pkg in pkgs) {
-          // rootUri is usually RELATIVE to .dart_tool, not a file: URI. A
-          // hosted dep also carries 'version'; a path dep does not.
+          // rootUri is RELATIVE to .dart_tool for in-tree packages but an
+          // absolute file: URI for a path dep outside the project (the local
+          // generator checkout case). Resolving it as a URI handles both — a
+          // path join turned the absolute form into '.dart_tool/file:/…',
+          // which never exists, so the stamp collapsed to the constant 'path'
+          // and a locally edited generator never invalidated the cache.
+          // A hosted dep also carries 'version'; a path dep does not.
           if (pkg case {'name': 'nitro_generator', 'rootUri': final String rootUri}) {
             final version = switch (pkg) {
               {'version': final String v} => v,
               _ => 'path',
             };
-            final libDir = Directory(p.normalize(p.join(cfg.parent.path, Uri.decodeFull(rootUri), 'lib')));
+            final libDir = Directory(p.join(cfg.parent.uri.resolve(rootUri).toFilePath(), 'lib'));
             if (!libDir.existsSync()) return version;
             final newest = libDir
                 .listSync(recursive: true)
