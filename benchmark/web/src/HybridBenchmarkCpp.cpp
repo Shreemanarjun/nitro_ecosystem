@@ -1,0 +1,206 @@
+// HybridBenchmarkCpp — web (WASM) implementation. Seeded once by nitrogen link
+// from lib/src/generated/cpp/benchmark_cpp.impl.g.cpp; never overwritten.
+//
+// TODO: implement all pure-virtual methods declared in HybridBenchmarkCpp
+//   While the line above exists, web keeps compiling the shared
+//   src/HybridBenchmarkCpp.cpp. Implement the methods, delete that line, and
+//   re-run `nitrogen link` to build the module from this file instead.
+//   The module is single-threaded: never block; post async results from
+//   emscripten_async_call or a JS callback, not from a std::thread.
+//
+// Ownership conventions:
+//   • Record/variant/tuple RETURNS, **emit_* stream items**, and record/
+//     variant CALLBACK arguments you invoke a callback with: pass
+//     writer.toNativeBuffer() (or nitro_<Variant>_to_native) — a malloc'd
+//     [4B len][payload] block whose ownership transfers to the bridge/Dart.
+//     Returning or emitting a non-owning writer.toBuffer() view is wrong:
+//     Dart would decode-and-free a live local buffer.
+//   • Record/variant PARAMS are non-owning payload views (no length prefix)
+//     — copy if you need them after the call.
+//   • TypedData RETURNS use NitroCppBuffer{ data, size } where size is in
+//     BYTES, not elements (Float32List: count * sizeof(float)). A wrong
+//     unit silently truncates the list Dart sees (bytes / elemSize).
+//   • @zeroCopy TypedData returns are NOT copied by the bridge: return a
+//     malloc'd buffer — ownership transfers, and the bridge frees it (via
+//     <lib>_release_typed_data_return) when Dart's view is GC'd. Never
+//     return a pointer to a member or stack buffer: it would be free()d.
+
+#include "benchmark_cpp.native.g.h"
+#include <stdexcept>
+
+// ── Implementation ───────────────────────────────────────────────────────────
+
+class BenchmarkCppImpl final : public HybridBenchmarkCpp {
+public:
+    BenchmarkCppImpl() = default;
+    ~BenchmarkCppImpl() override = default;
+
+    // ── Methods ──────────────────────────────────────────────────────────────
+
+    double add(double a, double b) override {
+        // TODO: implement add
+        throw std::runtime_error("Not implemented: add");
+        // return 0.0;
+    }
+
+    double addFast(double a, double b) override {
+        // TODO: implement addFast
+        throw std::runtime_error("Not implemented: addFast");
+        // return 0.0;
+    }
+
+    std::string getGreeting(const std::string& name) override {
+        // TODO: implement getGreeting
+        throw std::runtime_error("Not implemented: getGreeting");
+        // return "";
+    }
+
+    int64_t hashBuffer(const uint8_t* data, size_t data_length, int64_t rounds) override {
+        // TODO: implement hashBuffer
+        throw std::runtime_error("Not implemented: hashBuffer");
+        // return 0;
+    }
+
+    int64_t sievePrimes(int64_t limit) override {
+        // TODO: implement sievePrimes
+        throw std::runtime_error("Not implemented: sievePrimes");
+        // return 0;
+    }
+
+    BenchmarkPoint scalePoint(const BenchmarkPoint& point, double factor) override {
+        // TODO: implement scalePoint
+        throw std::runtime_error("Not implemented: scalePoint");
+    }
+
+    NitroCppBuffer computeStats(int64_t iterations) override {
+        // TODO: implement computeStats
+        throw std::runtime_error("Not implemented: computeStats");
+        // return { nullptr, 0 };
+    }
+
+    void computeStatsNative(int64_t iterations, NitroError* _nitro_err, int64_t dartPort) override {
+        // TODO: on error, populate _nitro_err (hasError/name/message via strdup) before posting.
+        // TODO: post result via Dart_PostCObject_DL(dartPort, ...)
+        // Nullable result? Post EITHER Dart_CObject_kNull OR kInt64 with
+        // value 0 — both decode to Dart null. Non-nullable results must
+        // always post a real encoded value.
+        throw std::runtime_error("Not implemented: computeStatsNative");
+    }
+
+    NitroCppBuffer echoIntMap(NitroCppBuffer map) override {
+        // TODO: implement echoIntMap
+        throw std::runtime_error("Not implemented: echoIntMap");
+        // return { nullptr, 0 };
+    }
+
+    NitroCppBuffer echoStatsList(NitroCppBuffer stats) override {
+        // TODO: implement echoStatsList
+        throw std::runtime_error("Not implemented: echoStatsList");
+        // return { nullptr, 0 };
+    }
+
+    int64_t asyncEcho(int64_t value) override {
+        // TODO: implement asyncEcho
+        throw std::runtime_error("Not implemented: asyncEcho");
+        // return 0;
+    }
+
+    void nativeAsyncEcho(int64_t value, NitroError* _nitro_err, int64_t dartPort) override {
+        // TODO: on error, populate _nitro_err (hasError/name/message via strdup) before posting.
+        // TODO: post result via Dart_PostCObject_DL(dartPort, ...)
+        // Nullable result? Post EITHER Dart_CObject_kNull OR kInt64 with
+        // value 0 — both decode to Dart null. Non-nullable results must
+        // always post a real encoded value.
+        throw std::runtime_error("Not implemented: nativeAsyncEcho");
+    }
+
+    void nativeAsyncEchoFromThread(int64_t value, NitroError* _nitro_err, int64_t dartPort) override {
+        // TODO: on error, populate _nitro_err (hasError/name/message via strdup) before posting.
+        // TODO: post result via Dart_PostCObject_DL(dartPort, ...)
+        // Nullable result? Post EITHER Dart_CObject_kNull OR kInt64 with
+        // value 0 — both decode to Dart null. Non-nullable results must
+        // always post a real encoded value.
+        throw std::runtime_error("Not implemented: nativeAsyncEchoFromThread");
+    }
+
+    void submitCoalesced(int64_t callId, int64_t value, int64_t dartPort) override {
+        // TODO: implement submitCoalesced
+        throw std::runtime_error("Not implemented: submitCoalesced");
+    }
+
+    void resetCoalesceStats() override {
+        // TODO: implement resetCoalesceStats
+        throw std::runtime_error("Not implemented: resetCoalesceStats");
+    }
+
+    int64_t coalesceFlushes() override {
+        // TODO: implement coalesceFlushes
+        throw std::runtime_error("Not implemented: coalesceFlushes");
+        // return 0;
+    }
+
+    int64_t coalesceItems() override {
+        // TODO: implement coalesceItems
+        throw std::runtime_error("Not implemented: coalesceItems");
+        // return 0;
+    }
+
+    int64_t sendLargeBufferFast(const uint8_t* buffer, size_t buffer_length) override {
+        // TODO: implement sendLargeBufferFast
+        throw std::runtime_error("Not implemented: sendLargeBufferFast");
+        // return 0;
+    }
+
+    int64_t sendLargeBufferNoop(const uint8_t* buffer, size_t buffer_length) override {
+        // TODO: implement sendLargeBufferNoop
+        throw std::runtime_error("Not implemented: sendLargeBufferNoop");
+        // return 0;
+    }
+
+    int64_t sendLargeBufferNoopFast(const uint8_t* buffer, size_t buffer_length) override {
+        // TODO: implement sendLargeBufferNoopFast
+        throw std::runtime_error("Not implemented: sendLargeBufferNoopFast");
+        // return 0;
+    }
+
+    int64_t sendLargeBufferUnsafe(uint8_t* ptr, int64_t length) override {
+        // TODO: implement sendLargeBufferUnsafe
+        throw std::runtime_error("Not implemented: sendLargeBufferUnsafe");
+        // return 0;
+    }
+
+    // ── Streams ──────────────────────────────────────────────────────────────
+    // Call emit_<name>(item) from any thread to push items to Dart.
+    // emit_* helpers are defined in the generated bridge.
+    // Record/variant items: pass record.toNativeBuffer() — ownership of the
+    // heap [4B len][payload] block transfers to the bridge (same convention
+    // as record returns). Never emit a non-owning writer.toBuffer() view.
+    // Example — start emitting from a background thread:
+    //
+    //   std::thread([this]{ emit_dataStream(/* BenchmarkPoint value */); }).detach();
+    //   std::thread([this]{ emit_boxStream(/* BenchmarkBox value */); }).detach();
+};
+
+// ── Registration ─────────────────────────────────────────────────────────────
+//
+// Create a single instance and register it during plugin/app initialisation:
+//
+//   static BenchmarkCppImpl g_impl;
+//   benchmark_cpp_register_impl(&g_impl);   // in your plugin init
+//   benchmark_cpp_register_impl(nullptr);   // in your plugin dispose
+//
+// On Flutter desktop (Windows / Linux / macOS with NativeImpl.cpp) add the
+// registration call to your Flutter plugin's RegisterWithRegistrar:
+//
+//   void BenchmarkCppPlugin::RegisterWithRegistrar(PluginRegistrar* registrar) {
+//       static BenchmarkCppImpl impl;
+//       benchmark_cpp_register_impl(&impl);
+//   }
+
+// Registered when the wasm module instantiates.
+namespace {
+  struct _AutoRegister {
+    _AutoRegister() { benchmark_cpp_register_impl(new BenchmarkCppImpl()); }
+  };
+  static _AutoRegister _auto_register_instance;
+}

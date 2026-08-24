@@ -1,3 +1,9 @@
+## 0.7.3
+
+- Ecosystem sync for `nitrogen_cli` 0.7.3 (web-specific C++ impl, bridge-checksum
+  stamp in `build_web.sh`). **Re-run `nitrogen generate`.** No changes to this
+  package.
+
 ## 0.7.2
 
 - Ecosystem sync for `nitro_generator` 0.7.2. **Re-run `nitrogen generate`.**

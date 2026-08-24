@@ -25,10 +25,32 @@ extension _DoctorWebChecks on DoctorCommand {
 
     // Build script.
     final script = File(p.join(ctx.root.path, 'web', 'build_web.sh'));
-    if (script.existsSync()) {
-      ctx.ok(webSec, 'web/build_web.sh present');
-    } else {
+    if (!script.existsSync()) {
       ctx.err(webSec, 'web/build_web.sh missing', hint: 'Run: nitrogen link');
+    } else {
+      // The stamp carries the GENERATOR's bridge checksum per lib — the same
+      // constant compiled into the wasm and checked by checkLinkChecksum at
+      // runtime. Comparing against it catches the case mtime misses: the
+      // bridge was regenerated with a changed ABI and link never re-ran.
+      final stamped = stampedBridgeChecksums(script.readAsStringSync());
+      if (stamped.isEmpty) {
+        ctx.warn(webSec, 'web/build_web.sh has no bridge stamp (written by an older nitrogen)', hint: 'Run: nitrogen link');
+      } else {
+        final drifted = <String>[];
+        for (final entry in stamped.entries) {
+          final current = readBridgeChecksum(ctx.root.path, entry.key);
+          if (current != null && current != entry.value) drifted.add(entry.key);
+        }
+        if (drifted.isEmpty) {
+          ctx.ok(webSec, 'web/build_web.sh present and current');
+        } else {
+          ctx.warn(
+            webSec,
+            'web/build_web.sh was stamped against an older bridge for ${drifted.join(', ')}',
+            hint: 'Run: nitrogen link, then web/build_web.sh',
+          );
+        }
+      }
     }
 
     // Pubspec: web platforms entry + bundled assets.
@@ -49,6 +71,19 @@ extension _DoctorWebChecks on DoctorCommand {
     for (final spec in webSpecs) {
       final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
       final lib = _extractLibName(spec) ?? stem.replaceAll('-', '_');
+      // Which impl the wasm is built from, and whether the script still agrees
+      // with what is on disk (the choice is baked in at link time).
+      final wantsSpecific = webUsesSpecificImpl(ctx.root.path, lib);
+      final scriptedSpecific = script.readAsStringSync().contains(webSpecificImplPath(lib));
+      if (wantsSpecific == scriptedSpecific) {
+        ctx.ok(webSec, '$lib: builds from ${wantsSpecific ? '${webSpecificImplPath(lib)} (web-specific)' : 'the shared src/ impl'}');
+      } else {
+        ctx.warn(
+          webSec,
+          '$lib: build_web.sh compiles the ${scriptedSpecific ? 'web-specific' : 'shared'} impl but ${wantsSpecific ? '${webSpecificImplPath(lib)} now holds real code' : 'web/src/ no longer holds real code'}',
+          hint: 'Run: nitrogen link, then web/build_web.sh',
+        );
+      }
       final js = File(p.join(ctx.root.path, 'assets', 'web', '$lib.js'));
       final wasm = File(p.join(ctx.root.path, 'assets', 'web', '$lib.wasm'));
       if (!js.existsSync() || !wasm.existsSync()) {

@@ -61,8 +61,18 @@ void createSharedHeaders(String nitroNativePath, {String baseDir = '.'}) {
     for (final entry in platformDir.listSync().whereType<Directory>()) {
       final sourcesDir = Directory(p.join(entry.path, 'Sources'));
       if (!sourcesDir.existsSync()) continue;
+      final packageSwift = File(p.join(entry.path, 'Package.swift'));
+      final packageSwiftContent = packageSwift.existsSync() ? packageSwift.readAsStringSync() : '';
+      final pluginClass = _toPascalCase(p.basename(entry.path));
       for (final targetDir in sourcesDir.listSync().whereType<Directory>()) {
-        if (!p.basename(targetDir.path).endsWith('Cpp')) continue;
+        final targetName = p.basename(targetDir.path);
+        if (!targetName.endsWith('Cpp')) continue;
+        // A per-module target that depends on the plugin-level `<Class>Cpp`
+        // target resolves these headers through it, and link/apple.dart deletes
+        // any copies there — planting them here flipped the same five files on
+        // every generate/link pair. Same predicate as the deletion.
+        final moduleClass = targetName.substring(0, targetName.length - 3);
+        if (targetName != '${pluginClass}Cpp' && _spmModuleDependsOnPluginCpp(packageSwiftContent, moduleClass, pluginClass)) continue;
         final includeDir = Directory(p.join(targetDir.path, 'include'));
         if (!includeDir.existsSync()) continue;
         // Write nitro.h with the correct guard-protected content.

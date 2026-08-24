@@ -165,6 +165,34 @@ void main() {
       );
     });
 
+    test('finds the generator stamp at the pub-workspace root', () {
+      // A workspace member has no .dart_tool of its own; the resolved
+      // package_config.json lives at the root. Reading only the member's dir
+      // made the stamp 'unknown' on both sides, so a generator upgrade never
+      // invalidated the cache (benchmark kept 0.7.1 output through two bumps).
+      final member = Directory(p.join(tempDir.path, 'packages', 'app'))..createSync(recursive: true);
+      final spec = _writeSpec(member, 'camera');
+      final output = File(p.join(member.path, 'lib', 'src', 'camera.g.dart'))..writeAsStringSync('// generated');
+      final genSrc = File(p.join(tempDir.path, 'gen', 'lib', 'g.dart'))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('// v1');
+      File(p.join(tempDir.path, '.dart_tool', 'package_config.json'))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('{"packages":[{"name":"nitro_generator","rootUri":"../gen"}]}');
+
+      final cache = IncrementalGenerationCache(member.path);
+      cache.write(specs: [spec], outputPathsForSpec: (_) => [output.path]);
+      expect(cache.plan(specs: [spec], outputPathsForSpec: (_) => [output.path]).changedSpecs, isEmpty);
+
+      genSrc.writeAsStringSync('// v2');
+      genSrc.setLastModifiedSync(DateTime.now().add(const Duration(minutes: 1)));
+      expect(
+        cache.plan(specs: [spec], outputPathsForSpec: (_) => [output.path]).changedSpecs,
+        equals([spec]),
+        reason: 'the generator changed; a workspace member must notice',
+      );
+    });
+
     test('skips unchanged specs when hashes and outputs match the manifest', () {
       final spec = _writePluginFixture(tempDir);
       final output = File(p.join(tempDir.path, 'lib', 'src', 'camera.g.dart'));

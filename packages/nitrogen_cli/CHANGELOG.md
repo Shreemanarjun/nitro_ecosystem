@@ -1,3 +1,33 @@
+## 0.7.3
+
+Fixed
+- `generate` never invalidated its cache on a generator upgrade inside a pub
+  workspace: the generator stamp read `<project>/.dart_tool/package_config.json`,
+  which a workspace member does not have, so it was `unknown` on both sides and
+  "no spec changes detected" hid two releases' worth of output. The stamp now
+  walks up to the workspace root, as pub does.
+- `generate` re-planted `dart_api*.h`/`nitro.h` into per-module SPM `include/`
+  dirs that `link` then deletes (they resolve through the plugin-level
+  `<Class>Cpp` target), flipping the same files on every generate/link pair.
+  `generate` now applies the same rule as `link`.
+- `link` overwrote `test/asset_server.dart` on every run, discarding author
+  edits (extra routes, auth headers, fixtures). It is now written once, like
+  the per-module web test beside it.
+
+Added
+- `web/build_web.sh` carries `# NITRO_BRIDGE_CHECKSUM <lib> <hex>` per module —
+  the generator's compile-time constant, the same one compiled into the bridge
+  and verified by `checkLinkChecksum` at runtime. `doctor` compares it against
+  the generated bridge and reports a script stamped against an older ABI, which
+  mtime alone missed.
+- Web can have its own C++ impl. `link` seeds `web/src/Hybrid<Class>.cpp` from
+  the generated `<lib>.impl.g.cpp` starter — every method with its signature,
+  ownership notes, wasm self-registration — and never overwrites it. It stays
+  inert (web keeps the shared `src/` impl) until its
+  `TODO: implement all pure-virtual methods` line is deleted; `build_web.sh`
+  then compiles it for that module. `doctor` reports which impl each module
+  builds from and flags a script that no longer matches the files on disk.
+
 ## 0.7.2
 
 - Ecosystem sync for `nitro_generator` 0.7.2 (web named-parameter fix).

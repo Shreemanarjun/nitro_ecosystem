@@ -5,6 +5,10 @@
 # Builds the plugin's WASM module(s) into assets/web/ (bundled as Flutter
 # assets — declared under `flutter: assets:` in pubspec.yaml).
 # Requires the Emscripten SDK on PATH: https://emscripten.org/docs/getting_started
+#
+# Records the generated bridge each module was built against; `nitrogen doctor`
+# warns when a bridge has been regenerated since this script was written.
+# NITRO_BRIDGE_CHECKSUM benchmark_cpp d4cf287ec59a7767
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -19,6 +23,7 @@ mkdir -p "$OUT"
 # shims the Dart API under __EMSCRIPTEN__).
 IMPL_SOURCES=$(ls src/Hybrid*.cpp 2>/dev/null || ls src/*.cpp 2>/dev/null | grep -v dart_api_dl || true)
 
+# benchmark_cpp: shared src/ impl
 em++ -O2 --no-entry -fwasm-exceptions \
   -Isrc -Isrc/native -I"$GEN" \
   "$GEN/benchmark_cpp.bridge.g.cpp" $IMPL_SOURCES \

@@ -205,7 +205,7 @@ backend.
 **Workaround:** Non-nullable `Uint8List` + empty list for the "no data" case, or wrap in `@HybridRecord`.
 
 ### L8 — Web / WASM ✅ (resolved in 0.7.0)
-**Status:** Full support. `web: NativeImpl.wasm` compiles the same C++ impl with Emscripten; a generated `dart:js_interop` bridge drives the identical binary wire format over the module heap. Streams and `@nitroNativeAsync` work — completions arrive through a module post callback that replaces `Dart_PostCObject_DL` (`nitro_wasm_compat.h`). Verified in Chrome under BOTH `flutter build web` (dart2js) and `--wasm` (dart2wasm).  
+**Status:** Full support. `web: NativeImpl.wasm` compiles the same C++ impl with Emscripten (or the seeded `web/src/Hybrid<Class>.cpp` once its marker line is removed); a generated `dart:js_interop` bridge drives the identical binary wire format over the module heap. Streams and `@nitroNativeAsync` work — completions arrive through a module post callback that replaces `Dart_PostCObject_DL` (`nitro_wasm_compat.h`). Verified in Chrome under BOTH `flutter build web` (dart2js) and `--wasm` (dart2wasm).  
 **Note:** RN Nitro has no web support — this is a Flutter-nitro advantage.  
 **Remaining web caveats:** `@nitroAsync` runs inline on the main thread (no isolates — W008); `@zeroCopy` is one bulk copy (W009); `int` has 53-bit fidelity under dart2js; `@HybridStruct` fields carrying a record/variant/map are E017 (use `@HybridRecord`); the C++ impl must not spawn threads. See migration/0.7.0.md.
 

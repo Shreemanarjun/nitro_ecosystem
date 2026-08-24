@@ -3,7 +3,7 @@ import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 import 'package:nitrogen_cli/version.dart';
-import 'link_command.dart' show PlatformTargetAnalyzer, isCppModule, isNativeCppModule;
+import 'link_command.dart' show PlatformTargetAnalyzer, isCppModule, isNativeCppModule, readBridgeChecksum, stampedBridgeChecksums, webSpecificImplPath, webUsesSpecificImpl;
 import 'spm_utils.dart';
 import '../ui.dart';
 import '../templates/build_versions.dart';

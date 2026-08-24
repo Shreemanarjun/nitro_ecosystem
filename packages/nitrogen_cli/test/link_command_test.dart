@@ -1459,6 +1459,39 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
       expect(File(p.join(tmp.path, 'src', 'native', 'internal', 'dart_api_dl_impl.h')).existsSync(), isTrue);
     });
 
+    test('createSharedHeaders leaves SPM module targets that resolve headers via the plugin target alone', () {
+      // link/apple.dart deletes per-module copies from exactly these targets;
+      // planting them here again flipped the same five files on every
+      // generate/link pair (seen on benchmark: BenchmarkCppCpp/NitroArCpp).
+      final nitroNative = Directory(p.join(tmp.path, 'nitro_native'))..createSync();
+      for (final header in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h']) {
+        File(p.join(nitroNative.path, header)).writeAsStringSync('// $header\n');
+      }
+      final pkg = Directory(p.join(tmp.path, 'macos', 'my_plugin'))..createSync(recursive: true);
+      for (final target in ['MyPluginCpp', 'FooCpp', 'BarCpp']) {
+        Directory(p.join(pkg.path, 'Sources', target, 'include')).createSync(recursive: true);
+      }
+      File(p.join(pkg.path, 'Package.swift')).writeAsStringSync('''
+      .target(
+        name: "FooCpp",
+        dependencies: ["MyPluginCpp"],
+      ),
+      .target(
+        name: "BarCpp",
+      ),
+        .target(
+            name: "MyPluginCpp",
+        ),
+''');
+
+      createSharedHeaders(nitroNative.path, baseDir: tmp.path);
+
+      bool planted(String target) => File(p.join(pkg.path, 'Sources', target, 'include', 'dart_api.h')).existsSync();
+      expect(planted('MyPluginCpp'), isTrue, reason: 'the plugin-level target is where the headers live');
+      expect(planted('FooCpp'), isFalse, reason: 'resolves them through its MyPluginCpp dependency; link deletes copies here');
+      expect(planted('BarCpp'), isTrue, reason: 'a hand-authored target without the dependency still needs its own copies');
+    });
+
     test('cleanRedundantIncludes removes bridge imports', () {
       final file = File(p.join(tmp.path, 'plugin.cpp'));
       file.writeAsStringSync('''

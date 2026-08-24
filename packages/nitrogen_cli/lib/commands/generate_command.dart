@@ -888,8 +888,18 @@ class IncrementalGenerationCache {
   /// dep is pinned by its resolved version; a path dep (local development)
   /// reports the newest mtime under its lib/, since its version never moves.
   String _generatorStamp() {
-    final cfg = File(p.join(projectRoot, '.dart_tool', 'package_config.json'));
-    if (!cfg.existsSync()) return 'unknown';
+    // A pub-workspace member has no .dart_tool of its own — the resolved
+    // package_config.json sits at the workspace root. Walk up, like pub does.
+    // Without this the stamp was 'unknown' on both sides and a generator
+    // version bump never invalidated the cache (benchmark stayed at 0.7.1
+    // through two releases).
+    File? cfg;
+    for (var dir = Directory(projectRoot); ; dir = dir.parent) {
+      final candidate = File(p.join(dir.path, '.dart_tool', 'package_config.json'));
+      if (candidate.existsSync()) { cfg = candidate; break; }
+      if (dir.parent.path == dir.path) break;
+    }
+    if (cfg == null) return 'unknown';
     try {
       if (jsonDecode(cfg.readAsStringSync()) case {'packages': final List<Object?> pkgs}) {
         for (final pkg in pkgs) {

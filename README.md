@@ -40,10 +40,10 @@ No method channels. No manual FFI. No boilerplate.
 ```yaml
 # pubspec.yaml
 dependencies:
-  nitro: ^0.7.2
+  nitro: ^0.7.3
 
 dev_dependencies:
-  nitro_generator: ^0.7.2
+  nitro_generator: ^0.7.3
   build_runner: ^2.4.0
 ```
 
@@ -168,6 +168,8 @@ nitrogen doctor --no-ui                    # exit 1 on any health-check error
 | `web:` | `WebNativeImpl.wasm` | WASM/JS interop | Web |
 
 `NativeImpl.swift`, `.kotlin`, `.cpp`, `.wasm` are backward-compatible shorthands. The explicit per-platform constants catch invalid combinations (e.g. Kotlin on macOS) at compile time.
+
+Web compiles the same C++ impl as the native C++ targets by default. `nitrogen link` also seeds `web/src/Hybrid<Class>.cpp` from the generated starter — every method with its signature, plus wasm self-registration. Implement it, delete its `TODO: implement all pure-virtual methods` line, and re-run `nitrogen link`: that module's WASM is then built from it instead. While the line is there the file is inert, so existing plugins are unaffected.
 
 ### Direct C++ path
 
@@ -828,7 +830,7 @@ typedef struct __attribute__((packed)) { uint8_t hasValue; uint8_t  value; } Nit
 
 ## Known Limitations
 
-> Upgrading? **0.7.2 requires `nitrogen generate`** — it fixes named parameters on the web bridge.
+> Upgrading? **0.7.3 requires `nitrogen generate`** — the generator version is part of the bridge checksum (0.7.2 also fixed named parameters on the web bridge).
 > See [migration/0.7.1.md](migration/0.7.1.md) (nullable struct fields, nullable map values) and [migration/0.7.0.md](migration/0.7.0.md) (web/WASM).
 
 | ID | Limitation | Workaround |
