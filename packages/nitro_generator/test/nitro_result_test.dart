@@ -697,14 +697,14 @@ void main() {
 
     test('dispatch consumes a NitroCppBuffer from the impl, not std::string', () {
       final out = CppBridgeGenerator.generate(spec());
-      final idx = out.indexOf('NitroCppBuffer _res = g_impl->getPrinterAt(');
+      final idx = out.indexOf('NitroCppBuffer _res = _impl->getPrinterAt(');
       expect(idx, greaterThan(-1));
-      expect(out, isNot(contains('std::string _val = g_impl->getPrinterAt(')));
+      expect(out, isNot(contains('std::string _val = _impl->getPrinterAt(')));
     });
 
     test('prepends the [1B tag=0] byte directly to the already-encoded buffer', () {
       final out = CppBridgeGenerator.generate(spec());
-      final idx = out.indexOf('NitroCppBuffer _res = g_impl->getPrinterAt(');
+      final idx = out.indexOf('NitroCppBuffer _res = _impl->getPrinterAt(');
       final body = out.substring(idx, out.indexOf('} catch', idx));
       expect(body, contains('_out[0] = 0;'));
       expect(body, contains('memcpy(_out + 1, _res.data, _res.size)'));

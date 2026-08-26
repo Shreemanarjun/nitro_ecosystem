@@ -325,7 +325,7 @@ void main() {
 
     test('release function NOT generated when spec has no structs', () {
       final out = CppBridgeGenerator.generate(cppSpec());
-      expect(out, isNot(contains('_release_')));
+      expect(out, isNot(contains(RegExp('_release_[A-Z]'))), reason: 'struct release symbols only exist when the spec has structs');
     });
 
     test('JNI+Swift path also generates release function', () {

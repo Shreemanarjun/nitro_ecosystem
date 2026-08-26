@@ -74,6 +74,7 @@ String _generateCppDirect(BridgeSpec spec) {
   writer.line('#include <stdexcept>');
   if (spec.webIsWasm) {
     writer.line('#ifdef __EMSCRIPTEN__');
+    writer.line('#include <emscripten/emscripten.h>');
     writer.line('#include "nitro_wasm_compat.h"');
     writer.line('#else');
     writer.line('#include "dart_api_dl.h"');
@@ -103,6 +104,21 @@ String _generateCppDirect(BridgeSpec spec) {
     writer.line('NITRO_EXPORT __attribute__((weak)) void ${libStem}_nitro_set_post_fn(NitroPostFn fn) {');
     writer.line('    g_nitro_post_fn = fn;');
     writer.line('}');
+    writer.line('// Hot restart rebuilds the module but keeps globalThis, so JS helpers a');
+    writer.line('// previous instance parked there still close over its dead heap: calls');
+    writer.line('// land out of bounds and posts reach the old instance. Returns 1 the');
+    writer.line('// first time THIS instance asks, so plugin bootstraps rebuild their');
+    writer.line('// globals exactly once per instance. JS-callable from any EM_JS body.');
+    writer.line('EM_JS(int, nitro_web_instance_changed, (), {');
+    writer.line('    var reg = globalThis.__nitroInstances || (globalThis.__nitroInstances = {});');
+    writer.line('    if (reg["$libStem"] === wasmExports) return 0;');
+    writer.line('    reg["$libStem"] = wasmExports;');
+    writer.line('    return 1;');
+    writer.line('});');
+    writer.line('EM_JS(void, nitro_web_own_globals, (const char* key), {');
+    writer.line('    var o = globalThis[UTF8ToString(key)];');
+    writer.line('    if (o) o.__nitroExports = wasmExports;');
+    writer.line('});');
     writer.line('#endif');
   }
   writer.line('}');
@@ -139,99 +155,7 @@ String _generateCppDirect(BridgeSpec spec) {
   writer.line('}');
   writer.blankLine();
 
-  // ── Multi-instance registry (mirrors RN Nitro's HybridObjectRegistry) ────
-  // g_instances maps instanceId → shared_ptr<Hybrid$className>.
-  // Factory mode (recommended): register_factory() → create_instance() calls it.
-  // Legacy mode: register_impl() wraps raw ptr with no-op deleter at slot 0.
-  writer.line('#include <atomic>');
-  writer.line('#include <memory>');
-  writer.line('#include <mutex>');
-  writer.line('#include <unordered_map>');
-  writer.blankLine();
-  // Meyers' Singleton for the registry — guarantees thread-safe init before
-  // first use even when __attribute__((constructor)) fires early.
-  writer.line('using Hybrid${className}Factory = std::function<std::shared_ptr<Hybrid$className>(const std::string&)>;');
-  writer.line('static std::unordered_map<int64_t, std::shared_ptr<Hybrid$className>>& _g_instances() {');
-  writer.line('    static std::unordered_map<int64_t, std::shared_ptr<Hybrid$className>> m;');
-  writer.line('    return m;');
-  writer.line('}');
-  writer.line('static std::mutex& _g_instances_mtx() {');
-  writer.line('    static std::mutex m;');
-  writer.line('    return m;');
-  writer.line('}');
-  writer.line('static std::atomic<int64_t>& _g_next_instance_id() {');
-  writer.line('    static std::atomic<int64_t> id{1};');
-  writer.line('    return id;');
-  writer.line('}');
-  writer.line('static Hybrid${className}Factory& _g_factory() {');
-  writer.line('    static Hybrid${className}Factory f;');
-  writer.line('    return f;');
-  writer.line('}');
-  writer.blankLine();
-  // Lock-free N-way cache for resolved (id -> raw impl); the map + mutex stay the
-  // source of truth for create/destroy. 8 direct-mapped slots keep several live
-  // instances resident — a single entry fell back to the mutex on every call once
-  // a loop rotated between instances. alignas(64) prevents false sharing.
-  // The pointer is borrowed (the map owns the shared_ptr); the Dart-side
-  // NativeFinalizer never destroys an instance while a call is in flight, and
-  // slots are invalidated under the mutex so a freed id can't resolve stale.
-  writer.line('static constexpr int _kNitroCacheWays = 8;');
-  writer.line('struct alignas(64) _NitroInstSlot {');
-  writer.line('    std::atomic<int64_t> id{-1};');
-  writer.line('    std::atomic<Hybrid$className*> ptr{nullptr};');
-  writer.line('};');
-  writer.line('static _NitroInstSlot _g_inst_cache[_kNitroCacheWays];');
-  writer.line('static Hybrid$className* _nitro_get_instance(int64_t id) {');
-  writer.line('    _NitroInstSlot& _slot = _g_inst_cache[(uint64_t)id & (_kNitroCacheWays - 1)];');
-  writer.line('    if (_slot.id.load(std::memory_order_acquire) == id) {');
-  writer.line('        return _slot.ptr.load(std::memory_order_relaxed);');
-  writer.line('    }');
-  writer.line('    std::lock_guard<std::mutex> _lk(_g_instances_mtx());');
-  writer.line('    auto it = _g_instances().find(id);');
-  writer.line('    Hybrid$className* p = (it != _g_instances().end()) ? it->second.get() : nullptr;');
-  writer.line('    if (p) {');
-  writer.line('        _slot.ptr.store(p, std::memory_order_relaxed);');
-  writer.line('        _slot.id.store(id, std::memory_order_release);');
-  writer.line('    }');
-  writer.line('    return p;');
-  writer.line('}');
-  writer.line('static void _nitro_invalidate_cache() {');
-  writer.line('    for (int _i = 0; _i < _kNitroCacheWays; ++_i) {');
-  writer.line('        _g_inst_cache[_i].id.store(-1, std::memory_order_release);');
-  writer.line('        _g_inst_cache[_i].ptr.store(nullptr, std::memory_order_relaxed);');
-  writer.line('    }');
-  writer.line('}');
-  writer.blankLine();
-  writer.line('extern "C" {');
-  writer.line('void ${libStem}_register_factory(void* fn) {');
-  writer.line('    _g_factory() = *static_cast<Hybrid${className}Factory*>(fn);');
-  writer.line('}');
-  writer.line('void ${libStem}_register_impl(Hybrid$className* impl) {');
-  writer.line('    std::lock_guard<std::mutex> _lk(_g_instances_mtx());');
-  writer.line('    if (impl) _g_instances()[0] = std::shared_ptr<Hybrid$className>(impl, [](Hybrid$className*){});');
-  writer.line('    else _g_instances().erase(0);');
-  writer.line('    _nitro_invalidate_cache();');
-  writer.line('}');
-  writer.line('Hybrid$className* ${libStem}_get_impl() {');
-  writer.line('    return _nitro_get_instance(0);');
-  writer.line('}');
-  writer.line('NITRO_EXPORT int64_t ${libStem}_create_instance(const char* key) {');
-  writer.line('    if (_g_factory()) {');
-  writer.line('        auto inst = _g_factory()(key ? key : "");');
-  writer.line('        if (!inst) return -1;');
-  writer.line('        std::lock_guard<std::mutex> _lk(_g_instances_mtx());');
-  writer.line('        int64_t id = ++_g_next_instance_id();');
-  writer.line('        _g_instances()[id] = std::move(inst);');
-  writer.line('        return id;');
-  writer.line('    }');
-  writer.line('    // Legacy: no factory registered — return 0 (single global impl slot)');
-  writer.line('    return 0;');
-  writer.line('}');
-  writer.line('NITRO_EXPORT void ${libStem}_destroy_instance(int64_t instanceId) {');
-  writer.line('    std::lock_guard<std::mutex> _lk(_g_instances_mtx());');
-  writer.line('    _g_instances().erase(instanceId);');
-  writer.line('    _nitro_invalidate_cache();');
-  writer.line('}');
+  CppBridgeGenerator._emitInstanceRegistry(writer, libStem, className);
   // Universal free for native-owned memory handed to Dart. Dart must not use
   // package:ffi's malloc.free on these pointers (CoTaskMemFree on Windows).
   writer.line('NITRO_EXPORT void ${libStem}_nitro_free(void* ptr) { if (ptr) { free(ptr); } }');
@@ -657,7 +581,7 @@ String _generateCppDirect(BridgeSpec spec) {
   // overwrite the first.
   for (final stream in spec.streams) {
     writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
-    writer.line('    g_ports_${stream.dartName}.add(dart_port);');
+    writer.line('    g_ports_${stream.dartName}.add(_nitro_get_instance(instanceId), dart_port);');
     writer.line('}');
     writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
     writer.line('    g_ports_${stream.dartName}.remove(dart_port);');

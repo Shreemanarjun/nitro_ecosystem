@@ -1,3 +1,9 @@
+## 0.7.4
+
+- Ecosystem sync for `nitro_generator` 0.7.4 (multi-instance Apple dispatch,
+  instance-partitioned streams, web hot-restart helpers).
+  **Re-run `nitrogen generate`.** No changes to this package.
+
 ## 0.7.3
 
 Fixed

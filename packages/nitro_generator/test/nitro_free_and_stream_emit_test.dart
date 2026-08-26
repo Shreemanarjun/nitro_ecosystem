@@ -193,7 +193,7 @@ void main() {
 
     test('register appends and release removes the exact port', () {
       final out = CppBridgeGenerator.generate(_spec());
-      expect(out, contains('g_ports_configStream.add(dart_port);'));
+      expect(out, contains('g_ports_configStream.add(_nitro_get_instance(instanceId), dart_port);'));
       expect(out, contains('g_ports_configStream.remove(dart_port);'));
     });
 

@@ -154,4 +154,9 @@ static inline intptr_t Dart_InitializeApiDL(void* data) {
 }  // extern "C"
 #endif
 
+// Hot-restart safety: the generated bridge defines (via EM_JS — a JS glue
+// function, not a wasm export) nitro_web_instance_changed(), which reports 1 the first time each module
+// instance asks. Plugin web impls call it from their EM_JS bootstrap to
+// rebuild globalThis helpers that would otherwise close over a dead heap.
+
 #endif  // NITRO_WASM_COMPAT_H_

@@ -1,3 +1,9 @@
+## 0.7.4
+
+- Ecosystem sync for `nitro_generator` 0.7.4 (multi-instance Apple dispatch,
+  instance-partitioned streams, web hot-restart helpers).
+  **Re-run `nitrogen generate`.** No changes to this package.
+
 ## 0.7.3
 
 - Ecosystem sync for `nitrogen_cli` 0.7.3 (web-specific C++ impl, bridge-checksum

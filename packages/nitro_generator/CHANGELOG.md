@@ -1,3 +1,24 @@
+## 0.7.4
+
+Changed
+- Apple direct-C++ dispatch uses the same multi-instance registry as desktop —
+  per-instance resolution instead of a single `g_impl`, and a missing impl
+  posts null to the dart port instead of hanging the `Future`.
+- Stream port registries are partitioned by instance: a subscriber on one
+  instance no longer receives another instance's events, and destroying an
+  instance releases its stream ports.
+
+Fixed
+- `destroy_instance` no longer erases slot 0 (the `register_impl` slot) — the
+  first `dispose()` of a factory-less plugin killed every other instance.
+
+Added
+- Web bridges define EM_JS helpers `nitro_web_instance_changed()` /
+  `nitro_web_own_globals()` so plugin bootstraps can rebuild `globalThis`
+  state after a hot restart.
+
+**Re-run `nitrogen generate`.**
+
 ## 0.7.3
 
 - Ecosystem sync for `nitrogen_cli` 0.7.3 (web-specific C++ impl, bridge-checksum

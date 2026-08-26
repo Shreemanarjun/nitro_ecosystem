@@ -682,7 +682,7 @@ void main() {
     });
 
     test('stream emit snapshots the port list under the lock', () {
-      expect(out, contains('auto _ports = g_ports_dataStream.snapshot();'));
+      expect(out, contains('auto _ports = g_ports_dataStream.snapshot(this);'));
     });
 
     test('stream emit drops a port from the registry when its post fails', () {

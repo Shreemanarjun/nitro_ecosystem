@@ -2442,13 +2442,14 @@ void main() {
       final out = CppBridgeGenerator.generate(mixedSpec());
       // Two definitions of mixed_do_stuff exist (Android JNI + Apple C++
       // direct) under separate #ifdef branches — the Apple one is the LAST
-      // occurrence and is the only one with `g_impl->doStuff(`.
+      // occurrence and is the only one that resolves via the instance registry.
       final idx = out.lastIndexOf('void mixed_do_stuff(');
       final body = out.substring(idx, out.indexOf('\n}', idx));
       expect(body, contains('void mixed_do_stuff(int64_t instanceId, int64_t x, NitroError* _nitro_err, int64_t dart_port) {'));
       expect(body, contains('if (_nitro_err) { _nitro_err->hasError = 0; }'));
+      expect(body, contains('auto _impl = _nitro_get_instance(instanceId);'));
       expect(body, contains('try {'));
-      expect(body, contains('g_impl->doStuff(x, _nitro_err, dart_port);'));
+      expect(body, contains('_impl->doStuff(x, _nitro_err, dart_port);'));
       expect(body, contains('} catch (const std::exception& e) {'));
       expect(body, contains('_nitro_desktop_err(_nitro_err, "CppException", e.what());'));
       expect(body, contains('} catch (...) {'));
@@ -2543,7 +2544,7 @@ void main() {
       // The old unguarded form must not appear anywhere (it would still
       // compile — just segfault at runtime — so absence, not a compile
       // error, is what this regression test locks in).
-      expect(out, isNot(contains('g_impl->printText(std::string(text), NitroCppBuffer{ (const uint8_t*)settings + 4')));
+      expect(out, isNot(contains('_impl->printText(std::string(text), NitroCppBuffer{ (const uint8_t*)settings + 4')));
     });
 
     test('pure C++ (all platforms NativeImpl.cpp): null-guards the length-prefix deref', () {
@@ -2571,27 +2572,27 @@ void main() {
       final out = CppBridgeGenerator.generate(_desktopListMapCallbackSpec());
       expect(
         out,
-        contains('g_impl->setItems(NitroCppBuffer{ (const uint8_t*)items + 4, (size_t)*(int32_t*)items }, _nitro_err, dart_port);'),
+        contains('_impl->setItems(NitroCppBuffer{ (const uint8_t*)items + 4, (size_t)*(int32_t*)items }, _nitro_err, dart_port);'),
       );
-      expect(out, isNot(contains('g_impl->setItems(items, _nitro_err, dart_port);')));
+      expect(out, isNot(contains('_impl->setItems(items, _nitro_err, dart_port);')));
     });
 
     test('List<int> (primitive item) param is also wrapped in NitroCppBuffer', () {
       final out = CppBridgeGenerator.generate(_desktopListMapCallbackSpec());
       expect(
         out,
-        contains('g_impl->setValues(NitroCppBuffer{ (const uint8_t*)values + 4, (size_t)*(int32_t*)values }, _nitro_err, dart_port);'),
+        contains('_impl->setValues(NitroCppBuffer{ (const uint8_t*)values + 4, (size_t)*(int32_t*)values }, _nitro_err, dart_port);'),
       );
-      expect(out, isNot(contains('g_impl->setValues(values, _nitro_err, dart_port);')));
+      expect(out, isNot(contains('_impl->setValues(values, _nitro_err, dart_port);')));
     });
 
     test('Map<String,int> param is wrapped in NitroCppBuffer', () {
       final out = CppBridgeGenerator.generate(_desktopListMapCallbackSpec());
       expect(
         out,
-        contains('g_impl->setCounts(NitroCppBuffer{ (const uint8_t*)counts + 4, (size_t)*(int32_t*)counts }, _nitro_err, dart_port);'),
+        contains('_impl->setCounts(NitroCppBuffer{ (const uint8_t*)counts + 4, (size_t)*(int32_t*)counts }, _nitro_err, dart_port);'),
       );
-      expect(out, isNot(contains('g_impl->setCounts(counts, _nitro_err, dart_port);')));
+      expect(out, isNot(contains('_impl->setCounts(counts, _nitro_err, dart_port);')));
     });
 
     test('callback param: C declaration uses a typed function pointer, matching the .h forward declaration', () {
@@ -2615,7 +2616,7 @@ void main() {
       final out = CppBridgeGenerator.generate(_desktopListMapCallbackSpec());
       expect(out, contains('auto _rawfn_callback = reinterpret_cast<void (*)(int64_t)>(callback);'));
       expect(out, contains('std::function<void(int64_t)> _fn_callback ='));
-      expect(out, contains('g_impl->onProgress(value, _fn_callback, _nitro_err, dart_port);'));
+      expect(out, contains('_impl->onProgress(value, _fn_callback, _nitro_err, dart_port);'));
       // The old bug passed the raw C pointer straight through — un-wrapped.
       expect(out, isNot(contains('g_impl->onProgress(value, callback, _nitro_err, dart_port);')));
     });
