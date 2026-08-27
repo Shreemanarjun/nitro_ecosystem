@@ -175,11 +175,32 @@ class HybridWebEchoImpl final : public HybridWebEcho {
   int64_t counter_ = 0;
 };
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+// Bridge-defined (EM_JS): returns 1 the first time THIS wasm instance asks,
+// claiming globalThis.__nitroInstances ownership for "web_echo".
+extern "C" int nitro_web_instance_changed();
+// Bookkeeping the hot-restart contract test reads back from Dart: boots =
+// module instantiations, claims = first-call-returned-1 count (must track
+// boots), repeats = second-call-returned-1 count (must stay 0).
+EM_JS(void, web_echo_note_boot, (int changed, int changed_again), {
+  var g = globalThis.__nitroWebEchoBoot ||
+      (globalThis.__nitroWebEchoBoot = { boots: 0, claims: 0, repeats: 0 });
+  g.boots++;
+  if (changed) g.claims++;
+  if (changed_again) g.repeats++;
+});
+#endif
+
 // Multi-instance factory registration: runs during module instantiation
 // (__wasm_call_ctors), before any Dart call reaches the bridge.
 namespace {
 struct _Register {
   _Register() {
+#ifdef __EMSCRIPTEN__
+    const int changed = nitro_web_instance_changed();
+    web_echo_note_boot(changed, nitro_web_instance_changed());
+#endif
     web_echo_register_factory_typed(
         [](const std::string& key) -> std::shared_ptr<HybridWebEcho> {
           (void)key;

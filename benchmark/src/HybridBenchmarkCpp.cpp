@@ -25,22 +25,51 @@
 // Single-threaded web build: no worker/stream threads. Async tasks run
 // inline (Dart-side delivery is still microtask-deferred), and the 60fps
 // stream tick runs on an emscripten main-loop interval instead of a thread.
+#include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
+
+// Hot-restart ownership. A hot restart re-instantiates the module in the SAME
+// JS context, but this instance's interval survives on the page, posting into
+// a torn-down Dart context. The bridge's EM_JS helper claims ownership for
+// the newest instance; a tick that finds itself no longer current clears its
+// own interval (same-module API — no cross-module handles needed).
+extern "C" int nitro_web_instance_changed();
+EM_JS(int, benchmark_cpp_is_current_instance, (), {
+  var reg = globalThis.__nitroInstances;
+  return (reg && reg["benchmark_cpp"] === wasmExports) ? 1 : 0;
+});
 #endif
 
 class HybridBenchmarkCppImpl final : public HybridBenchmarkCpp {
 public:
     HybridBenchmarkCppImpl() : _running(true), _asyncWorkerRunning(true) {
 #ifdef __EMSCRIPTEN__
+        nitro_web_instance_changed();  // claim ownership; stale tickers stand down
         _tickInterval = emscripten_set_interval(
             [](void* self) { static_cast<HybridBenchmarkCppImpl*>(self)->_streamTick(); },
             16.666, this);
 #else
+        _streamThread = std::thread([this]() {
+            auto nextTick = std::chrono::steady_clock::now();
+            while (_running) {
+                // Precise 60fps timing
+                nextTick += std::chrono::microseconds(16666);
+                std::this_thread::sleep_until(nextTick);
+
+                if (!_running) break;
+                _streamTick();
+            }
+        });
+#endif
+#if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
         // Persistent worker thread for computeStatsNative — reused across
         // calls (not spawned per call) so the @nitroAsync vs @nitroNativeAsync
         // benchmark comparison measures dispatch overhead, not OS thread
-        // creation cost.
-        _asyncWorkerThread = std::thread([this]() {
+        // creation cost. Also spawned on a NITRO_WEB_THREADS=1 web build,
+        // where native-async work leaves the main thread.
+        const unsigned _poolN = std::max(2u, std::min(4u, std::thread::hardware_concurrency()));
+        for (unsigned _w = 0; _w < _poolN; ++_w)
+        _asyncWorkerPool.emplace_back([this]() {
             while (true) {
                 std::function<void()> task;
                 {
@@ -61,19 +90,8 @@ public:
                     if (drained) _flushCoalesce();
                 }
             }
-        });
+        });  // pool worker
 
-        _streamThread = std::thread([this]() {
-            auto nextTick = std::chrono::steady_clock::now();
-            while (_running) {
-                // Precise 60fps timing
-                nextTick += std::chrono::microseconds(16666);
-                std::this_thread::sleep_until(nextTick);
-
-                if (!_running) break;
-                _streamTick();
-            }
-        });
 #endif
     }
 
@@ -85,13 +103,15 @@ public:
         if (_streamThread.joinable()) {
             _streamThread.join();
         }
+#endif
+#if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
         {
             std::lock_guard<std::mutex> lk(_asyncQueueMtx);
             _asyncWorkerRunning = false;
         }
-        _asyncQueueCv.notify_one();
-        if (_asyncWorkerThread.joinable()) {
-            _asyncWorkerThread.join();
+        _asyncQueueCv.notify_all();
+        for (auto& _w : _asyncWorkerPool) {
+            if (_w.joinable()) _w.join();
         }
 #endif
     }
@@ -99,6 +119,12 @@ public:
     // One 60fps stream frame — shared by the native stream thread and the
     // emscripten interval.
     void _streamTick() {
+#ifdef __EMSCRIPTEN__
+        if (!benchmark_cpp_is_current_instance()) {
+            emscripten_clear_interval(_tickInterval);
+            return;
+        }
+#endif
         // 1. Stress Test Data (BenchmarkPoint)
         emit_dataStream(BenchmarkPoint{std::sin(_angle), std::cos(_angle)});
 
@@ -121,7 +147,7 @@ public:
     // single-threaded web build (Dart delivery stays async — the post callback
     // defers to a microtask).
     void _enqueue(std::function<void()> task) {
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
         task();
         _flushCoalesce();
 #else
@@ -347,7 +373,7 @@ private:
     std::atomic<bool> _running;
 
     // Persistent worker + task queue backing computeStatsNative().
-    std::thread _asyncWorkerThread;
+    std::vector<std::thread> _asyncWorkerPool;
     std::mutex _asyncQueueMtx;
     std::condition_variable _asyncQueueCv;
     std::queue<std::function<void()>> _asyncQueue;

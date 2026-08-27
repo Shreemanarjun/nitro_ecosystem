@@ -1,8 +1,16 @@
 ## 0.7.4
 
+Added
+- `nitro_wasm_compat.h`: in a `-pthread` web build, posts from worker threads
+  copy their payload and are delivered on the main runtime thread (the JS post
+  callback exists only there). Unthreaded builds are unchanged.
+- dart2wasm calls dispatch through a per-symbol `JSFunction` cache with
+  fixed-arity invocation (~1.2–1.5× faster sync calls); dart2js keeps its
+  varargs path, which its compiler optimises better.
+
 - Ecosystem sync for `nitro_generator` 0.7.4 (multi-instance Apple dispatch,
   instance-partitioned streams, web hot-restart helpers).
-  **Re-run `nitrogen generate`.** No changes to this package.
+  **Re-run `nitrogen generate`.**
 
 ## 0.7.3
 

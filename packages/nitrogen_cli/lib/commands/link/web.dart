@@ -50,6 +50,16 @@ mkdir -p "\$OUT"
 # dart_api_dl.c is VM-only — never compile it for web (nitro_wasm_compat.h
 # shims the Dart API under __EMSCRIPTEN__).
 IMPL_SOURCES=\$(ls src/Hybrid*.cpp 2>/dev/null || ls src/*.cpp 2>/dev/null | grep -v dart_api_dl || true)
+
+# NITRO_WEB_THREADS=1 builds with wasm threads: impls may spawn std::thread and
+# native-async work leaves the main thread. Needs SharedArrayBuffer — serve the
+# app cross-origin isolated (COOP/COEP), or test in Chrome with
+# --enable-features=SharedArrayBuffer. Workers are same-origin: the module must
+# be served from the app's own origin.
+THREAD_FLAGS=""
+if [ "\${NITRO_WEB_THREADS:-0}" = "1" ]; then
+  THREAD_FLAGS="-pthread -sPTHREAD_POOL_SIZE=4 -sPTHREAD_POOL_SIZE_STRICT=0 -sMAXIMUM_MEMORY=1gb"
+fi
 ''');
   for (final lib in webLibs) {
     final pascal = lib.split(RegExp('[_-]+')).where((s) => s.isNotEmpty).map((s) => s[0].toUpperCase() + s.substring(1)).join();
@@ -61,7 +71,7 @@ IMPL_SOURCES=\$(ls src/Hybrid*.cpp 2>/dev/null || ls src/*.cpp 2>/dev/null | gre
     b.write('''
 
 # $lib: $implNote
-em++ -O2 --no-entry -fwasm-exceptions \\
+em++ -O2 --no-entry -fwasm-exceptions \$THREAD_FLAGS \\
   -Isrc -Isrc/native -I"\$GEN" \\
   "\$GEN/$lib.bridge.g.cpp" $impl \\
   -sMODULARIZE=1 -sEXPORT_NAME=create${pascal}Module \\

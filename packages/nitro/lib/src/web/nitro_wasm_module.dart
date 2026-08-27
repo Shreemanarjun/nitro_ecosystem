@@ -79,9 +79,44 @@ final class NitroWasmModule {
 
   // ── Export invocation ──────────────────────────────────────────────────────
 
+  // Per-symbol JSFunction cache: resolving '_sym' costs a Dart→JS string
+  // conversion plus a property lookup per call, and variadic apply dispatch
+  // is the slowest call form — all pure overhead after the first call. The
+  // cache lives on this instance, so a hot-restart's new module starts clean.
+  final Map<String, JSFunction> _fns = {};
+
+  JSFunction _resolve(String cSymbol) {
+    final fn = module.getProperty('_$cSymbol'.toJS);
+    if (fn == null || !fn.typeofEquals('function')) {
+      throw StateError(
+        '$libName: WASM module has no export "_$cSymbol". The .wasm/.js '
+        'artifacts are stale — rebuild them (web/build_web.sh) after '
+        '`nitrogen generate`.',
+      );
+    }
+    return fn as JSFunction;
+  }
+
   /// Calls the exported C symbol [cSymbol] (without the leading underscore)
   /// with pre-converted JS arguments.
+  ///
+  /// Two dispatch strategies, chosen at compile time: dart2wasm pays a Dart→JS
+  /// string conversion + property lookup + apply per varargs call, so it uses
+  /// a per-symbol JSFunction cache with fixed-arity invocation (1791→1185 ns
+  /// on the scalar benchmark). dart2js optimises the varargs form better than
+  /// the cached switch (283 vs 611 ns), so it keeps the direct path.
   JSAny? call(String cSymbol, List<JSAny?> args) {
+    if (const bool.fromEnvironment('dart.tool.dart2wasm')) {
+      final fn = _fns[cSymbol] ??= _resolve(cSymbol);
+      return switch (args.length) {
+        0 => fn.callAsFunction(module),
+        1 => fn.callAsFunction(module, args[0]),
+        2 => fn.callAsFunction(module, args[0], args[1]),
+        3 => fn.callAsFunction(module, args[0], args[1], args[2]),
+        4 => fn.callAsFunction(module, args[0], args[1], args[2], args[3]),
+        _ => module.callMethodVarArgs('_$cSymbol'.toJS, args),
+      };
+    }
     if (!providesSymbol(cSymbol)) {
       throw StateError(
         '$libName: WASM module has no export "_$cSymbol". The .wasm/.js '
@@ -98,6 +133,12 @@ final class NitroWasmModule {
   // ── Heap I/O (bulk, growth-safe) ───────────────────────────────────────────
 
   /// Copies [len] bytes at [ptr] out of the module heap.
+  ///
+  /// `slice` (a fresh JS snapshot), never `subarray`: on BOTH compilers
+  /// `.toDart` is a view over the JS array, so a subarray view would alias the
+  /// live heap and read freed memory later (dart2wasm returned garbage bytes
+  /// in the typed-data suites). The remaining dart2wasm cost is per-element JS
+  /// reads through the wrapped list — an SDK-level boundary property.
   Uint8List readBytes(int ptr, int len) {
     if (len == 0) return Uint8List(0);
     final heap = module.heapU8;

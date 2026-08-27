@@ -54,6 +54,15 @@ void main() {
           {'my_lib': 'deadbeefcafef00d', 'other_mod': '0123456789abcdef'});
     });
 
+    test('carries the opt-in wasm-threads toggle on every em++ line', () {
+      final script = webBuildScriptTemplate(['my_lib', 'other_mod']);
+      expect(script, contains(r'if [ "${NITRO_WEB_THREADS:-0}" = "1" ]'));
+      expect(script, contains('-pthread -sPTHREAD_POOL_SIZE=4'));
+      // Every module's em++ line must expand the flags, or a multi-module
+      // plugin gets one threaded and one unthreaded wasm.
+      expect(RegExp(r'em\+\+ [^\n]*\$THREAD_FLAGS').allMatches(script).length, 2);
+    });
+
     test('compiles a web-specific impl for only the libs that opted in', () {
       final script = webBuildScriptTemplate(['my_lib', 'other_mod'], webSpecificImpls: const {'my_lib'});
       final blocks = script.split('em++');

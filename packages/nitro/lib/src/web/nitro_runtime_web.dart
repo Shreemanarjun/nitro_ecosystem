@@ -593,7 +593,9 @@ class NitroRuntime {
 
   /// Opens a stream from a WASM event source over a [WebReceivePort],
   /// mirroring the native lifecycle (explicit cancel, GC finalizer safety
-  /// net; hot restart tears down the JS context wholesale).
+  /// net). Hot restart does NOT tear down the JS context — the old module
+  /// instance and its emitters survive on the page; the bridge's
+  /// nitro_web_instance_changed() ownership claim is what stands them down.
   static Stream<T> openStream<T>({
     required void Function(int dartPort) register,
     required T Function(dynamic message) unpack,

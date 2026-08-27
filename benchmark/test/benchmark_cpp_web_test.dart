@@ -12,6 +12,8 @@
 @TestOn('browser')
 library;
 
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
 
 import 'package:test/test.dart';
@@ -84,6 +86,30 @@ void main() {
           reason: 'fast · $size',
         );
       }
+    });
+  });
+
+  group('hot restart', () {
+    test('a superseded instance\'s 60fps ticker stands down', () async {
+      final events = <BenchmarkPoint>[];
+      final sub = api.dataStream.listen(events.add);
+      // Flowing before the takeover.
+      await Future.doWhile(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        return events.length < 5;
+      }).timeout(const Duration(seconds: 5));
+
+      // Simulated hot restart: a second module instance in the same page. Its
+      // ctor claims ownership; the old ticker's next tick clears itself.
+      final factory = globalContext.getProperty('createBenchmarkCppModule'.toJS)! as JSFunction;
+      await (factory.callAsFunction(null, JSObject())! as JSPromise<JSAny?>).toDart;
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      final settled = events.length;
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      expect(events.length, settled, reason: 'a stale ticker kept posting into a torn-down Dart context');
+      expect(api.add(2, 3), 5, reason: 'the wired instance itself keeps answering');
+      await sub.cancel();
     });
   });
 }
