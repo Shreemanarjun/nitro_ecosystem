@@ -14,6 +14,13 @@ Added
 - Web hot-restart safety: `nitro_web_instance_changed()` (EM_JS) claims
   ownership per module instance; stale emitters check
   `__nitroInstances["<lib>"]` and stand down when superseded.
+- Every generated header carries `spec-sha256: <hash of the spec file>` —
+  what `nitrogen generate --check` now compares (#42).
+
+Fixed
+- Reproducible output across Flutter SDKs (#50): `dart_style` is pinned to
+  3.1.13 instead of floating on `^3.1.7`, so formatting no longer depends on
+  which SDK regenerated. This raises the `analyzer` floor to 13.1.
 
 **Re-run `nitrogen generate`.**
 

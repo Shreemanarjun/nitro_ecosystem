@@ -51,7 +51,7 @@ class CppBridgeGenerator {
     final headerName = '${spec.lib.replaceAll('-', '_')}.bridge.g.h';
     final hasApple = spec.targetsIos || spec.targetsMacos;
 
-    writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
+    writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash));
     writer.line('#include <stdint.h>');
     writer.line('#include <stdbool.h>');
     writer.line('#include <string.h>');

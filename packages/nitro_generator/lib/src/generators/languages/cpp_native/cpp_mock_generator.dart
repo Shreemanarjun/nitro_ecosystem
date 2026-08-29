@@ -49,7 +49,7 @@ class CppMockGenerator {
     }
 
     return CodeFile([
-      CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri)),
+      CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash)),
       CodeLine('// GoogleMock stub for $className — use in unit tests.'),
       const CodeLine('#pragma once'),
       CodeLine('#ifndef $headerGuard'),
@@ -80,7 +80,7 @@ class CppMockGenerator {
     final mockHeader = '$libStem.mock.g.h';
 
     final nodes = <CodeNode>[
-      CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri)),
+      CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash)),
       const CodeLine('// Do not edit the generated smoke-test section.'),
       const CodeLine('// Add your own TEST() cases below the generated smoke test.'),
       const CodeLine('//'),

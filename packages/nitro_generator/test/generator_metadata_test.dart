@@ -14,6 +14,18 @@ import 'package:nitro_generator/src/generators/languages/swift/swift_generator.d
 import 'package:test/test.dart';
 
 void main() {
+  group('generatedFileHeader spec hash (#42)', () {
+    test('stamps spec-sha256 when the builder supplied one', () {
+      final h = generatedFileHeader('//', sourceUri: 'lib/cam.native.dart', sourceHash: 'ab' * 32);
+      expect(h, contains('// spec-sha256: ${'ab' * 32}\n'));
+      expect(h, contains('// nitro_generator: $nitroGeneratorVersion\n'));
+    });
+
+    test('omits the line for hand-built specs (no hash to stamp)', () {
+      expect(generatedFileHeader('#', sourceUri: 'x.native.dart'), isNot(contains('spec-sha256')));
+    });
+  });
+
   group('generated metadata headers', () {
     test('all generator outputs include the shared nitro_generator version marker', () {
       final swiftKotlinSpec = _spec(

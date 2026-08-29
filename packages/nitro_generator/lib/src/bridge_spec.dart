@@ -45,6 +45,11 @@ class BridgeSpec {
   /// (`assets/packages/<assetPackage>/assets/web/<lib>.js`).
   String? assetPackage;
 
+  /// sha256 of the spec file's bytes, stamped into every generated header so
+  /// `nitrogen generate --check` can tell a stale output without mtimes or a
+  /// cache (#42). Set by the builder; empty when a spec is built by hand.
+  String sourceHash = '';
+
   /// True when iOS is a targeted platform.
   bool get targetsIos => iosImpl != null;
 

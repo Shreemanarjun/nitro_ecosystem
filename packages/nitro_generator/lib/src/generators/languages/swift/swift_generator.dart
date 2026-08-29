@@ -21,7 +21,7 @@ class SwiftGenerator {
   static String generate(BridgeSpec spec) {
     if (spec.isTypeOnly) return _generateTypeOnly(spec);
     if (spec.iosImpl == null) {
-      return '${generatedFileHeader('//', sourceUri: spec.sourceUri)}\n'
+      return '${generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash)}\n'
           '// iOS not targeted — no Swift bridge generated.\n';
     }
 
@@ -41,7 +41,7 @@ class SwiftGenerator {
 
     final writer = CodeWriter();
     final mapper = SwiftTypeMapperExtended(spec);
-    writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
+    writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash));
     writer.line('import Foundation');
     writer.line('import Combine');
     // @nitroNativeAsync stubs use Dart_CObject / Dart_PostCObject_DL, which are
@@ -238,7 +238,7 @@ class SwiftGenerator {
   /// Emits only enum/struct/record declarations — no protocol, registry, or @_cdecl stubs.
   static String _generateTypeOnly(BridgeSpec spec) {
     final nodes = <CodeNode>[
-      CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri)),
+      CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash)),
       const CodeLine('import Foundation'),
       const BlankLine(),
     ];

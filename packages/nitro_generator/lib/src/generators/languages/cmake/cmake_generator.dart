@@ -7,7 +7,7 @@ class CMakeGenerator {
     final checksum = bridgeSpecChecksum(spec);
 
     final s = CodeWriter();
-    s.raw(generatedFileHeader('#', sourceUri: spec.sourceUri));
+    s.raw(generatedFileHeader('#', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash));
     s.line('cmake_minimum_required(VERSION 3.10)');
     s.blankLine();
     s.line('set(NITRO_MODULE_NAME ${spec.lib})');

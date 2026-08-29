@@ -18,7 +18,7 @@ class CppSpecGenerator {
     final className = spec.dartClassName;
 
     // ── File header ───────────────────────────────────────────────────────
-    w.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
+    w.raw(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash));
     w.line('#pragma once');
     w.blankLine();
 

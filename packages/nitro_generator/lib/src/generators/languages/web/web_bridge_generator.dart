@@ -30,12 +30,12 @@ import '../../struct_generator.dart';
 class WebBridgeGenerator {
   static String generate(BridgeSpec spec) {
     if (!spec.targetsWeb) {
-      return '${generatedFileHeader('//', sourceUri: spec.sourceUri)}\n'
+      return '${generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash)}\n'
           '// Web not targeted — no dart:js_interop bridge generated.\n';
     }
 
     final w = CodeWriter();
-    w.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
+    w.raw(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash));
 
     final specFile = spec.sourceUri.split('/').last;
 

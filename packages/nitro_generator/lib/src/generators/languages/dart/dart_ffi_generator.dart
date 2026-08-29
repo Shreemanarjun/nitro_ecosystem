@@ -71,7 +71,7 @@ class DartFfiGenerator {
     if (spec.targetsWeb) return _generateWebSplitPart(spec);
 
     final writer = CodeWriter();
-    writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
+    writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash));
     // unused_element/unused_field: _nitroFree/_nitroFreePtr are emitted
     // unconditionally but only referenced when the spec has native-owned
     // returns (strings, records, structs, ...) to free.
@@ -118,7 +118,7 @@ class DartFfiGenerator {
   /// Everything dart:ffi lives in the `.ffi.g.dart` library instead.
   static String _generateWebSplitPart(BridgeSpec spec) {
     final writer = CodeWriter();
-    writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
+    writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash));
     writer.line('// ignore_for_file: no_leading_underscores_for_local_identifiers, prefer_typing_uninitialized_variables, non_constant_identifier_names, unused_element, unused_field');
     writer.line("part of '${spec.sourceUri.split('/').last}';");
     writer.blankLine();
@@ -149,7 +149,7 @@ class DartFfiGenerator {
     final specFile = spec.sourceUri.split('/').last;
     final className = spec.dartClassName;
     final writer = CodeWriter();
-    writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
+    writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash));
     writer.line('// ignore_for_file: no_leading_underscores_for_local_identifiers, prefer_typing_uninitialized_variables, non_constant_identifier_names, unused_element, unused_field, unused_import');
     writer.line('/// Native (dart:ffi) implementation of [$className]. Web builds never');
     writer.line('/// compile this library — the platform shim resolves to the web bridge.');
@@ -205,7 +205,7 @@ class DartFfiGenerator {
     final stem = _fileStem(spec);
     final className = spec.dartClassName;
     final writer = CodeWriter();
-    writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
+    writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash));
     if (spec.isTypeOnly) {
       writer.line('// Type-only file — no factories to route.');
       return writer.toString();

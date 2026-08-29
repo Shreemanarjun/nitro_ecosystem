@@ -55,7 +55,7 @@ String _generateCppDirect(BridgeSpec spec) {
   final cppAppleOnly = targetsApple && !spec.targetsAndroid;
   final cppAndroidOnly = spec.targetsAndroid && !targetsApple;
 
-  writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
+  writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash));
   writer.line('// NativeImpl: cpp — shared C++ virtual-dispatch bridge (no JNI / Swift).');
   // Web (WasmImpl) compiles this same bridge with emcc, so a platform guard
   // must let __EMSCRIPTEN__ through when the spec targets web. Non-web specs

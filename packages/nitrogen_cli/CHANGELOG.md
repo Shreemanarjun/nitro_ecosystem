@@ -6,6 +6,20 @@ Added
   the main thread. Needs SharedArrayBuffer (COOP/COEP, or Chrome's
   `--enable-features=SharedArrayBuffer` for tests) and same-origin serving.
 
+Fixed
+- `generate --check` compares the `spec-sha256` / `nitro_generator` stamps in
+  each generated header instead of mtimes (#42): an output build_runner left
+  untouched no longer reads as stale forever, and it works on a fresh clone.
+  Outputs from an older generator report "no spec-sha256 stamp" — regenerate
+  once.
+- `generate` runs `flutter pub get` in `example/` before `pod install` (#43):
+  the ephemeral cleanup had removed `Flutter-Generated.xcconfig`, so every
+  pod install failed and left the example's build tree needing `flutter
+  clean`. The warning now says what to do if it still fails.
+- `generate` no longer crashes on Linux/Windows (#46): pod install is skipped
+  where CocoaPods cannot exist, and a spawn failure on macOS warns and
+  continues like a non-zero exit already did.
+
 - Ecosystem sync for `nitro_generator` 0.7.4 (multi-instance Apple dispatch,
   instance-partitioned streams, web hot-restart helpers).
   **Re-run `nitrogen generate`.**

@@ -1,4 +1,5 @@
 import 'package:build/build.dart';
+import 'package:crypto/crypto.dart';
 import 'package:dart_style/dart_style.dart';
 import 'package:source_gen/source_gen.dart';
 import 'src/build_extensions.dart';
@@ -28,6 +29,7 @@ class NitroGeneratorBuilder implements Builder {
       final spec = SpecExtractor.extractAny(library);
       if (spec == null) return;
       spec.assetPackage = buildStep.inputId.package;
+      spec.sourceHash = sha256.convert(await buildStep.readAsBytes(buildStep.inputId)).toString();
 
       // ── Validate before generating (module files only) ─────────────────
       if (!spec.isTypeOnly) {

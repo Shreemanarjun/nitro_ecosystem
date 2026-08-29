@@ -19,7 +19,7 @@ part of '../swift_generator.dart';
 String _generateCppModuleBridge(BridgeSpec spec) {
   final mapper = SwiftTypeMapper(spec);
   final nodes = <CodeNode>[
-    CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri)),
+    CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash)),
     const CodeLine('import Foundation'),
     const CodeLine('import Combine'),
     const BlankLine(),

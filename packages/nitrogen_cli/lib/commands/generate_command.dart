@@ -6,7 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../ui.dart';
-import '../utils.dart' show cleanEphemeralSymlinkCycles, dedupeSharedSwiftDecls, killBuildRunner;
+import '../utils.dart' show cleanEphemeralSymlinkCycles, dedupeSharedSwiftDecls, generatedHeaderStaleness, killBuildRunner;
 import 'link_command.dart'
     show
         cleanRedundantIncludes,
@@ -424,22 +424,48 @@ class GenerateCommand extends Command {
 
   Future<void> _runPodInstall(String projectRoot) async {
     final podfileDirs = findPodfileDirs(projectRoot);
+    if (podfileDirs.isEmpty) return;
+    // CocoaPods exists only on macOS; elsewhere Process.start threw an
+    // uncaught ProcessException after every file was already written (#46).
+    if (!Platform.isMacOS) {
+      _log('pod install skipped (CocoaPods is macOS-only)');
+      return;
+    }
+    // _prepareBuildRunner removed example/<platform>/Flutter/ephemeral (the
+    // symlink-cycle guard). Podfile reads Flutter-Generated.xcconfig from there
+    // and the podhelper recreates .symlinks/plugins from
+    // .flutter-plugins-dependencies — both are products of `flutter pub get`
+    // in example/, so run it first or every pod install below fails and the
+    // example's build tree stays broken until `flutter clean` (#43).
+    final exampleDir = p.join(projectRoot, 'example');
+    if (File(p.join(exampleDir, 'pubspec.yaml')).existsSync()) {
+      _log('flutter pub get (example) …');
+      await runStreamingInspected('flutter', ['pub', 'get'], workingDirectory: exampleDir, headless: _headless);
+    }
     for (final dir in podfileDirs) {
       _log('pod install (${p.relative(dir, from: projectRoot)}) …');
-      final podResult = await runStreamingInspected(
-        'pod',
-        ['install'],
-        workingDirectory: dir,
-        headless: _headless,
-      );
-      if (podResult.exitCode != 0) {
-        if (_headless) {
-          stderr.writeln('[nitro:warn] pod install failed in $dir (exit ${podResult.exitCode}) — continuing');
-        } else {
-          stderr.writeln(red('  ⚠  pod install failed in $dir (exit ${podResult.exitCode}) — continuing'));
-        }
+      int exitCode;
+      try {
+        final podResult = await runStreamingInspected(
+          'pod',
+          ['install'],
+          workingDirectory: dir,
+          headless: _headless,
+        );
+        exitCode = podResult.exitCode;
+      } on ProcessException catch (e) {
+        _warn('pod install could not start in $dir (${e.message}) — continuing');
+        continue;
+      }
+      if (exitCode != 0) {
+        _warn('pod install failed in $dir (exit $exitCode) — continuing; '
+            'if the example app no longer builds, run `flutter clean && flutter pub get` in example/');
       }
     }
+  }
+
+  void _warn(String msg) {
+    stderr.writeln(_headless ? '[nitro:warn] $msg' : red('  ⚠  $msg'));
   }
 
   void _reportSuccess(String projectRoot, bool hasCppModules) {
@@ -536,7 +562,10 @@ class GenerateCommand extends Command {
       would('run nitrogen link auto-patching');
       if (podfileDirs.isEmpty) {
         line('pod install: no Podfile directories found');
+      } else if (!Platform.isMacOS) {
+        line('pod install: skipped (CocoaPods is macOS-only)');
       } else {
+        would('run flutter pub get in example');
         for (final dir in podfileDirs) {
           would('run pod install in ${p.relative(dir, from: projectRoot)}');
         }
@@ -549,17 +578,22 @@ class GenerateCommand extends Command {
     final specFiles = _discoverNativeSpecFiles(projectRoot);
     final issues = <_GeneratedFileIssue>[];
 
+    // Content-based, not mtime-based (#42): build_runner leaves an unchanged
+    // output's mtime alone, so a spec edit that did not touch a given file
+    // made it "stale" forever. Every generated header carries the generator
+    // version and the sha256 of the spec it came from; compare those. Works
+    // on a fresh clone — no cache needed.
+    final generatorVersion = IncrementalGenerationCache(projectRoot).generatorVersion;
     for (final spec in specFiles) {
-      final specModified = spec.lastModifiedSync();
+      final specHash = IncrementalGenerationCache.contentHash(spec);
       for (final outputPath in _generatedOutputsForSpec(projectRoot, spec, targets)) {
         final output = File(outputPath);
         if (!output.existsSync()) {
           issues.add(_GeneratedFileIssue.missing(outputPath));
           continue;
         }
-        if (output.lastModifiedSync().isBefore(specModified)) {
-          issues.add(_GeneratedFileIssue.stale(outputPath));
-        }
+        final reason = generatedHeaderStaleness(output.readAsStringSync(), specHash: specHash, generatorVersion: generatorVersion);
+        if (reason != null) issues.add(_GeneratedFileIssue.stale(outputPath, reason));
       }
     }
 
@@ -766,7 +800,7 @@ class _GeneratedFileIssue {
 
   factory _GeneratedFileIssue.missing(String path) => _GeneratedFileIssue('missing', path);
 
-  factory _GeneratedFileIssue.stale(String path) => _GeneratedFileIssue('stale', path);
+  factory _GeneratedFileIssue.stale(String path, String reason) => _GeneratedFileIssue('stale ($reason)', path);
 
   final String kind;
   final String path;
@@ -932,6 +966,13 @@ class IncrementalGenerationCache {
 
   static String contentHash(File file) {
     return sha256.convert(file.readAsBytesSync()).toString();
+  }
+
+  /// The resolved hosted nitro_generator version, or null for a path dep /
+  /// unresolved project (then --check cannot compare versions).
+  String? get generatorVersion {
+    final stamp = _generatorStamp().split('@').first;
+    return stamp == 'path' || stamp == 'unknown' ? null : stamp;
   }
 }
 

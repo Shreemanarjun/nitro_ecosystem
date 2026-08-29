@@ -81,9 +81,9 @@ class SpecFromSource {
 
     if (moduleAnn?.arguments != null) {
       for (final arg in moduleAnn!.arguments!.arguments) {
-        if (arg is! NamedExpression) continue;
-        final label = arg.name.label.name;
-        final expr = arg.expression;
+        if (arg is! NamedArgument) continue;
+        final label = arg.name.lexeme;
+        final expr = arg.argumentExpression;
         switch (label) {
           case 'ios':
             iosImpl = _parseNativeImpl(expr);
@@ -262,15 +262,10 @@ class SpecFromSource {
     String typeSrc = 'dynamic';
     String? defaultValue;
 
-    FormalParameter inner = p;
-    if (p is DefaultFormalParameter) {
-      defaultValue = p.defaultValue?.toSource();
-      inner = p.parameter;
-    }
-
-    if (inner is SimpleFormalParameter) {
-      typeSrc = inner.type?.toSource() ?? 'dynamic';
-    }
+    // analyzer 13: no DefaultFormalParameter wrapper — the default clause and
+    // type hang off FormalParameter itself.
+    defaultValue = p.defaultClause?.value.toSource();
+    typeSrc = p.type?.toSource() ?? 'dynamic';
 
     final typeBase = typeSrc.replaceAll('?', '');
     return BridgeParam(
@@ -425,21 +420,14 @@ class SpecFromSource {
     return typeSrc.substring(start + 1, typeSrc.length - 1).trim();
   }
 
-  static String _typeSrc(FormalParameter p) {
-    if (p is DefaultFormalParameter) {
-      final inner = p.parameter;
-      if (inner is SimpleFormalParameter) return inner.type?.toSource() ?? 'dynamic';
-    }
-    if (p is SimpleFormalParameter) return p.type?.toSource() ?? 'dynamic';
-    return 'dynamic';
-  }
+  static String _typeSrc(FormalParameter p) => p.type?.toSource() ?? 'dynamic';
 
   static int? _namedIntArg(NodeList<Annotation> meta, String annName, String argName) {
     for (final ann in meta) {
       if (_annName(ann) != annName) continue;
       for (final arg in ann.arguments?.arguments ?? []) {
-        if (arg is NamedExpression && arg.name.label.name == argName) {
-          final v = arg.expression;
+        if (arg is NamedArgument && arg.name.lexeme == argName) {
+          final v = arg.argumentExpression;
           if (v is IntegerLiteral) return v.value;
         }
       }
@@ -451,8 +439,8 @@ class SpecFromSource {
     for (final ann in meta) {
       if (_annName(ann) != annName) continue;
       for (final arg in ann.arguments?.arguments ?? []) {
-        if (arg is NamedExpression && arg.name.label.name == argName) {
-          final v = arg.expression;
+        if (arg is NamedArgument && arg.name.lexeme == argName) {
+          final v = arg.argumentExpression;
           if (v is BooleanLiteral) return v.value;
         }
       }

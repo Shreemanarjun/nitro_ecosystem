@@ -23,7 +23,7 @@ class CppInterfaceGenerator {
     final headerGuard = '${libStem.toUpperCase()}_NATIVE_G_H';
     final bridgeHeader = '$libStem.bridge.g.h';
     final nodes = <CodeNode>[
-      CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri)),
+      CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash)),
       const CodeLine('//'),
       CodeLine('// Abstract C++ interface for $className.'),
       CodeLine('// Mirrors RN Nitro\'s HybridXxxSpec pattern — pure-virtual C++ with stdlib types.'),

@@ -15,7 +15,7 @@ class KotlinGenerator {
   static String generate(BridgeSpec spec) {
     if (spec.isTypeOnly) return _generateTypeOnly(spec);
     if (spec.androidImpl == null) {
-      return '${generatedFileHeader('//', sourceUri: spec.sourceUri)}\n'
+      return '${generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash)}\n'
           '// Android not targeted — no Kotlin bridge generated.\n';
     }
 
@@ -27,7 +27,7 @@ class KotlinGenerator {
     final hasNativeAsync = spec.functions.any((f) => f.isNativeAsync);
 
     // ── File header & imports ──────────────────────────────────────────────
-    writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri));
+    writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash));
     writer.line('package nitro.${spec.lib.replaceAll('-', '_')}_module');
     writer.blankLine();
     writer.line('import android.app.Activity');
@@ -460,7 +460,7 @@ class KotlinGenerator {
 
   static String _generateTypeOnly(BridgeSpec spec) {
     final nodes = <CodeNode>[
-      CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri)),
+      CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash)),
       CodeLine('package nitro.${spec.lib.replaceAll('-', '_')}_module'),
       const BlankLine(),
       const CodeLine('import androidx.annotation.Keep'),

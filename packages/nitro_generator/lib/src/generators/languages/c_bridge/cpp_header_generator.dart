@@ -7,7 +7,7 @@ import '../../generator_metadata.dart';
 class CppHeaderGenerator {
   static String generate(BridgeSpec spec) {
     final nodes = <CodeNode>[
-      CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri)),
+      CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash)),
       const CodeLine('#pragma once'),
       const BlankLine(),
       const CodeLine('#include <stdint.h>'),
