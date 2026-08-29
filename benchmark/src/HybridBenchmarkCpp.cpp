@@ -67,6 +67,9 @@ public:
         // benchmark comparison measures dispatch overhead, not OS thread
         // creation cost. Also spawned on a NITRO_WEB_THREADS=1 web build,
         // where native-async work leaves the main thread.
+        // Worker pool on every platform: a burst of CPU-bound native-async
+        // calls runs in parallel (web-threaded 4×2M burst: 2.7 s → 1.4 s).
+        // The coalescer is locked accordingly — see _flushCoalesce.
         const unsigned _poolN = std::max(2u, std::min(4u, std::thread::hardware_concurrency()));
         for (unsigned _w = 0; _w < _poolN; ++_w)
         _asyncWorkerPool.emplace_back([this]() {
@@ -258,6 +261,7 @@ public:
     void submitCoalesced(int64_t callId, int64_t value, int64_t dartPort) override {
         _coalescePort.store(dartPort, std::memory_order_relaxed);
         _enqueue([this, callId, value]() {
+            std::lock_guard<std::mutex> lk(_asyncQueueMtx);
             _coalesceBuf.emplace_back(callId, value);
         });
     }
@@ -380,40 +384,43 @@ private:
     bool _asyncWorkerRunning;
     // Coalescing (issue #39): worker-thread-only buffer of (callId, value)
     // completions, flushed as one kArray post to the shared port when the queue
-    // drains. Only the worker touches the buffer, so it needs no lock.
+    // drains. Guarded by _asyncQueueMtx: several pool workers push and any of
+    // them may flush.
     std::vector<std::pair<int64_t, int64_t>> _coalesceBuf;
     std::atomic<int64_t> _coalescePort{0};
     // Instrumentation: how many flushes (posts) and how many total items, so the
     // harness can report the AVERAGE batch size a burst achieved (items/flushes).
     std::atomic<int64_t> _coalesceFlushes{0};
     std::atomic<int64_t> _coalesceItems{0};
-    // Worker-only scratch reused across flushes (resize, not reallocate) so the
-    // completion path doesn't heap-churn two vectors per burst.
-    std::vector<Dart_CObject> _flushElems;
-    std::vector<Dart_CObject*> _flushPtrs;
 
     void _flushCoalesce() {
-        if (_coalesceBuf.empty()) return;
-        const int64_t port = _coalescePort.load(std::memory_order_relaxed);
-        if (port == 0) { _coalesceBuf.clear(); return; }
-        _coalesceFlushes.fetch_add(1, std::memory_order_relaxed);
-        _coalesceItems.fetch_add(static_cast<int64_t>(_coalesceBuf.size()), std::memory_order_relaxed);
-        const size_t n = _coalesceBuf.size() * 2;
-        _flushElems.resize(n);
-        _flushPtrs.resize(n);
-        for (size_t i = 0; i < _coalesceBuf.size(); ++i) {
-            _flushElems[2 * i].type = Dart_CObject_kInt64;
-            _flushElems[2 * i].value.as_int64 = _coalesceBuf[i].first;   // callId
-            _flushElems[2 * i + 1].type = Dart_CObject_kInt64;
-            _flushElems[2 * i + 1].value.as_int64 = _coalesceBuf[i].second; // value
+        // Take the batch out under the lock; build and post from locals so a
+        // concurrent push from another pool worker can never tear the array.
+        std::vector<std::pair<int64_t, int64_t>> batch;
+        {
+            std::lock_guard<std::mutex> lk(_asyncQueueMtx);
+            if (_coalesceBuf.empty()) return;
+            batch.swap(_coalesceBuf);
         }
-        for (size_t i = 0; i < n; ++i) _flushPtrs[i] = &_flushElems[i];
+        const int64_t port = _coalescePort.load(std::memory_order_relaxed);
+        if (port == 0) return;
+        _coalesceFlushes.fetch_add(1, std::memory_order_relaxed);
+        _coalesceItems.fetch_add(static_cast<int64_t>(batch.size()), std::memory_order_relaxed);
+        const size_t n = batch.size() * 2;
+        std::vector<Dart_CObject> elems(n);
+        std::vector<Dart_CObject*> ptrs(n);
+        for (size_t i = 0; i < batch.size(); ++i) {
+            elems[2 * i].type = Dart_CObject_kInt64;
+            elems[2 * i].value.as_int64 = batch[i].first;   // callId
+            elems[2 * i + 1].type = Dart_CObject_kInt64;
+            elems[2 * i + 1].value.as_int64 = batch[i].second; // value
+        }
+        for (size_t i = 0; i < n; ++i) ptrs[i] = &elems[i];
         Dart_CObject arr;
         arr.type = Dart_CObject_kArray;
         arr.value.as_array.length = static_cast<intptr_t>(n);
-        arr.value.as_array.values = _flushPtrs.data();
+        arr.value.as_array.values = ptrs.data();
         Dart_PostCObject_DL(port, &arr);
-        _coalesceBuf.clear();
     }
 };
 
