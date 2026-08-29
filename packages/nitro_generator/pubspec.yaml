@@ -24,7 +24,10 @@ dependencies:
   analyzer: '>=13.1.0 <14.0.0'
   build: ^4.0.6
   source_gen: ^4.2.3
-  dart_style: 3.1.13
+  # Held to one version on purpose (#50): generated formatting must not depend
+  # on which SDK regenerated. Range form because `pub publish` rejects an
+  # exact pin; the range admits exactly 3.1.13.
+  dart_style: '>=3.1.13 <3.1.14'
   crypto: ^3.0.7
   path: ^1.9.0
   nitro_annotations: ^0.7.0
