@@ -6,6 +6,7 @@
 import 'dart:async';
 
 import 'package:benchmark/benchmark.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
@@ -24,7 +25,7 @@ void main() {
     await api.computeStatsNative(500000);
     sw.stop();
     final oneCallMs = sw.elapsedMilliseconds;
-    print('PERF calibration: computeStatsNative(500k) = $oneCallMs ms');
+    debugPrint('PERF calibration: computeStatsNative(500k) = $oneCallMs ms');
 
     var ticks = 0;
     final ticker = Timer.periodic(const Duration(milliseconds: 5), (_) => ticks++);
@@ -34,8 +35,8 @@ void main() {
     sw.stop();
     ticker.cancel();
 
-    print('PERF burst 4× computeStatsNative(2M): ${sw.elapsedMilliseconds} ms wall');
-    print('PERF main-thread ticks during burst:  $ticks (5 ms timer — higher = main thread stayed responsive)');
+    debugPrint('PERF burst 4× computeStatsNative(2M): ${sw.elapsedMilliseconds} ms wall');
+    debugPrint('PERF main-thread ticks during burst:  $ticks (5 ms timer — higher = main thread stayed responsive)');
     // Web drive does not forward prints; the driver writes this to
     // build/integration_response_data.json.
     binding.reportData = {

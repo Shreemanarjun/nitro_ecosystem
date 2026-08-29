@@ -122,7 +122,7 @@ class SpecFromSource {
 
     for (final member in (moduleClass.body as BlockClassBody).members) {
       if (member is! MethodDeclaration) continue;
-      if (!member.isAbstract) continue;
+      if (member.isComplete) continue;  // analyzer 13: isAbstract → !isComplete
       _processMember(member, ns, enumNames, structNames, recordNames, functions, propMap, streams);
     }
 

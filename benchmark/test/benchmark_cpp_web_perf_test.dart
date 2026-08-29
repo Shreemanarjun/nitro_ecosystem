@@ -3,6 +3,8 @@
 // noise can never fail CI. Run under both compilers:
 //   flutter pub run test test/benchmark_cpp_web_perf_test.dart -p chrome
 //   flutter pub run test test/benchmark_cpp_web_perf_test.dart -p chrome -c dart2wasm
+// ignore_for_file: avoid_print — the numbers ARE the output; under `dart test
+// -p chrome` print is the only channel the runner forwards (no dart:io, no Flutter).
 @TestOn('browser')
 @Timeout(Duration(minutes: 3))
 library;
