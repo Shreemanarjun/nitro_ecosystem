@@ -1,3 +1,8 @@
+## 0.7.5
+
+- Ecosystem sync for `nitro_generator` 0.7.5 (spec-hash header stamp, pinned
+  formatter). **Re-run `nitrogen generate`.** No changes to this package.
+
 ## 0.7.4
 
 - Ecosystem sync for `nitro_generator` 0.7.4 (multi-instance Apple dispatch,

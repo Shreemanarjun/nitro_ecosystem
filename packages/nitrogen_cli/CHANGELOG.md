@@ -1,10 +1,4 @@
-## 0.7.4
-
-Added
-- `web/build_web.sh`: `NITRO_WEB_THREADS=1` builds the wasm with `-pthread`
-  (worker pool of 4) — impls may spawn `std::thread`; native-async work leaves
-  the main thread. Needs SharedArrayBuffer (COOP/COEP, or Chrome's
-  `--enable-features=SharedArrayBuffer` for tests) and same-origin serving.
+## 0.7.5
 
 Fixed
 - `generate --check` compares the `spec-sha256` / `nitro_generator` stamps in
@@ -19,6 +13,14 @@ Fixed
 - `generate` no longer crashes on Linux/Windows (#46): pod install is skipped
   where CocoaPods cannot exist, and a spawn failure on macOS warns and
   continues like a non-zero exit already did.
+
+## 0.7.4
+
+Added
+- `web/build_web.sh`: `NITRO_WEB_THREADS=1` builds the wasm with `-pthread`
+  (worker pool of 4) — impls may spawn `std::thread`; native-async work leaves
+  the main thread. Needs SharedArrayBuffer (COOP/COEP, or Chrome's
+  `--enable-features=SharedArrayBuffer` for tests) and same-origin serving.
 
 - Ecosystem sync for `nitro_generator` 0.7.4 (multi-instance Apple dispatch,
   instance-partitioned streams, web hot-restart helpers).

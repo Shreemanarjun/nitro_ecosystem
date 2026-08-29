@@ -40,10 +40,10 @@ No method channels. No manual FFI. No boilerplate.
 ```yaml
 # pubspec.yaml
 dependencies:
-  nitro: ^0.7.4
+  nitro: ^0.7.5
 
 dev_dependencies:
-  nitro_generator: ^0.7.4
+  nitro_generator: ^0.7.5
   build_runner: ^2.4.0
 ```
 
@@ -830,7 +830,7 @@ typedef struct __attribute__((packed)) { uint8_t hasValue; uint8_t  value; } Nit
 
 ## Known Limitations
 
-> Upgrading? **0.7.4 requires `nitrogen generate`** — the generator version is part of the bridge checksum (0.7.2 also fixed named parameters on the web bridge).
+> Upgrading? **0.7.5 requires `nitrogen generate`** — every generated header now carries the spec hash `--check` verifies, and the generator version is part of the bridge checksum.
 > See [migration/0.7.1.md](migration/0.7.1.md) (nullable struct fields, nullable map values) and [migration/0.7.0.md](migration/0.7.0.md) (web/WASM).
 
 | ID | Limitation | Workaround |
