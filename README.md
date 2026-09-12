@@ -40,10 +40,10 @@ No method channels. No manual FFI. No boilerplate.
 ```yaml
 # pubspec.yaml
 dependencies:
-  nitro: ^0.7.5
+  nitro: ^0.7.6
 
 dev_dependencies:
-  nitro_generator: ^0.7.5
+  nitro_generator: ^0.7.6
   build_runner: ^2.4.0
 ```
 
@@ -337,6 +337,111 @@ abstract class Geometry extends HybridObject {
 final mid = Geometry.instance.midpoint((1.0, 2.0), (3.0, 4.0));
 print('${mid.$1}, ${mid.$2}'); // "2.0, 3.0"
 ```
+
+
+### `@NitroEntryPoint` — run Dart in the background from native
+
+Marks a top-level function in the spec file that native can run in a **fresh
+isolate** — a headless `FlutterEngine` on Android/iOS (WorkManager jobs, push
+handlers, BGTasks), a spawned isolate on macOS/desktop — with typed arguments
+and a typed result. Any nitro type in any parameter shape; `void` allowed.
+
+```dart
+@nitroEntryPoint
+Future<SyncReport> syncInbox(Account account, {int retries = 3}) async { ... }
+```
+
+Generated: `runSyncInboxInBackground(account, retries: 3)` (same signature,
+returns `Future<SyncReport>`), a `@pragma('vm:entry-point')` wrapper so the
+function needs no pragma and survives AOT, `has<Class>BackgroundHost()`
+(which path this platform uses) and `active<Class>BackgroundJobs()` (jobs
+queued or running in this process — 0 once everything finished). Entries may
+be sync, `Future<T>` or `Stream<T>` (items stream back; cancelling stops the
+producer). Web throws `UnsupportedError`; web-split plugins export the
+runners from their barrel's `show` list.
+
+**Errors.** Anything thrown in the background arrives as a
+`NitroBackgroundException` (a `HybridException`, so old catch sites keep
+working) carrying `entry`, `message`, the remote `stackTrace` as text, and
+`isStartFailure` when no engine could be started:
+
+```dart
+try {
+  await runSyncInboxInBackground(account);
+} on NitroBackgroundException catch (e) {
+  log('${e.entry} failed: ${e.message}', stackTrace: e.stackTrace);
+}
+```
+
+**Native-initiated jobs** — no Dart side at all: a WorkManager worker, a
+BroadcastReceiver, a BGTask, a URL launch. The entry takes one `String` and
+persists whatever it produces; completion (with the error text, or null) comes
+back to native so a worker can wait before it returns:
+
+```kotlin
+// Kotlin — any thread. onDone runs on the main thread.
+FooJniBridge.runInBackground(context, "syncInbox", accountId) { jobId, error -> … }
+// Worker thread (WorkManager / JobIntentService): blocks until done.
+val error = FooJniBridge.runInBackgroundAndWait(context, "syncInbox", accountId, timeoutMs = 60_000)
+return if (error == null) Result.success() else Result.retry()
+```
+
+```swift
+// Swift — BGTask handler, push handler, scene delegate.
+FooBackground.run(entry: "syncInbox", text: accountId) { jobId, error in task.setTaskCompleted(success: error == nil) }
+let error = await FooBackground.run(entry: "syncInbox", text: accountId)   // async form
+```
+
+Failures are also logged (`Nitro` tag on Android, `NSLog` on iOS).
+`activeBackgroundEngines()` / `FooBackground.activeEngines` report live
+headless engines.
+
+**How jobs run.** Each job gets its own isolate. On Android/iOS engines are
+spawned from one `FlutterEngineGroup` per library (shared VM, snapshot and
+GPU/font context — Flutter's documented way to run several engines cheaply),
+and the host passes the job id as the engine's entrypoint argument so an engine
+takes exactly the job it was started for, then is destroyed when that job
+finishes. N concurrent jobs of one entry, or of different entries, run in N
+engines in parallel; a slow job never queues a fast one; a failing job tears
+down only its own engine. The fallback path (`Isolate.spawn`) behaves the
+same, minus the engine. Plugins are registered on each headless engine, so an
+entry may call back into this or any Nitro module.
+
+| Platform | Dart-initiated (`run…InBackground`) | Native-initiated (`runInBackground` / `Background.run`) | App killed |
+|---|---|---|---|
+| Android | headless engine | ✅ receiver / service / WorkManager | ✅ the OS starts the process for the receiver or worker; the job runs with no UI |
+| iOS | headless engine | ✅ URL scheme, BGTaskScheduler, silent push, background fetch | ✅ whenever iOS launches the app for one of those; not after the user swiped it away (OS policy) |
+| macOS | spawned isolate | ✗ (`FlutterMacOS` cannot start an engine at a library entrypoint) | — |
+| Linux / Windows | spawned isolate | ✗ | — |
+| C++-only impl | spawned isolate | ✗ | — |
+| Web | `UnsupportedError` | ✗ | — |
+
+**Edge cases worth knowing.**
+- A native-initiated entry must take exactly one `String` (native has no
+  record-wire encoder); return values are dropped — persist them.
+- On Android a `BroadcastReceiver` returns before the job finishes; the system
+  may kill an idle process shortly after. Sub-second jobs are fine; for longer
+  work use a WorkManager worker with `runInBackgroundAndWait` (the process
+  stays alive until you return).
+- On iOS the engine runs while the app is foreground or in a background
+  execution window (BGTask, push); it does not extend that window.
+- `runInBackgroundAndWait` must not be called on the main thread — the engine
+  starts there.
+- An entry throwing before its first `await` is delivered the same way as an
+  async failure; an infinite stream entry keeps its engine until the
+  subscriber cancels.
+- Multiple Nitro modules each keep their own job table and engine group.
+
+**Compared with the usual patterns.** `workmanager` and friends start one
+fixed `callbackDispatcher` entrypoint and look the real callback up through a
+`CallbackHandle` stored in preferences — untyped, string/JSON arguments, and a
+stale handle after a rebuild is a silent no-op. `@NitroEntryPoint` emits one
+named entrypoint per function with its full typed signature over the same
+record wire the rest of Nitro uses, needs no handle storage, and the fallback
+isolate path uses no platform channel (no `RootIsolateToken` dance) because
+the bridge is FFI. Under the hood it follows Flutter's own guidance:
+`FlutterEngineGroup` for multiple engines and `vm:entry-point` for anything the
+embedder invokes.
 
 ### `@nitroAsync` — background-thread dispatch
 
@@ -830,7 +935,7 @@ typedef struct __attribute__((packed)) { uint8_t hasValue; uint8_t  value; } Nit
 
 ## Known Limitations
 
-> Upgrading? **0.7.5 requires `nitrogen generate`** — every generated header now carries the spec hash `--check` verifies, and the generator version is part of the bridge checksum.
+> Upgrading? **0.7.6 requires `nitrogen generate`** — the generator version is part of the bridge checksum; 0.7.6 adds `@NitroEntryPoint` background invocation.
 > See [migration/0.7.1.md](migration/0.7.1.md) (nullable struct fields, nullable map values) and [migration/0.7.0.md](migration/0.7.0.md) (web/WASM).
 
 | ID | Limitation | Workaround |

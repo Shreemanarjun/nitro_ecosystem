@@ -51,6 +51,16 @@ class BridgeSpec {
   String sourceHash = '';
 
   /// True when iOS is a targeted platform.
+  /// Library a headless engine must be started in to find the entry-point
+  /// wrappers: the spec library itself (the `.g.dart` is a part of it), or the
+  /// standalone dart:ffi library under the web-split layout.
+  String get entryPointLibraryUri {
+    if (!targetsWeb) return sourceUri;
+    final file = sourceUri.split('/').last;
+    final stem = file.replaceFirst('.native.dart', '');
+    return sourceUri.replaceFirst(RegExp(r'[^/]+$'), 'generated/native/$stem.ffi.g.dart');
+  }
+
   bool get targetsIos => iosImpl != null;
 
   /// True when Android is a targeted platform.
@@ -111,6 +121,7 @@ class BridgeSpec {
   final List<BridgeEnum> enums;
   final List<BridgeFunction> functions;
   final List<BridgeStream> streams;
+  final List<BridgeEntryPoint> entryPoints;
   final List<BridgeProperty> properties;
   final List<BridgeRecordType> recordTypes;
   final List<BridgeVariant> variants;
@@ -171,6 +182,7 @@ class BridgeSpec {
     this.enums = const [],
     this.functions = const [],
     this.streams = const [],
+    this.entryPoints = const [],
     this.properties = const [],
     this.recordTypes = const [],
     this.variants = const [],
@@ -575,6 +587,29 @@ class BridgeParam {
     this.isOptional = false,
     this.defaultLiteral,
   });
+}
+
+/// A top-level `@NitroEntryPoint` function. Any nitro-supported parameter
+/// types (positional, optional, named) and any supported return type,
+/// optionally wrapped in `Future`/`FutureOr`; `void` allowed.
+class BridgeEntryPoint {
+  const BridgeEntryPoint({required this.name, required this.params, required this.returnType, required this.isAsync, this.isStream = false});
+
+  final String name;
+  final List<BridgeParam> params;
+  /// The unwrapped result type (`Future<T>` / `Stream<T>` → `T`); `void` for none.
+  final BridgeType returnType;
+  final bool isAsync;
+  /// `Stream<T>` entry: items are streamed back until done; [returnType] is T.
+  final bool isStream;
+
+  bool get returnsVoid => !isStream && returnType.name == 'void';
+
+  /// Name of the generated `@pragma('vm:entry-point')` wrapper native starts at.
+  String get wrapperName => 'nitroEntry_$name';
+
+  /// Name of the generated typed API: `runSyncInboxInBackground(...)`.
+  String get runnerName => 'run${name[0].toUpperCase()}${name.substring(1)}InBackground';
 }
 
 class BridgeStream {

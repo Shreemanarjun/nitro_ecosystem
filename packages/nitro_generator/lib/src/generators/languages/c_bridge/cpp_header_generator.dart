@@ -99,6 +99,20 @@ class CppHeaderGenerator {
       // CoTaskMemFree on Windows, which corrupts the heap on malloc'd pointers.
       CodeLine('NITRO_EXPORT void ${libStem}_nitro_free(void* ptr);'),
       CodeLine('NITRO_EXPORT void* ${libStem}_nitro_alloc(size_t size);'),
+      if (spec.entryPoints.isNotEmpty) ...[
+        CodeLine('// @NitroEntryPoint background job table (see nitro_background.h).'),
+        CodeLine('NITRO_EXPORT int64_t ${libStem}_bg_submit(const char* entry, const uint8_t* args, int64_t argsLen, int64_t dartPort, int8_t* hostStarted);'),
+        CodeLine('NITRO_EXPORT int8_t ${libStem}_bg_has_host(void);'),
+        CodeLine('NITRO_EXPORT uint8_t* ${libStem}_bg_take_job(const char* entry, int64_t jobId, int64_t* outId, int64_t* outLen);'),
+        CodeLine('NITRO_EXPORT int64_t ${libStem}_bg_active_count();'),
+        CodeLine('NITRO_EXPORT int8_t ${libStem}_bg_complete(int64_t jobId, const uint8_t* result, int64_t len);'),
+        CodeLine('NITRO_EXPORT int8_t ${libStem}_bg_fail(int64_t jobId, const char* error, const char* stackTrace);'),
+        CodeLine('NITRO_EXPORT int8_t ${libStem}_bg_emit(int64_t jobId, const uint8_t* item, int64_t len);'),
+        CodeLine('NITRO_EXPORT int8_t ${libStem}_bg_end(int64_t jobId);'),
+        CodeLine('NITRO_EXPORT int8_t ${libStem}_bg_cancel(int64_t jobId);'),
+        CodeLine('NITRO_EXPORT int64_t ${libStem}_bg_run_string(const char* entry, const char* text);'),
+        CodeLine('NITRO_EXPORT void ${libStem}_bg_register_host(int (*starter)(const char*, int64_t, void*), void (*done)(int64_t, const char*, void*), void* ctx);'),
+      ],
       if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) CodeLine('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr);'),
       // @NitroOwned: emit a _release symbol for each owned NativeHandle function.
       // The user implements these to free the native heap allocation.

@@ -8,6 +8,7 @@ export 'src/annotations.dart';
 export 'src/nitro_result.dart';
 export 'src/nitro_config.dart';
 export 'src/hybrid_exception.dart';
+export 'src/nitro_background_exception.dart';
 export 'src/hybrid_object_base.dart';
 // dart:convert is available everywhere — needed for Map<String,T> binary bridge.
 export 'dart:convert' show jsonDecode, jsonEncode, utf8;
@@ -29,6 +30,7 @@ export 'src/nitro_promise.dart';
 // ── Native (dart:ffi) edges and their web twins ───────────────────────────────
 
 export 'src/nitro_runtime.dart' if (dart.library.js_interop) 'src/web/nitro_runtime_web.dart';
+export 'src/nitro_background.dart' if (dart.library.js_interop) 'src/web/nitro_background_web.dart';
 
 export 'src/isolate_pool.dart' if (dart.library.js_interop) 'src/web/isolate_pool_web.dart';
 

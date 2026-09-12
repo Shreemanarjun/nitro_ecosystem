@@ -1,3 +1,9 @@
+## 0.7.6
+
+Added
+- `link` copies `nitro_background.h` (the `@NitroEntryPoint` job table)
+  next to the other shared headers, including the SwiftPM include dir.
+
 ## 0.7.5
 
 Fixed

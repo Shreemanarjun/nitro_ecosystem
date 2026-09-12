@@ -140,6 +140,24 @@ class SpecFromSource {
       );
     }
 
+    final entryPoints = <BridgeEntryPoint>[];
+    for (final decl in unit.declarations) {
+      if (decl is! FunctionDeclaration) continue;
+      if (!decl.metadata.any((a) => _annName(a) == 'NitroEntryPoint' || _annName(a) == 'nitroEntryPoint')) continue;
+      final retSrc = decl.returnType?.toSource() ?? 'void';
+      final future = RegExp(r'^Future(?:Or)?<(.+)>$').firstMatch(retSrc);
+      final stream = RegExp(r'^Stream<(.+)>$').firstMatch(retSrc);
+      final inner = future?.group(1) ?? stream?.group(1) ?? retSrc;
+      entryPoints.add(
+        BridgeEntryPoint(
+          name: decl.name.lexeme,
+          isAsync: future != null,
+          isStream: stream != null,
+          params: decl.functionExpression.parameters?.parameters.map((p) => _extractParam(p, enumNames, structNames, recordNames)).toList() ?? const [],
+          returnType: inner == 'void' ? BridgeType(name: 'void') : _makeType(inner, inner.replaceAll('?', ''), enumNames, structNames, recordNames),
+        ),
+      );
+    }
     return BridgeSpec(
       dartClassName: className,
       lib: libName,
@@ -154,6 +172,7 @@ class SpecFromSource {
       functions: functions,
       properties: properties,
       streams: streams,
+      entryPoints: entryPoints,
       enums: enums,
       structs: structs,
       recordTypes: records,
@@ -356,6 +375,19 @@ class SpecFromSource {
         }
       }
       result.add(BridgeRecordType(name: decl.namePart.typeName.lexeme, fields: fields));
+    }
+    // @NitroTuple typedefs: positional record types, fields named $1, $2, ...
+    for (final decl in unit.declarations) {
+      if (decl is! GenericTypeAlias) continue;
+      if (!decl.metadata.any((a) => _annName(a) == 'NitroTuple')) continue;
+      final rec = decl.type;
+      if (rec is! RecordTypeAnnotation) continue;
+      var i = 0;
+      final fields = [
+        for (final f in rec.positionalFields)
+          BridgeRecordField(name: '\$${++i}', dartType: f.type.toSource(), kind: RecordFieldKind.primitive),
+      ];
+      result.add(BridgeRecordType(name: decl.name.lexeme, fields: fields, isTuple: true));
     }
     return result;
   }

@@ -8,6 +8,7 @@ import '../../record_generator.dart';
 import '../../variant_generator.dart';
 import 'dart_ffi_return_helpers.dart';
 import '../../../map_wire.dart';
+import 'entry_point_shared.dart';
 
 part 'emitters/dart_impl_class_emitter.dart';
 part 'emitters/dart_function_emitter.dart';
@@ -19,6 +20,7 @@ part 'emitters/dart_map_encode_helpers.dart';
 part 'emitters/dart_record_ffi_helpers.dart';
 part 'emitters/dart_async_helpers.dart';
 part 'emitters/dart_callback_helpers.dart';
+part 'emitters/dart_entry_point_emitter.dart';
 
 /// Record types shipped in package:nitro that define their own codec methods.
 /// For these types the generator skips the *RecordExt extension.
@@ -106,6 +108,7 @@ class DartFfiGenerator {
     _emitStreamImpls(writer, spec);
     _emitMapAndFactory(writer, spec);
     _emitNativeRefExtension(writer, spec);
+    emitEntryPointSection(writer, spec);
     return writer.toString();
   }
 
@@ -179,6 +182,7 @@ class DartFfiGenerator {
     _emitStreamImpls(writer, spec);
     _emitMapAndFactory(writer, spec);
     _emitNativeRefExtension(writer, spec);
+    emitEntryPointSection(writer, spec);
 
     // Canonical platform-neutral factory names, re-exported by the shim. The
     // web bridge emits the same two under identical signatures.
@@ -222,7 +226,7 @@ class DartFfiGenerator {
     writer.blankLine();
     writer.line("export 'generated/native/$stem.ffi.g.dart'");
     writer.line("    if (dart.library.js_interop) 'generated/web/$stem.web.bridge.g.dart'");
-    writer.line('    show create${className}Instance, ensure${className}Ready;');
+    writer.line('    show create${className}Instance, ensure${className}Ready${[for (final n in entryPointExports(spec)) ', $n'].join()};');
     return writer.toString();
   }
 }

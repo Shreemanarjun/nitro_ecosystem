@@ -83,6 +83,7 @@ String _generateCppDirect(BridgeSpec spec) {
     writer.line('#include "dart_api_dl.h"');
   }
   writer.line('#include "$headerName"');
+  emitBackgroundTable(writer, spec, libStem);
   writer.line('#include "$ifaceHeader"');
   writer.blankLine();
 

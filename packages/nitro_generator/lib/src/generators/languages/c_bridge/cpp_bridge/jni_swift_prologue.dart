@@ -125,6 +125,7 @@ void _emitJniSwiftPrologue(
 
   writer.line('extern "C" {');
   writer.blankLine();
+  emitBackgroundJniForwardDecls(writer, spec);
   writer.line(
     'JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {',
   );
@@ -150,6 +151,7 @@ void _emitJniSwiftPrologue(
   writer.line('        jclass throwable_class = env->FindClass("java/lang/Throwable");');
   writer.line('        if (throwable_class) { g_exc_getMessage = env->GetMethodID(throwable_class, "getMessage", "()Ljava/lang/String;"); env->DeleteLocalRef(throwable_class); }');
   writer.line('    }');
+  emitBackgroundJniRegistration(writer, spec, spec.lib.replaceAll('-', '_'));
   writer.line('    return JNI_VERSION_1_6;');
   writer.line('}');
   writer.blankLine();

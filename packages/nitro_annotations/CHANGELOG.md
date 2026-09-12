@@ -1,3 +1,11 @@
+## 0.7.6
+
+Added
+- `@NitroEntryPoint` / `@nitroEntryPoint`: marks a top-level function in the
+  spec file as a background entry point native can run in a fresh isolate
+  (headless engine on Android/iOS). Any nitro type in any parameter shape;
+  sync, `Future<T>`, `Stream<T>` or `void` returns.
+
 ## 0.7.5
 
 - Ecosystem sync for `nitro_generator` 0.7.5 (spec-hash header stamp, pinned

@@ -1,4 +1,5 @@
 import '../../../bridge_spec.dart';
+import '../dart/entry_point_shared.dart';
 import '../../code_writer.dart';
 import '../../generator_metadata.dart';
 import '../../../map_wire.dart';
@@ -82,6 +83,7 @@ class WebBridgeGenerator {
     w.line('/// creates an independent native instance; the default key returns the');
     w.line('/// shared singleton. Await [ensure${className}Ready] first.');
     w.line("$className create${className}Instance([String key = 'default']) => _${className}WebImpl(key);");
+    emitEntryPointWebStubs(w, spec);
     w.blankLine();
 
     _emitWebHelpers(w, spec);

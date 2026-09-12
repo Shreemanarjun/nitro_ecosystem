@@ -44,13 +44,18 @@ class SwiftGenerator {
     writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash));
     writer.line('import Foundation');
     writer.line('import Combine');
+    if (spec.entryPoints.isNotEmpty) {
+      writer.line('#if os(iOS)');
+      writer.line('import Flutter');
+      writer.line('#endif');
+    }
     // @nitroNativeAsync stubs use Dart_CObject / Dart_PostCObject_DL, which are
     // C types from dart_api.h — exposed by the module's own SPM C++ target
     // (issue #15: `nitrogen link` creates one `<Module>Cpp` target per module).
     // The canImport guard keeps this same file compiling under CocoaPods,
     // where no such Swift module exists and the types arrive through the
     // pod's umbrella header instead.
-    final hasNativeAsync = spec.functions.any((f) => f.isNativeAsync);
+    final hasNativeAsync = spec.functions.any((f) => f.isNativeAsync) || spec.entryPoints.isNotEmpty;
     if (hasNativeAsync) {
       writer.line('#if canImport(${spec.dartClassName}Cpp)');
       writer.line('import ${spec.dartClassName}Cpp');
@@ -99,6 +104,7 @@ class SwiftGenerator {
     }
     _emitSwiftProtocol(writer, spec, mapper);
     _emitSwiftRegistry(writer, spec);
+    _emitSwiftBackgroundHost(writer, spec);
     // ── @_cdecl C bridge stubs ─────────────────────────────────────────────
     // These are exported as plain C symbols and called by the generated .cpp
     // shim via `extern "C"` declarations. @objc is NOT used because Swift
@@ -266,4 +272,105 @@ class SwiftGenerator {
 
     return CodeFile(nodes).render();
   }
+}
+
+/// `@NitroEntryPoint` host on iOS: `@_cdecl` hooks the C bridge registers at
+/// load. Starts a headless FlutterEngine at the entry wrapper in the spec
+/// library; the job result travels back through the C job table.
+void _emitSwiftBackgroundHost(CodeWriter writer, BridgeSpec spec) {
+  if (spec.entryPoints.isEmpty) return;
+  final ns = spec.namespace;
+  final lib = spec.lib.replaceAll('-', '_');
+  writer.blankLine();
+  writer.line('#if os(iOS)');
+  writer.line('// ── @NitroEntryPoint: headless engines started by the C bridge ─────────────');
+  writer.line('// All state below is touched on the main queue only.');
+  writer.line('private var _nitroBgEngines: [Int64: FlutterEngine] = [:]');
+  writer.line('private var _nitroBgCallbacks: [Int64: (Int64, String?) -> Void] = [:]');
+  writer.line('private var _nitroBgFinished: [Int64: String?] = [:]');
+  writer.line('// One group per library: spawned engines share the VM, snapshot and GPU/font');
+  writer.line('// context, so N concurrent jobs cost N isolates rather than N cold engines.');
+  writer.line('private let _nitroBgGroup = FlutterEngineGroup(name: "nitro_bg_$lib", project: nil)');
+  writer.blankLine();
+  writer.line('@_cdecl("_${ns}_bg_start")');
+  writer.line('public func _${ns}_bg_start(_ entry: UnsafePointer<CChar>, _ jobId: Int64) -> Int32 {');
+  writer.line('    let name = String(cString: entry)');
+  writer.line('    DispatchQueue.main.async {');
+  writer.line('        let options = FlutterEngineGroupOptions()');
+  writer.line('        options.entrypoint = "nitroEntry_\\(name)"');
+  writer.line('        options.libraryURI = "${spec.entryPointLibraryUri}"');
+  writer.line('        // The engine takes exactly this job (see NitroBackground.jobIdOf).');
+  writer.line('        options.entrypointArgs = [String(jobId)]');
+  writer.line('        // FlutterEngineGroup cannot report a start failure; a wrong entrypoint');
+  writer.line('        // or library URI is logged by Flutter and the job never completes.');
+  writer.line('        _nitroBgEngines[jobId] = _nitroBgGroup.makeEngine(with: options)');
+  writer.line('    }');
+  writer.line('    return 1');
+  writer.line('}');
+  writer.blankLine();
+  writer.line('/// The job finished (result posted, or failed with `error`): tear the engine');
+  writer.line('/// down and notify a native completion callback, if any.');
+  writer.line('@_cdecl("_${ns}_bg_done")');
+  writer.line('public func _${ns}_bg_done(_ jobId: Int64, _ error: UnsafePointer<CChar>?) {');
+  writer.line('    let message = error.map { String(cString: \$0) }');
+  writer.line('    if let message = message { NSLog("Nitro: background job %lld failed: %@", jobId, message) }');
+  writer.line('    DispatchQueue.main.async {');
+  writer.line('        _nitroBgEngines.removeValue(forKey: jobId)?.destroyContext()');
+  writer.line('        if let callback = _nitroBgCallbacks.removeValue(forKey: jobId) {');
+  writer.line('            callback(jobId, message)');
+  writer.line('        } else {');
+  writer.line('            if _nitroBgFinished.count > 256 { _nitroBgFinished.removeAll() }');
+  writer.line('            _nitroBgFinished[jobId] = message');
+  writer.line('        }');
+  writer.line('    }');
+  writer.line('}');
+  writer.blankLine();
+  writer.line('// Bound by symbol, not header: the C export is reachable under both the');
+  writer.line('// SwiftPM and CocoaPods layouts without depending on module visibility.');
+  writer.line('@_silgen_name("${lib}_bg_run_string")');
+  writer.line('private func _nitroBgRunStringC(_ entry: UnsafePointer<CChar>, _ text: UnsafePointer<CChar>) -> Int64');
+  writer.blankLine();
+  writer.line('/// Native-initiated background jobs — a BGTask, a push handler, a URL launch —');
+  writer.line('/// with no Flutter UI required. The entry must take a single String; whatever');
+  writer.line('/// it persists is the result.');
+  writer.line('public enum ${spec.dartClassName}Background {');
+  writer.line('    /// Returns the job id, or -1 if no engine could be started. `onDone` runs on');
+  writer.line('    /// the main queue once the job finished: `error` is nil on success, else the');
+  writer.line('    /// thrown error\'s text (also logged).');
+  writer.line('    @discardableResult');
+  writer.line('    public static func run(entry: String, text: String, onDone: ((Int64, String?) -> Void)? = nil) -> Int64 {');
+  writer.line('        let id = entry.withCString { e in text.withCString { t in _nitroBgRunStringC(e, t) } }');
+  writer.line('        guard id >= 0, let onDone = onDone else { return id }');
+  writer.line('        DispatchQueue.main.async {');
+  writer.line('            // The job may already have finished (fast entry): deliver now.');
+  writer.line('            if let early = _nitroBgFinished.removeValue(forKey: id) {');
+  writer.line('                onDone(id, early)');
+  writer.line('            } else {');
+  writer.line('                _nitroBgCallbacks[id] = onDone');
+  writer.line('            }');
+  writer.line('        }');
+  writer.line('        return id');
+  writer.line('    }');
+  writer.blankLine();
+  writer.line('    /// Async form for BGTaskScheduler handlers: resolves to nil on success or the');
+  writer.line('    /// error text; throws nothing.');
+  writer.line('    @available(iOS 13.0, *)');
+  writer.line('    public static func run(entry: String, text: String) async -> String? {');
+  writer.line('        let id = entry.withCString { e in text.withCString { t in _nitroBgRunStringC(e, t) } }');
+  writer.line('        if id < 0 { return "no background host: could not start an engine for \\(entry)" }');
+  writer.line('        return await withCheckedContinuation { continuation in');
+  writer.line('            DispatchQueue.main.async {');
+  writer.line('                if let early = _nitroBgFinished.removeValue(forKey: id) {');
+  writer.line('                    continuation.resume(returning: early)');
+  writer.line('                } else {');
+  writer.line('                    _nitroBgCallbacks[id] = { _, error in continuation.resume(returning: error) }');
+  writer.line('                }');
+  writer.line('            }');
+  writer.line('        }');
+  writer.line('    }');
+  writer.blankLine();
+  writer.line('    /// Headless engines currently alive for this library\'s jobs (main queue).');
+  writer.line('    public static var activeEngines: Int { _nitroBgEngines.count }');
+  writer.line('}');
+  writer.line('#endif');
 }

@@ -93,6 +93,7 @@ class SpecValidator {
   /// Runs all validation rules on [spec] and returns the list of issues.
   static List<ValidationIssue> validate(BridgeSpec spec) {
     final issues = <ValidationIssue>[];
+    _validateEntryPoints(spec, issues);
 
     // ── Platform targeting ─────────────────────────────────────────────────
     if (spec.iosImpl == null && spec.androidImpl == null && spec.macosImpl == null && spec.windowsImpl == null && spec.linuxImpl == null && spec.webImpl == null) {
@@ -1121,6 +1122,77 @@ class SpecValidator {
     }
 
     return false;
+  }
+
+  /// Why a [BridgeType] cannot cross the background job blob, or null when it
+  /// can. The blob is the record wire format, so anything a record field or a
+  /// function parameter can carry by value is allowed; handles, callbacks,
+  /// streams and custom types are not (they need a live isolate/process
+  /// context on the other side).
+  static String? entryPointTypeProblem(BridgeType t) {
+    switch (t.kind) {
+      case BridgeTypeKind.function_:
+        return 'callbacks cannot cross into a background isolate';
+      case BridgeTypeKind.stream:
+        return 'a stream cannot be passed in (return Stream<T> to stream results out instead)';
+      case BridgeTypeKind.future:
+        return 'nested Future types are not supported (the entry point itself may be async)';
+      case BridgeTypeKind.pointer:
+      case BridgeTypeKind.nativeHandle:
+      case BridgeTypeKind.anyNativeObject:
+        return 'native handles/pointers are not transferable by value';
+      case BridgeTypeKind.customType:
+        return '@NitroCustomType values are not supported for entry points yet';
+      default:
+        return null;
+    }
+  }
+
+  static void _validateEntryPoints(BridgeSpec spec, List<ValidationIssue> issues) {
+    if (spec.entryPoints.isEmpty) return;
+    final seen = <String>{};
+    final nativeTargets = spec.iosImpl != null || spec.androidImpl != null || spec.macosImpl != null || spec.windowsImpl != null || spec.linuxImpl != null;
+    if (!nativeTargets) {
+      issues.add(
+        ValidationIssue(
+          severity: ValidationSeverity.error,
+          code: 'ENTRY_POINT_NO_NATIVE_TARGET',
+          message: '${spec.dartClassName}: @NitroEntryPoint needs a native platform — background entry points are not available on web.',
+          hint: 'Add at least one of ios/android/macos/windows/linux to @NitroModule.',
+        ),
+      );
+    }
+    for (final e in spec.entryPoints) {
+      if (!seen.add(e.name)) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'ENTRY_POINT_DUPLICATE',
+            message: '@NitroEntryPoint "${e.name}" is declared more than once.',
+            hint: 'Entry point names must be unique within the spec file.',
+          ),
+        );
+      }
+      final problems = <String>[];
+      for (final p in e.params) {
+        final why = entryPointTypeProblem(p.type);
+        if (why != null) problems.add('parameter "${p.name}" (${p.type.name}): $why');
+      }
+      if (!e.returnsVoid) {
+        final why = entryPointTypeProblem(e.returnType);
+        if (why != null) problems.add('return type ${e.returnType.name}: $why');
+      }
+      for (final why in problems) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'ENTRY_POINT_UNSUPPORTED_TYPE',
+            message: '@NitroEntryPoint "${e.name}" — $why.',
+            hint: 'Pass data by value: primitives, String, DateTime, enums, @HybridRecord/@HybridStruct/@NitroVariant/@NitroTuple, lists, Map<String, T>, typed data, NitroAnyMap — all optionally nullable.',
+          ),
+        );
+      }
+    }
   }
 
   static List<ValidationIssue> _validateCallbackParam(

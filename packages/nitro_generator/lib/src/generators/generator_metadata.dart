@@ -1,6 +1,6 @@
 import '../bridge_spec.dart';
 
-const nitroGeneratorVersion = '0.7.5';
+const nitroGeneratorVersion = '0.7.6';
 
 String generatedFileHeader(String commentPrefix, {required String sourceUri, String sourceHash = ''}) {
   final sourceName = sourceUri.split('/').last;
@@ -31,6 +31,7 @@ String bridgeSpecChecksum(BridgeSpec spec) {
     for (final rt in spec.recordTypes) 'record:${rt.name}:${rt.isImported}:${rt.fields.map(_recordFieldSig).join(',')}',
     for (final f in spec.functions) 'fn:${f.dartName}:${f.cSymbol}:${f.isAsync}:${f.isNativeAsync}:${f.zeroCopyReturn}:${_typeSig(f.returnType)}:${f.params.map(_paramSig).join(',')}',
     for (final p in spec.properties) 'prop:${p.dartName}:${_typeSig(p.type)}:${p.getSymbol}:${p.setSymbol}:${p.hasGetter}:${p.hasSetter}',
+    for (final e in spec.entryPoints) 'entry:${e.name}:${e.isAsync}',
     for (final s in spec.streams) 'stream:${s.dartName}:${s.registerSymbol}:${s.releaseSymbol}:${_typeSig(s.itemType)}:${s.backpressure.name}:${s.isMethodStyle}:${s.isAnnotated}',
   ];
   return _fnv64Hex(parts.join('\n'));

@@ -302,6 +302,28 @@ class NitroAsync {
 // Cannot be combined with @nitroAsync on the same method.
 const nitroNativeAsync = NitroNativeAsync();
 
+/// Marks a top-level `Future<String> Function(String)` (or `String Function(String)`)
+/// in the spec file as a **background entry point**: native can run it in a
+/// fresh isolate even while no Flutter UI is running (a WorkManager job, a
+/// push handler, a BGTask), hand it a string argument, and receive the string
+/// result. The generator emits the `@pragma('vm:entry-point')` wrapper that
+/// keeps the function alive under AOT, so the function itself needs no pragma.
+///
+/// ```dart
+/// @nitroEntryPoint
+/// Future<String> syncInbox(String accountId) async { ... }
+/// ```
+///
+/// From Dart: `await MyModule.runInBackground('syncInbox', accountId)` — on
+/// iOS/Android a headless FlutterEngine starts at the wrapper; where no host
+/// is registered (macOS/desktop, tests) the wrapper runs on a spawned isolate;
+/// on web it throws [UnsupportedError].
+const nitroEntryPoint = NitroEntryPoint();
+
+class NitroEntryPoint {
+  const NitroEntryPoint();
+}
+
 class NitroNativeAsync {
   const NitroNativeAsync();
 }

@@ -1,3 +1,19 @@
+## 0.7.6
+
+Added
+- `NitroBackground`: runtime half of `@NitroEntryPoint` — runs one queued job
+  (`runEntry`) or streams one job's items (`runStreamEntry`) on the
+  background isolate, opens the submitter-side stream (`openStream`), and,
+  where no host engine is registered, spawns the entry wrapper on a fresh
+  isolate. Web twin throws `UnsupportedError`.
+- `NitroBackgroundException` (a `HybridException`): what a failed background
+  job throws — `entry`, `message`, the remote `stackTrace` as text,
+  `isStartFailure`.
+- Shared header `nitro_background.h`: the process-wide job table
+  (submit/take/complete/fail) behind entry points. Jobs are taken by id — the
+  engine an entry runs in is bound to the job it was started for — and
+  `activeCount()` reports what is queued or running.
+
 ## 0.7.5
 
 - Ecosystem sync for `nitro_generator` 0.7.5 (spec-hash header stamp, pinned

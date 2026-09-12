@@ -268,6 +268,7 @@ class SpecExtractor {
       functions: _extractFunctions(members.functions, ns, recordTypeNames, knownTypeNames, structTypeNames: structNames, enumTypeNames: enumNames, variantTypeNames: variantNames, tupleTypeNames: tupleTypeNames),
       properties: properties,
       streams: streams,
+      entryPoints: _extractEntryPoints(library, recordTypeNames, knownTypeNames, structNames, enumNames, variantNames, tupleTypeNames),
       structs: allStructs,
       enums: allEnums,
       recordTypes: allRecordTypes,
@@ -1051,6 +1052,64 @@ class SpecExtractor {
   }
 
   // ─── Properties + Streams ───────────────────────────────────────────────────
+
+  /// Top-level functions annotated `@NitroEntryPoint` in the spec library.
+  /// Signature validity (supported types) is judged by [SpecValidator]; only
+  /// the annotation target is checked here because it needs the AST.
+  static List<BridgeEntryPoint> _extractEntryPoints(
+    LibraryReader library,
+    Set<String> recordTypeNames,
+    Set<String> knownTypeNames,
+    Set<String> structTypeNames,
+    Set<String> enumTypeNames,
+    Set<String> variantTypeNames,
+    Set<String> tupleTypeNames,
+  ) {
+    const checker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroEntryPoint');
+    final out = <BridgeEntryPoint>[];
+    for (final annotated in library.annotatedWith(checker)) {
+      final el = annotated.element;
+      if (el is! TopLevelFunctionElement) {
+        throw SpecParseException(
+          '@NitroEntryPoint is only valid on a top-level function (found on "${el.name}").',
+          sourceUri: library.element.uri.toString(),
+        );
+      }
+      BridgeType make(DartType t) => _makeBridgeType(
+        t,
+        recordTypeNames,
+        knownTypeNames: knownTypeNames,
+        structTypeNames: structTypeNames,
+        enumTypeNames: enumTypeNames,
+        variantTypeNames: variantTypeNames,
+        tupleTypeNames: tupleTypeNames,
+      );
+      var ret = el.returnType;
+      final isAsync = ret.isDartAsyncFuture || ret.isDartAsyncFutureOr;
+      final isStream = ret.isDartAsyncStream;
+      if ((isAsync || isStream) && ret is InterfaceType && ret.typeArguments.isNotEmpty) ret = ret.typeArguments.first;
+      out.add(
+        BridgeEntryPoint(
+          name: el.name!,
+          isAsync: isAsync,
+          isStream: isStream,
+          returnType: ret is VoidType ? BridgeType(name: 'void') : make(ret),
+          params: el.formalParameters
+              .map(
+                (p) => BridgeParam(
+                  name: p.name!,
+                  type: make(p.type),
+                  isNamed: p.isNamed,
+                  isOptional: p.isOptional,
+                  defaultLiteral: p.defaultValueCode,
+                ),
+              )
+              .toList(),
+        ),
+      );
+    }
+    return out;
+  }
 
   static ({List<BridgeProperty> properties, List<BridgeStream> streams}) _extractPropertiesAndStreams(
     _ModuleMembers members,

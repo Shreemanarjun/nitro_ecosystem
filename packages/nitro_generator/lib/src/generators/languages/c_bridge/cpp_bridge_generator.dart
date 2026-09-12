@@ -1,4 +1,4 @@
-import 'package:nitro_annotations/nitro_annotations.dart' show CppImpl;
+import 'package:nitro_annotations/nitro_annotations.dart' show CppImpl, KotlinImpl, SwiftImpl;
 
 import '../../../bridge_item_kind.dart';
 import '../../../bridge_spec.dart';
@@ -9,12 +9,23 @@ import '../../struct_generator.dart';
 
 part 'cpp_bridge/swift_shim_emitter.dart';
 part 'cpp_bridge/cpp_direct_emitter.dart';
+part 'cpp_bridge/cpp_background_emitter.dart';
 part 'cpp_bridge/type_emitter.dart';
 part 'cpp_bridge/jni_swift_prologue.dart';
 part 'cpp_bridge/jni_method_emitter.dart';
 
 class CppBridgeGenerator {
   static String generate(BridgeSpec spec) {
+    final core = _generateCore(spec);
+    if (spec.entryPoints.isEmpty) return core;
+    // Appended after every prologue so GetEnv/g_bridgeClass are in scope, and
+    // regardless of which bridge path the spec took above.
+    final w = CodeWriter();
+    emitBackgroundExports(w, spec, spec.lib.replaceAll('-', '_'));
+    return core + w.toString();
+  }
+
+  static String _generateCore(BridgeSpec spec) {
     // All targeted platforms use C++ — emit the lean direct-call bridge.
     if (spec.isCppImpl) return _generateCppDirect(spec);
     // Web-only spec (web: NativeImpl.wasm with no native platforms): the
@@ -90,6 +101,7 @@ class CppBridgeGenerator {
     writer.blankLine();
 
     final libStem = spec.lib.replaceAll('-', '_');
+    emitBackgroundTable(writer, spec, libStem);
     final libPkg = 'nitro/${libStem}_module';
     final checksum = bridgeSpecChecksum(spec);
     // Pre-build O(1) lookup sets — avoids O(n×m) .any() scans inside the
@@ -350,7 +362,7 @@ class CppBridgeGenerator {
     // Close the preprocessor ifdef chain when more than one platform section
     // was opened (android+apple or android+standalone-cpp).
     if (includeAndroid && (includeApple || hasStandaloneCpp)) writer.line('#endif');
-    return writer.toString();
+        return writer.toString();
   }
 
   // ── Apple C++ dispatch section emitter ────────────────────────────────────

@@ -744,7 +744,7 @@ Directory _spmScaffoldSharedCppTarget(
   // nitro_wasm_compat.h is deliberately excluded: SwiftPM compiles every
   // header in include/, and its non-Emscripten #error guard fails the build.
   // Only CMake targets, which take an explicit source list, can carry it.
-  for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h']) {
+  for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h', 'nitro_background.h']) {
     final src = File(p.join(nitroNativePath, headerName));
     if (src.existsSync()) src.copySync(p.join(includeDir.path, headerName));
   }
