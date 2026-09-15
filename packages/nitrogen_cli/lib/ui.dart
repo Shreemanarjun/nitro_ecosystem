@@ -22,7 +22,7 @@ Directory? findNitroProjectRoot({String? startDir}) {
 
   // 2. Check direct subdirectories (common in monorepos or after init)
   try {
-    for (final entity in root.listSync()) {
+    for (final entity in root.listSync()..sort((a, b) => a.path.compareTo(b.path))) {
       if (entity is Directory && _isNitroRoot(entity)) {
         return entity;
       }

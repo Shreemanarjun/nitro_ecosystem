@@ -241,7 +241,7 @@ List<ProjectInfo> getAllProjects({Directory? baseDir}) {
     if (rootInfo != null) projects.add(rootInfo);
 
     // 2. Check subdirectories (up to 2 levels for monorepos)
-    for (final entity in root.listSync()) {
+    for (final entity in root.listSync()..sort((a, b) => a.path.compareTo(b.path))) {
       if (entity is Directory) {
         final info = parsePubspec(entity);
         if (info != null) {
@@ -249,7 +249,7 @@ List<ProjectInfo> getAllProjects({Directory? baseDir}) {
         } else {
           // Check one level deeper (e.g. packages/my_package)
           try {
-            for (final sub in entity.listSync()) {
+            for (final sub in entity.listSync()..sort((a, b) => a.path.compareTo(b.path))) {
               if (sub is Directory) {
                 final subInfo = parsePubspec(sub);
                 if (subInfo != null) projects.add(subInfo);
