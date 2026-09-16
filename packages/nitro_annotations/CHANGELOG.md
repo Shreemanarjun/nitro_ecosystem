@@ -1,10 +1,14 @@
 ## 0.7.6
 
 Added
-- `@NitroEntryPoint` / `@nitroEntryPoint`: marks a top-level function in the
-  spec file as a background entry point native can run in a fresh isolate
-  (headless engine on Android/iOS). Any nitro type in any parameter shape;
-  sync, `Future<T>`, `Stream<T>` or `void` returns.
+- `@nitroFast`: synchronous hot-path method — leaf binding, bare body, no
+  error-slot check. Supersedes the `...Fast` name suffix (still accepted).
+  Composes with `@nitroNativeAsync`: `Future<T>` signature, sync native
+  implementation, inline completion without a port.
+- `@NitroEntryPoint` / `@nitroEntryPoint`: top-level function runnable in a
+  headless engine or spawned isolate; sync, `Future<T>`, `Stream<T>` or `void`.
+  Parameters: any by-value type, `void` callbacks, handles/pointers by address,
+  custom types.
 
 ## 0.7.5
 

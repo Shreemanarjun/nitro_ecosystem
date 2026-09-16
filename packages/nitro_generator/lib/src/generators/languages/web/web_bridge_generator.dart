@@ -198,12 +198,16 @@ class WebBridgeGenerator {
   /// The mismatch is an artefact of analysing one file under the other
   /// platform's resolution; the ignore is scoped to those members only, so a
   /// genuine override break anywhere else still fails the analyzer.
-  static void _emitOverride(CodeWriter w, BridgeType returnType) {
+  static void _emitOverride(CodeWriter w, BridgeType returnType, {List<BridgeParam> params = const []}) {
     w.line('  @override');
     // The ignore has to sit immediately above the DECLARATION line, which the
     // caller emits next — a comment above `@override` would apply to the
     // annotation instead and leave the error unsuppressed.
-    if (returnType.isNativeHandle || returnType.isPointer) {
+    // Handle/pointer PARAMETERS hit the same artefact (GH #52 made handle
+    // params reachable): the spec's NativeHandle is the native class under
+    // `dart analyze`, the override's is the web twin.
+    final handleParam = params.any((p) => p.type.isNativeHandle || p.type.isPointer);
+    if (returnType.isNativeHandle || returnType.isPointer || handleParam) {
       w.line('  // ignore: invalid_override');
     }
   }
@@ -245,7 +249,7 @@ class WebBridgeGenerator {
       // @nitroAsync on web runs inline (no isolates); the legacy get/clear
       // error protocol matches the C signature (no NitroError* out-param).
       // Async returns are OWNED (malloc'd by native) — decode then free.
-      _emitOverride(w, func.returnType);
+      _emitOverride(w, func.returnType, params: func.params);
       // `async` so a checkDisposed() throw rejects the future instead of
       // blowing up at the call site (matches the FFI emitter).
       w.line('  Future<$rt> ${func.dartName}($params) async {');
@@ -264,8 +268,9 @@ class WebBridgeGenerator {
     }
 
     // Sync: NitroError* out-param; borrowed framed/string returns.
-    _emitOverride(w, func.returnType);
-    w.line('  $rt ${func.dartName}($params) {');
+    _emitOverride(w, func.returnType, params: func.params);
+    // inlineFuture: same sync body inside an `async` function (see BridgeFunction).
+    w.line(func.inlineFuture ? '  Future<$rt> ${func.dartName}($params) async {' : '  $rt ${func.dartName}($params) {');
     w.line('    checkDisposed();');
     w.line('    return NitroRuntime.callSync(() {');
     _openArena(w, needsArena, '      ');
@@ -283,7 +288,7 @@ class WebBridgeGenerator {
     final needsArena = func.params.any((p) => _paramNeedsArena(spec, p.type));
     // Native-async: per-call error slot + dart_port, posted result.
     final callArgs = _buildCallArgs(spec, func.params, includeErr: false, ownerFn: func.dartName);
-    _emitOverride(w, func.returnType);
+    _emitOverride(w, func.returnType, params: func.params);
     w.line('  Future<$rt> ${func.dartName}($params) {');
     w.line('    checkDisposed();');
     w.line('    final _slot = WebNitroErrorSlot.alloc(_m);');

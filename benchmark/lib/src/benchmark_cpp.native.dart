@@ -145,6 +145,14 @@ abstract class BenchmarkCpp extends HybridObject {
   /// into Dart. Use for absolute-minimum-latency hot paths.
   double addFast(double a, double b);
 
+  /// Opaque native object for the handle-parameter cases (GH #52): a plain
+  /// method taking a `NativeHandle` now binds `isLeaf: true`, and its `Fast`
+  /// twin gets the bare leaf body (GH #51).
+  @NitroOwned()
+  NativeHandle<Void> makeHandle();
+  int touchHandle(NativeHandle<Void> handle);
+  int touchHandleFast(NativeHandle<Void> handle);
+
   /// Sync string round-trip. Measures UTF-8 encoding + native heap allocation
   /// overhead. Returns `"Hello, <name>!"` from C++.
   String getGreeting(String name);
@@ -210,6 +218,13 @@ abstract class BenchmarkCpp extends HybridObject {
   /// the `Future` machinery) with a near-zero native payload.
   @nitroNativeAsync
   Future<int> nativeAsyncEcho(int value);
+
+  /// `@nitroFast` + `@nitroNativeAsync`: same `Future<int>` signature, but the
+  /// bridge call is synchronous and the future completes inline — no port, no
+  /// post, no isolate wake. The C++ impl is a plain sync method.
+  @nitroFast
+  @nitroNativeAsync
+  Future<int> nativeAsyncEchoInline(int value);
 
   /// Cross-thread `@nitroNativeAsync` scalar round-trip: a worker thread does the
   /// post, so it pays the isolate wake that [nativeAsyncEcho]'s inline post

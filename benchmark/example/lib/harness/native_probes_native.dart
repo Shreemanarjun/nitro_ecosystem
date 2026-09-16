@@ -16,6 +16,18 @@ double Function(double, double)? rawAddProbe() => NitroRuntime.loadLib('benchmar
     >('add_double', isLeaf: true);
 
 /// Raw FFI sieve probe.
+/// Raw dart:ffi floor for a pointer argument (the NativeHandle cases): a
+/// hand-rolled `isLeaf` binding of `touch_ptr(void*)` on an object from
+/// `make_ptr()`. Returns (call, free).
+({int Function() touch, void Function() free})? rawTouchProbe() {
+  final lib = NitroRuntime.loadLib('benchmark_cpp');
+  final makePtr = lib.lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>('make_ptr');
+  final touch = lib.lookupFunction<Int64 Function(Pointer<Void>), int Function(Pointer<Void>)>('touch_ptr', isLeaf: true);
+  final freeFn = lib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('free');
+  final p = makePtr();
+  return (touch: () => touch(p), free: () => freeFn(p));
+}
+
 int Function(int)? rawSieveProbe() => NitroRuntime.loadLib('benchmark_cpp')
     .lookupFunction<Int64 Function(Int64), int Function(int)>('sieve_primes');
 

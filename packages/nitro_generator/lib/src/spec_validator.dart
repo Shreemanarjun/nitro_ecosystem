@@ -407,6 +407,20 @@ class SpecValidator {
         }
       }
 
+      // @nitroFast is a synchronous hot-path contract: leaf binding, bare body,
+      // no error-slot check. On a Future / @nitroAsync / @nitroNativeAsync
+      // method none of that applies (the call is dispatched or posts back).
+      if (func.isFast && !func.inlineFuture && (func.isAsync || func.isNativeAsync || func.returnType.isFuture)) {
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'FAST_NOT_SYNC',
+            message: '${spec.dartClassName}.${func.dartName}() — @nitroFast (or the Fast suffix) only applies to synchronous methods, or to @nitroNativeAsync methods (inline completion).',
+            hint: 'Remove @nitroFast, or make the method synchronous. Async and native-async methods are never leaf calls.',
+          ),
+        );
+      }
+
       for (final p in func.params) {
         if (p.type.isNativeHandle && func.isOwned) {
           issues.add(
@@ -1126,23 +1140,22 @@ class SpecValidator {
 
   /// Why a [BridgeType] cannot cross the background job blob, or null when it
   /// can. The blob is the record wire format, so anything a record field or a
-  /// function parameter can carry by value is allowed; handles, callbacks,
-  /// streams and custom types are not (they need a live isolate/process
-  /// context on the other side).
+  /// function parameter can carry by value is allowed. Handles, pointers and
+  /// AnyNativeObject cross by address/id (same process — the caller keeps
+  /// ownership); custom types go through their codec; a void callback with
+  /// positional parameters becomes a proxy that posts each call back to the
+  /// submitting isolate. Only streams-as-parameters and nested futures have no
+  /// by-value meaning.
   static String? entryPointTypeProblem(BridgeType t) {
     switch (t.kind) {
       case BridgeTypeKind.function_:
-        return 'callbacks cannot cross into a background isolate';
+        if (t.functionReturnType != 'void') return 'a callback must return void — its result cannot cross back to the background isolate';
+        if (t.name.contains('{') || t.name.contains('[')) return 'callback parameters must be positional';
+        return null;
       case BridgeTypeKind.stream:
         return 'a stream cannot be passed in (return Stream<T> to stream results out instead)';
       case BridgeTypeKind.future:
         return 'nested Future types are not supported (the entry point itself may be async)';
-      case BridgeTypeKind.pointer:
-      case BridgeTypeKind.nativeHandle:
-      case BridgeTypeKind.anyNativeObject:
-        return 'native handles/pointers are not transferable by value';
-      case BridgeTypeKind.customType:
-        return '@NitroCustomType values are not supported for entry points yet';
       default:
         return null;
     }
@@ -1188,7 +1201,7 @@ class SpecValidator {
             severity: ValidationSeverity.error,
             code: 'ENTRY_POINT_UNSUPPORTED_TYPE',
             message: '@NitroEntryPoint "${e.name}" — $why.',
-            hint: 'Pass data by value: primitives, String, DateTime, enums, @HybridRecord/@HybridStruct/@NitroVariant/@NitroTuple, lists, Map<String, T>, typed data, NitroAnyMap — all optionally nullable.',
+            hint: 'Pass data by value: primitives, String, DateTime, enums, @HybridRecord/@HybridStruct/@NitroVariant/@NitroTuple, lists, maps, typed data, NitroAnyMap, @NitroCustomType; handles/pointers by address; void callbacks with positional parameters.',
           ),
         );
       }

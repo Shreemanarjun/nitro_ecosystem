@@ -21,6 +21,7 @@ part 'emitters/dart_record_ffi_helpers.dart';
 part 'emitters/dart_async_helpers.dart';
 part 'emitters/dart_callback_helpers.dart';
 part 'emitters/dart_entry_point_emitter.dart';
+part 'emitters/dart_defaults_mixin_emitter.dart';
 
 /// Record types shipped in package:nitro that define their own codec methods.
 /// For these types the generator skips the *RecordExt extension.
@@ -109,6 +110,7 @@ class DartFfiGenerator {
     _emitMapAndFactory(writer, spec);
     _emitNativeRefExtension(writer, spec);
     emitEntryPointSection(writer, spec);
+    _emitDefaultsMixin(writer, spec);
     return writer.toString();
   }
 
@@ -137,6 +139,7 @@ class DartFfiGenerator {
     if (recordExt.isNotEmpty) writer.raw(recordExt);
     final variantExt = VariantGenerator.generateDartExtensions(spec, slice: DartCodecSlice.pure);
     if (variantExt.isNotEmpty) writer.raw(variantExt);
+    if (!spec.isTypeOnly) _emitDefaultsMixin(writer, spec);
     return writer.toString();
   }
 

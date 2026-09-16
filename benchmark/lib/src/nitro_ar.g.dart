@@ -1238,3 +1238,57 @@ extension NitroArNativeRef on NitroAr {
   AnyNativeObject get asAnyNativeObject =>
       (this as _NitroArImpl).asAnyNativeObject;
 }
+
+/// Default `throw UnimplementedError` bodies for every member of [NitroAr], so
+/// hand-written fakes keep compiling when the spec grows:
+/// `class FakeNitroAr extends NitroAr with NitroArDefaults { /* overrides */ }`.
+mixin NitroArDefaults on NitroAr {
+  @override
+  double add(double a, double b) => throw UnimplementedError('NitroAr.add');
+  @override
+  Future<String> getGreeting(String name) =>
+      throw UnimplementedError('NitroAr.getGreeting');
+  @override
+  bool isDepthSupported() =>
+      throw UnimplementedError('NitroAr.isDepthSupported');
+  @override
+  PackageDimensions detectPackage(BoundingBox rect) =>
+      throw UnimplementedError('NitroAr.detectPackage');
+  @override
+  RawDepthMap getRawDepthMap() =>
+      throw UnimplementedError('NitroAr.getRawDepthMap');
+  @override
+  double estimateVolume(String anchor) =>
+      throw UnimplementedError('NitroAr.estimateVolume');
+  @override
+  Future<bool> checkCameraPermission() =>
+      throw UnimplementedError('NitroAr.checkCameraPermission');
+  @override
+  Future<bool> requestCameraPermission() =>
+      throw UnimplementedError('NitroAr.requestCameraPermission');
+  @override
+  Future<void> startSession() =>
+      throw UnimplementedError('NitroAr.startSession');
+  @override
+  Future<void> stopSession() => throw UnimplementedError('NitroAr.stopSession');
+  @override
+  Future<void> pauseSession() =>
+      throw UnimplementedError('NitroAr.pauseSession');
+  @override
+  Future<void> resumeSession() =>
+      throw UnimplementedError('NitroAr.resumeSession');
+  @override
+  bool isTracking() => throw UnimplementedError('NitroAr.isTracking');
+  @override
+  void enableFlashlight(bool enable) =>
+      throw UnimplementedError('NitroAr.enableFlashlight');
+  @override
+  void setDetectionOptions(double threshold, int rotation, bool useMock) =>
+      throw UnimplementedError('NitroAr.setDetectionOptions');
+  @override
+  Stream<PackageBoxes> get detectedPackages =>
+      throw UnimplementedError('NitroAr.detectedPackages');
+  @override
+  Stream<LiveTrackingUpdate> get liveTrackingUpdates =>
+      throw UnimplementedError('NitroAr.liveTrackingUpdates');
+}

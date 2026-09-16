@@ -50,6 +50,24 @@ public:
         // return 0.0;
     }
 
+    void* makeHandle() override {
+        // TODO: implement makeHandle
+        throw std::runtime_error("Not implemented: makeHandle");
+        // return nullptr;
+    }
+
+    int64_t touchHandle(void* handle) override {
+        // TODO: implement touchHandle
+        throw std::runtime_error("Not implemented: touchHandle");
+        // return 0;
+    }
+
+    int64_t touchHandleFast(void* handle) override {
+        // TODO: implement touchHandleFast
+        throw std::runtime_error("Not implemented: touchHandleFast");
+        // return 0;
+    }
+
     std::string getGreeting(const std::string& name) override {
         // TODO: implement getGreeting
         throw std::runtime_error("Not implemented: getGreeting");
@@ -113,6 +131,12 @@ public:
         // value 0 — both decode to Dart null. Non-nullable results must
         // always post a real encoded value.
         throw std::runtime_error("Not implemented: nativeAsyncEcho");
+    }
+
+    int64_t nativeAsyncEchoInline(int64_t value) override {
+        // TODO: implement nativeAsyncEchoInline
+        throw std::runtime_error("Not implemented: nativeAsyncEchoInline");
+        // return 0;
     }
 
     void nativeAsyncEchoFromThread(int64_t value, NitroError* _nitro_err, int64_t dartPort) override {

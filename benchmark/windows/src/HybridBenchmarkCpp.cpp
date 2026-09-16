@@ -100,6 +100,18 @@ public:
         return a + b;
     }
 
+    // GH #52 (handle params bind isLeaf) / GH #51 (Fast bare body): an opaque
+    // 64-byte object whose first byte is a counter.
+    void* makeHandle() override { return calloc(64, 1); }
+    int64_t touchHandle(void* handle) override {
+        auto* p = static_cast<uint8_t*>(handle);
+        return ++p[0];
+    }
+    int64_t touchHandleFast(void* handle) override {
+        auto* p = static_cast<uint8_t*>(handle);
+        return ++p[0];
+    }
+
     // ── Sync string — measures heap allocation for std::string ────────────────
     std::string getGreeting(const std::string& name) override {
         return "Hello, " + name + "!";
@@ -171,6 +183,10 @@ public:
     // via Dart_PostCObject_DL (no thread hop) so the harness measures the
     // Dart-side per-call native-async dispatch cost (ReceivePort + error slot +
     // Future), optimization target "D".
+    // @nitroFast @nitroNativeAsync: plain sync method; the bridge completes the
+    // Dart future inline (no port).
+    int64_t nativeAsyncEchoInline(int64_t value) override { return value; }
+
     void nativeAsyncEcho(int64_t value, NitroError* /*_nitro_err*/, int64_t dartPort) override {
         Dart_CObject obj;
         obj.type = Dart_CObject_kInt64;

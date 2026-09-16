@@ -59,6 +59,16 @@ const _tolerancePct = int.fromEnvironment(
 // while the identical commit had passed hours earlier: noise, not a
 // regression, and 1500× below the ≥1µs this gate exists to catch.
 const _maxLeafOverRawFfi = 2.5; //   ratio term
+// Handle-parameter tier (GH #51/#52): raw_ffi_touch is a hand-rolled isLeaf
+// binding taking Pointer<Void>. nitro_fast_handle is the bare leaf body and
+// should sit on the floor; nitro_leaf_handle keeps the callSync closure but
+// is isLeaf, so it gets the same allowance as the scalar leaf tier.
+const _maxFastHandleOverRawFfi = 2.5;
+const _maxLeafHandleOverRawFfi = 2.5;
+const _handleOverheadBudgetUs = 1.0;
+// @nitroFast @nitroNativeAsync completes inline (no port, no wake): the port
+// post path must stay several times slower, or the fast tier stopped working.
+const _minPostOverFastInline = 4.0;
 const _leafOverheadBudgetUs = 1.0; // absolute per-call overhead budget
 const _maxCppOverRawFfi = 4.0;
 const _cppOverheadBudgetUs = 1.5;
@@ -123,6 +133,19 @@ void main() {
       // MethodChannel), so those comparisons are skipped rather than failed —
       // the core Nitro cases below still have to run everywhere.
       final rawFfi = optionalMin('raw_ffi_add');
+      final rawTouch = optionalMin('raw_ffi_touch');
+      final leafHandle = optionalMin('nitro_leaf_handle');
+      final asyncPost = optionalMin('nitro_native_async_scalar');
+      final asyncInline = optionalMin('nitro_native_async_inline');
+      if (asyncPost != null && asyncInline != null) {
+        expect(
+          asyncPost / asyncInline,
+          greaterThanOrEqualTo(_minPostOverFastInline),
+          reason: '@nitroFast @nitroNativeAsync should complete inline, well under the port post '
+              '(inline=${asyncInline.toStringAsFixed(3)}µs, post=${asyncPost.toStringAsFixed(3)}µs).',
+        );
+      }
+      final fastHandle = optionalMin('nitro_fast_handle');
       final leaf = requiredMin('nitro_leaf_add');
       final cpp = requiredMin('nitro_cpp_add');
       final channel = optionalMin('method_channel_add');
@@ -130,6 +153,22 @@ void main() {
       expect(leaf, greaterThan(0), reason: 'Nitro leaf call measured as 0 µs');
       expect(cpp, greaterThan(0), reason: 'Nitro C++ call measured as 0 µs');
 
+      if (rawTouch != null && leafHandle != null && fastHandle != null) {
+        expect(
+          fastHandle,
+          lessThanOrEqualTo(rawTouch * _maxFastHandleOverRawFfi + _handleOverheadBudgetUs),
+          reason: 'Fast handle-param call drifted from the raw pointer floor '
+              '(fast=${fastHandle.toStringAsFixed(3)}µs, raw=${rawTouch.toStringAsFixed(3)}µs). '
+              'Did the Fast body regain the callSync closure or lose isLeaf?',
+        );
+        expect(
+          leafHandle,
+          lessThanOrEqualTo(rawTouch * _maxLeafHandleOverRawFfi + _handleOverheadBudgetUs),
+          reason: 'Plain handle-param call drifted from the raw pointer floor '
+              '(leaf=${leafHandle.toStringAsFixed(3)}µs, raw=${rawTouch.toStringAsFixed(3)}µs). '
+              'Did NativeHandle params stop counting as leaf-eligible?',
+        );
+      }
       if (rawFfi == null) {
         debugPrint(
           '[BenchGate] no raw-FFI tier on this platform — ratio gates skipped; '

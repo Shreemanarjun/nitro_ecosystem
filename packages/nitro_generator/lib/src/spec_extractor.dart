@@ -956,6 +956,7 @@ class SpecExtractor {
     const nativeAsyncChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroNativeAsync');
     const zeroCopyChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#ZeroCopy');
     const ownedChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroOwned');
+    const fastChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroFast');
     const mainThreadChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#MainThread');
     const resultChecker = TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroResult');
 
@@ -985,6 +986,8 @@ class SpecExtractor {
 
       // Read optional custom release symbol from @NitroOwned(release: '...')
       final isOwned = ownedChecker.hasAnnotationOf(m);
+      // Hot path: the annotation, or the legacy `...Fast` name suffix.
+      final isFast = fastChecker.hasAnnotationOf(m) || m.name!.endsWith('Fast');
       String? releaseSymbol;
       if (isOwned) {
         final ownedAnnotation = ownedChecker.firstAnnotationOf(m);
@@ -1011,7 +1014,8 @@ class SpecExtractor {
         dartName: m.name!,
         cSymbol: '${ns}_${_toSnakeCase(m.name!)}',
         isAsync: isAsync,
-        isNativeAsync: isNativeAsync,
+        isNativeAsync: isNativeAsync && !isFast,
+        inlineFuture: isNativeAsync && isFast,
         returnType: _makeBridgeType(
           returnDartType,
           recordTypeNames,
@@ -1024,6 +1028,7 @@ class SpecExtractor {
         ),
         zeroCopyReturn: zeroCopyChecker.hasAnnotationOf(m),
         isOwned: isOwned,
+        isFast: isFast,
         releaseSymbol: releaseSymbol,
         mainThread: mainThreadChecker.hasAnnotationOf(m),
         asyncTimeout: asyncTimeout,

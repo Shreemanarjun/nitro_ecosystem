@@ -226,8 +226,11 @@ class SpecFromSource {
     }
 
     // ── Function ───────────────────────────────────────────────────────────
-    final isAsync = m.metadata.any((a) => _annName(a) == 'NitroAsync') || (!m.metadata.any((a) => _annName(a) == 'NitroNativeAsync') && retSrc.startsWith('Future<'));
-    final isNativeAsync = m.metadata.any((a) => _annName(a) == 'NitroNativeAsync');
+    bool hasAnn(String name) => m.metadata.any((a) => _annName(a) == name || _annName(a) == name[0].toLowerCase() + name.substring(1));
+    final isAsync = hasAnn('NitroAsync') || (!hasAnn('NitroNativeAsync') && retSrc.startsWith('Future<'));
+    final isNativeAsync = hasAnn('NitroNativeAsync');
+    final isOwnedFn = m.metadata.any((a) => _annName(a) == 'NitroOwned');
+    final isFastFn = m.metadata.any((a) => _annName(a) == 'NitroFast' || _annName(a) == 'nitroFast');
     // Accept both the const shorthand (@mainThread) and class form (@MainThread()).
     final isMainThread = m.metadata.any((a) => _annName(a) == 'mainThread' || _annName(a) == 'MainThread');
 
@@ -242,7 +245,10 @@ class SpecFromSource {
         dartName: name,
         cSymbol: '${ns}_${_toSnakeCase(name)}',
         isAsync: isAsync,
-        isNativeAsync: isNativeAsync,
+        isNativeAsync: isNativeAsync && !(isFastFn || name.endsWith('Fast')),
+        inlineFuture: isNativeAsync && (isFastFn || name.endsWith('Fast')),
+      isOwned: isOwnedFn,
+      isFast: isFastFn || name.endsWith('Fast'),
         mainThread: isMainThread,
         returnType: _makeType(effectiveReturn, effectiveBase, enumNames, structNames, recordNames, isFuture: isFuture),
         params: params,
@@ -267,7 +273,41 @@ class SpecFromSource {
     if (recordNames.contains(typeBase)) {
       return BridgeType(name: typeSrc, isRecord: true, isNullable: isNullable, isFuture: isFuture);
     }
+    // `R Function(A, B)` callbacks — positional parameter types, names dropped.
+    if (typeBase.contains(' Function(')) {
+      final open = typeSrc.indexOf(' Function(');
+      final inner = typeSrc.substring(open + ' Function('.length, typeSrc.lastIndexOf(')'));
+      final params = <BridgeType>[];
+      for (final seg in _splitTopLevel(inner)) {
+        final named = RegExp(r'^(.*\S)\s+(\w+)$').firstMatch(seg);
+        final t = named != null ? named.group(1)! : seg;
+        params.add(_makeType(t, t.replaceAll('?', ''), enumNames, structNames, recordNames));
+      }
+      return BridgeType(name: typeSrc, isFunction: true, functionReturnType: typeSrc.substring(0, open), functionParams: params, isNullable: isNullable, isFuture: isFuture);
+    }
+    // NativeHandle<T> — params and returns (the real extractor flags both).
+    if (typeBase.startsWith('NativeHandle<')) {
+      final inner = typeBase.substring('NativeHandle<'.length, typeBase.lastIndexOf('>'));
+      return BridgeType(name: typeSrc, isNativeHandle: true, nativeHandleTypeParam: inner, isNullable: isNullable, isFuture: isFuture);
+    }
     return BridgeType(name: typeSrc, isNullable: isNullable, isFuture: isFuture);
+  }
+
+  static List<String> _splitTopLevel(String s) {
+    final out = <String>[];
+    var depth = 0, start = 0;
+    for (var i = 0; i < s.length; i++) {
+      final c = s[i];
+      if (c == '<' || c == '(') depth++;
+      if (c == '>' || c == ')') depth--;
+      if (c == ',' && depth == 0) {
+        out.add(s.substring(start, i).trim());
+        start = i + 1;
+      }
+    }
+    final last = s.substring(start).trim();
+    if (last.isNotEmpty) out.add(last);
+    return out;
   }
 
   // ─── Parameter extraction ─────────────────────────────────────────────────

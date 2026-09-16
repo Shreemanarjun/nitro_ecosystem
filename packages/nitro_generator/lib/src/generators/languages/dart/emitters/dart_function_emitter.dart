@@ -34,6 +34,9 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
           if (p.type.isPointer) {
             return [p.name];
           }
+          if (p.type.isNativeHandle) {
+            return [_nativeHandleArgExpr(p)];
+          }
           if (p.type.isTypedData) {
             return ['${p.name}.toPointer(arena)', '${p.name}.length'];
           }
@@ -93,14 +96,16 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
         : func.returnType.isNativeHandle
         ? 'NativeHandle<$nativeHandleTypeParam>'
         : func.returnType.name;
-    final returnType = (func.isAsync || func.isNativeAsync) ? 'Future<$effectiveDartReturnName>' : effectiveDartReturnName;
-    final asyncMod = func.isAsync ? 'async ' : '';
+    final returnType = (func.isAsync || func.isNativeAsync || func.inlineFuture) ? 'Future<$effectiveDartReturnName>' : effectiveDartReturnName;
+    // inlineFuture: the sync body below runs inside an `async` function, so the
+    // future completes inline with no port and no isolate wake.
+    final asyncMod = (func.isAsync || func.inlineFuture) ? 'async ' : '';
 
     writer.line('  @override');
     writer.line(
       '  $returnType ${func.dartName}(${_paramList(func.params)}) $asyncMod{',
     );
-    final isFast = func.dartName.endsWith('Fast');
+    final isFast = func.isFast;
     writer.line('    checkDisposed();');
 
     final rt = func.returnType.name;
@@ -124,6 +129,7 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
               return t.endsWith('?') ? '${p.name} == null ? -1 : ${p.name}.nativeValue' : '${p.name}.nativeValue';
             }
             if (p.type.isFunction) return _callbackArgExpr(func, p);
+            if (p.type.isNativeHandle) return _nativeHandleArgExpr(p);
             return p.name;
           })
           .join(', ');
@@ -251,6 +257,32 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
           );
           writer.line('    })$mnArg);');
         }
+      } else if (isFast) {
+        // ── Bare leaf body (#51) ── a `...Fast` method is the developer's
+        // contract that this is a hot path: no error-slot check, and no
+        // callSync closure either. The closure captured the arguments and
+        // escaped into callSync, so AOT allocated it on every call — ~20x the
+        // cost of the leaf FFI call it wrapped. checkDisposed() stays: one
+        // field read, and it is what keeps a use-after-dispose from reaching
+        // the native registry with a stale id. Diagnostics (verbose logging,
+        // slow-call detection, timeline) are skipped for Fast methods.
+        if (rt == 'void') {
+          writer.line('    _${func.dartName}Ptr($syncArgs);');
+        } else {
+          writer.line('    final res = _${func.dartName}Ptr($syncArgs);');
+          _emitReturnDecode(
+            writer,
+            func.returnType,
+            'res',
+            '    ',
+            spec,
+            zeroCopy: func.zeroCopyReturn,
+            dartName: func.dartName,
+            isOwned: func.isOwned,
+            nativeHandleTypeParam: nativeHandleTypeParam,
+            optIsBorrowed: true,
+          );
+        }
       } else {
         if (rt == 'void') {
           writer.line('    NitroRuntime.callSync<void>(() {');
@@ -305,4 +337,14 @@ BridgeType _nitroResultInnerType(BridgeType returnType) {
     isNativeHandle: returnType.isNativeHandle,
     nativeHandleTypeParam: returnType.nativeHandleTypeParam,
   );
+}
+
+/// The FFI argument for a `NativeHandle<T>` parameter: the wrapped pointer,
+/// widened to `Pointer<Void>` (the binding's type) when T is not `Void`; a
+/// nullable handle passes `nullptr` for null. A plain `.pointer` read keeps
+/// the call leaf-safe and allocation-free (GH #52).
+String _nativeHandleArgExpr(BridgeParam p) {
+  final tp = p.type.nativeHandleTypeParam ?? 'Void';
+  final ptr = tp == 'Void' ? 'pointer' : 'pointer.cast<Void>()';
+  return p.type.isNullable ? '${p.name}?.$ptr ?? nullptr' : '${p.name}.$ptr';
 }

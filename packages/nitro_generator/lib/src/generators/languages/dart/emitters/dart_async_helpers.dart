@@ -449,12 +449,15 @@ bool _isPrimitiveType(BridgeType bt, BridgeSpec spec) {
 ///
 /// Conditions:
 ///  • Not async (async calls dispatch to isolates, irrelevant here).
-///  • Explicitly named "Fast" — a developer contract that the method is hot.
+///  • `@nitroFast` (or the legacy `...Fast` suffix) — a developer contract that the method is hot.
 ///  • OR all params and the return type are plain scalars (no arena needed).
 bool _isLeafCandidate(BridgeFunction func, BridgeSpec spec) {
   if (func.isAsync || func.isNativeAsync) return false;
-  if (func.dartName.endsWith('Fast')) return true;
+  if (func.isFast) return true;
   final rt = func.returnType;
   if (!_isPrimitiveType(rt, spec) && rt.name != 'void') return false;
-  return func.params.every((p) => _isPrimitiveType(p.type, spec));
+  // A NativeHandle PARAMETER is just the Pointer<Void> it wraps — leaf-safe
+  // (#52). A NativeHandle RETURN is not: it allocates the wrapper and attaches
+  // a NativeFinalizer, which is Dart heap work, so it stays excluded above.
+  return func.params.every((p) => p.type.isNativeHandle || _isPrimitiveType(p.type, spec));
 }

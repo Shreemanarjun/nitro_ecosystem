@@ -25,6 +25,7 @@
 //     <lib>_release_typed_data_return) when Dart's view is GC'd. Never
 //     return a pointer to a member or stack buffer: it would be free()d.
 
+#include <cstdlib>
 #include "benchmark_cpp.native.g.h"
 #include <stdexcept>
 
@@ -44,6 +45,18 @@ public:
     }
 
     double addFast(double a, double b) override {
+
+    // GH #52 (handle params bind isLeaf) / GH #51 (Fast bare body): an opaque
+    // 64-byte object whose first byte is a counter.
+    void* makeHandle() override { return calloc(64, 1); }
+    int64_t touchHandle(void* handle) override {
+        auto* p = static_cast<uint8_t*>(handle);
+        return ++p[0];
+    }
+    int64_t touchHandleFast(void* handle) override {
+        auto* p = static_cast<uint8_t*>(handle);
+        return ++p[0];
+    }
         // TODO: implement addFast
         throw std::runtime_error("Not implemented: addFast");
         // return 0.0;
@@ -104,6 +117,10 @@ public:
         throw std::runtime_error("Not implemented: asyncEcho");
         // return 0;
     }
+
+    // @nitroFast @nitroNativeAsync: plain sync method; the bridge completes the
+    // Dart future inline (no port).
+    int64_t nativeAsyncEchoInline(int64_t value) override { return value; }
 
     void nativeAsyncEcho(int64_t value, NitroError* _nitro_err, int64_t dartPort) override {
         // TODO: on error, populate _nitro_err (hasError/name/message via strdup) before posting.

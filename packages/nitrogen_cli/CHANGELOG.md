@@ -4,6 +4,10 @@ Added
 - `link` copies `nitro_background.h` (the `@NitroEntryPoint` job table)
   next to the other shared headers, including the SwiftPM include dir.
 
+Fixed
+- `generate`'s C++ hint names each module's `<lib>_register_impl(&impl)`
+  instead of `<plugin>_register_impl`.
+
 ## 0.7.5
 
 Fixed

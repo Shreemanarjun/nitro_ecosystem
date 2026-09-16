@@ -241,10 +241,8 @@ class _BenchmarkImpl extends Benchmark {
   @override
   double addFast(double a, double b) {
     checkDisposed();
-    return NitroRuntime.callSync(() {
-      final res = _addFastPtr(_instanceId, a, b, _nitroErr);
-      return res;
-    }, methodName: 'addFast');
+    final res = _addFastPtr(_instanceId, a, b, _nitroErr);
+    return res;
   }
 
   @override
@@ -315,4 +313,27 @@ class _BenchmarkImpl extends Benchmark {
 extension BenchmarkNativeRef on Benchmark {
   AnyNativeObject get asAnyNativeObject =>
       (this as _BenchmarkImpl).asAnyNativeObject;
+}
+
+/// Default `throw UnimplementedError` bodies for every member of [Benchmark], so
+/// hand-written fakes keep compiling when the spec grows:
+/// `class FakeBenchmark extends Benchmark with BenchmarkDefaults { /* overrides */ }`.
+mixin BenchmarkDefaults on Benchmark {
+  @override
+  double add(double a, double b) => throw UnimplementedError('Benchmark.add');
+  @override
+  double addFast(double a, double b) =>
+      throw UnimplementedError('Benchmark.addFast');
+  @override
+  String getGreeting(String name) =>
+      throw UnimplementedError('Benchmark.getGreeting');
+  @override
+  int hashBuffer(Uint8List data, int rounds) =>
+      throw UnimplementedError('Benchmark.hashBuffer');
+  @override
+  int sievePrimes(int limit) =>
+      throw UnimplementedError('Benchmark.sievePrimes');
+  @override
+  int sendLargeBuffer(Uint8List buffer) =>
+      throw UnimplementedError('Benchmark.sendLargeBuffer');
 }

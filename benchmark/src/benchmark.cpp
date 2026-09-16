@@ -1,3 +1,5 @@
+#include <cstdint>
+#include <cstdlib>
 #include <stdint.h>
 #include <stdbool.h>
 #include "nitro.h"
@@ -8,6 +10,14 @@ extern "C" {
   NITRO_EXPORT double add_double(double a, double b) {
     return a + b;
   }
+
+extern "C" NITRO_EXPORT void* make_ptr(void) { return calloc(64, 1); }
+
+extern "C" NITRO_EXPORT int64_t touch_ptr(void* p) {
+  uint8_t* b = (uint8_t*)p;
+  return (int64_t)(++b[0]);
+}
+
 
   /// Reference workload (FNV-1a, see nitro_workload.h) for the raw-FFI tier.
   NITRO_EXPORT uint64_t fnv1a_hash(const uint8_t* data, int64_t length,

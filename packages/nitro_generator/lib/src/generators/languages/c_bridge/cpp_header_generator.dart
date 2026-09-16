@@ -107,6 +107,7 @@ class CppHeaderGenerator {
         CodeLine('NITRO_EXPORT int64_t ${libStem}_bg_active_count();'),
         CodeLine('NITRO_EXPORT int8_t ${libStem}_bg_complete(int64_t jobId, const uint8_t* result, int64_t len);'),
         CodeLine('NITRO_EXPORT int8_t ${libStem}_bg_fail(int64_t jobId, const char* error, const char* stackTrace);'),
+        CodeLine('NITRO_EXPORT void ${libStem}_bg_post(int64_t port, const uint8_t* data, int64_t len);'),
         CodeLine('NITRO_EXPORT int8_t ${libStem}_bg_emit(int64_t jobId, const uint8_t* item, int64_t len);'),
         CodeLine('NITRO_EXPORT int8_t ${libStem}_bg_end(int64_t jobId);'),
         CodeLine('NITRO_EXPORT int8_t ${libStem}_bg_cancel(int64_t jobId);'),

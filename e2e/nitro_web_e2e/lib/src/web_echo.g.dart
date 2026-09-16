@@ -57,3 +57,62 @@ extension EchoBagRecordExt on EchoBag {
     writer.writeInt(after);
   }
 }
+
+/// Default `throw UnimplementedError` bodies for every member of [WebEcho], so
+/// hand-written fakes keep compiling when the spec grows:
+/// `class FakeWebEcho extends WebEcho with WebEchoDefaults { /* overrides */ }`.
+mixin WebEchoDefaults on WebEcho {
+  @override
+  double addDouble(double a, double b) =>
+      throw UnimplementedError('WebEcho.addDouble');
+  @override
+  int addInt(int a, int b) => throw UnimplementedError('WebEcho.addInt');
+  @override
+  bool negate(bool v) => throw UnimplementedError('WebEcho.negate');
+  @override
+  String concat(String a, String b) =>
+      throw UnimplementedError('WebEcho.concat');
+  @override
+  int? echoNullableInt(int? v) =>
+      throw UnimplementedError('WebEcho.echoNullableInt');
+  @override
+  EchoLevel echoEnum(EchoLevel v) =>
+      throw UnimplementedError('WebEcho.echoEnum');
+  @override
+  Uint8List echoBytes(Uint8List data) =>
+      throw UnimplementedError('WebEcho.echoBytes');
+  @override
+  Int32List echoInt32s(Int32List data) =>
+      throw UnimplementedError('WebEcho.echoInt32s');
+  @override
+  EchoStat echoStat(EchoStat v) => throw UnimplementedError('WebEcho.echoStat');
+  @override
+  Map<String, int> incrementValues(Map<String, int> m) =>
+      throw UnimplementedError('WebEcho.incrementValues');
+  @override
+  List<EchoStat> echoStats(List<EchoStat> v) =>
+      throw UnimplementedError('WebEcho.echoStats');
+  @override
+  List<int> echoInts(List<int> v) =>
+      throw UnimplementedError('WebEcho.echoInts');
+  @override
+  List<EchoStat>? echoMaybeStats(List<EchoStat>? v) =>
+      throw UnimplementedError('WebEcho.echoMaybeStats');
+  @override
+  EchoBag echoBag(EchoBag v) => throw UnimplementedError('WebEcho.echoBag');
+  @override
+  void alwaysThrows() => throw UnimplementedError('WebEcho.alwaysThrows');
+  @override
+  Future<int> sumTo(int n) => throw UnimplementedError('WebEcho.sumTo');
+  @override
+  Future<int> nativeAsyncEcho(int value) =>
+      throw UnimplementedError('WebEcho.nativeAsyncEcho');
+  @override
+  void emitTicks(int count) => throw UnimplementedError('WebEcho.emitTicks');
+  @override
+  int get counter => throw UnimplementedError('WebEcho.counter');
+  @override
+  set counter(int value) => throw UnimplementedError('WebEcho.counter');
+  @override
+  Stream<int> get ticks => throw UnimplementedError('WebEcho.ticks');
+}

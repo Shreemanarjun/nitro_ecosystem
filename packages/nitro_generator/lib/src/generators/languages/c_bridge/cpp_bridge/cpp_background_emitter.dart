@@ -74,6 +74,11 @@ void emitBackgroundExports(CodeWriter w, BridgeSpec spec, String libStem) {
   w.line('NITRO_EXPORT int8_t ${libStem}_bg_fail(int64_t jobId, const char* error, const char* stackTrace) {');
   w.line('    return $t.fail(jobId, error, stackTrace) ? 1 : 0;');
   w.line('}');
+  w.line('// Callback parameters: the background isolate posts one blob per call to');
+  w.line('// the caller-side proxy port (any isolate group of this process).');
+  w.line('NITRO_EXPORT void ${libStem}_bg_post(int64_t port, const uint8_t* data, int64_t len) {');
+  w.line('    NitroBgTable::postBlob(port, data, len < 0 ? 0 : (size_t)len);');
+  w.line('}');
   w.line('// Stream entries: one blob per item; end posts null; cancel forgets the job.');
   w.line('NITRO_EXPORT int8_t ${libStem}_bg_emit(int64_t jobId, const uint8_t* item, int64_t len) {');
   w.line('    return $t.emit(jobId, item, len < 0 ? 0 : (size_t)len) ? 1 : 0;');

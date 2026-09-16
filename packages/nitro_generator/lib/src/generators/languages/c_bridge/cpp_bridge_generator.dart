@@ -51,6 +51,51 @@ class CppBridgeGenerator {
   // ── Legacy JNI+Swift path (NativeImpl.kotlin / NativeImpl.swift) ───────────
 
   // ignore: avoid_positional_boolean_parameters
+  /// `<symbol>_release(void*)` exports for every `@NitroOwned` handle-returning
+  /// method — the NativeFinalizer target on the Dart side. Shared by the
+  /// JNI/Swift bridge and the direct C++ bridge (the latter had none, so an
+  /// owned handle on a C++-only spec failed at symbol lookup).
+  static void _emitOwnedReleaseExports(CodeWriter writer, BridgeSpec spec) {
+    // ── @NitroOwned release functions ────────────────────────────────────────────
+    // Emitted globally (before platform guards) so the symbol exists on ALL platforms.
+    // On Android, the handle is a jlong from Kotlin — Kotlin GC manages lifecycle (no-op).
+    // On Apple/Desktop, the handle is from UnsafeMutableRawPointer.allocate (system malloc).
+    final ownedFuncs = spec.functions.where((f) => f.isOwned && f.returnType.isNativeHandle).toList();
+    if (ownedFuncs.isNotEmpty) {
+      writer.line('extern "C" {');
+      // Custom release symbols from @NitroOwned(release: '...') — declared
+      // here with the handle-pointer signature so this file compiles without
+      // including the owning library's header. extern "C" names don't mangle,
+      // so the declaration links against the real definition (e.g. webgpu.h's
+      // `void wgpuBufferRelease(WGPUBuffer)`). Deduped: several methods may
+      // share one release function.
+      final customReleases = ownedFuncs.map((f) => f.releaseSymbol).whereType<String>().toSet();
+      for (final sym in customReleases) {
+        writer.line('void $sym(void* handle);');
+      }
+      for (final f in ownedFuncs) {
+        final custom = f.releaseSymbol;
+        if (custom != null) {
+          // Handle is owned by a native library — release through its own
+          // function (@NitroOwned(release: '$custom')), never free().
+          writer.line('NITRO_EXPORT void ${f.cSymbol}_release(void* handle) {');
+          writer.line('    if (handle) { $custom(handle); }');
+          writer.line('}');
+        } else {
+          // On all platforms the handle is a real malloc'd pointer:
+          //   Android: allocated via sun.misc.Unsafe.allocateMemory (ART calls malloc internally).
+          //   Apple:   allocated via UnsafeMutableRawPointer.allocate.
+          // Both are freed with free().
+          writer.line('NITRO_EXPORT void ${f.cSymbol}_release(void* handle) {');
+          writer.line('    if (handle) { free(handle); }');
+          writer.line('}');
+        }
+      }
+      writer.line('}');
+      writer.blankLine();
+    }
+  }
+
   static String _generateJniSwift(
     BridgeSpec spec, {
     bool includeAndroid = true,
@@ -171,44 +216,7 @@ class CppBridgeGenerator {
     writer.line('}');
     writer.blankLine();
 
-    // ── @NitroOwned release functions ────────────────────────────────────────────
-    // Emitted globally (before platform guards) so the symbol exists on ALL platforms.
-    // On Android, the handle is a jlong from Kotlin — Kotlin GC manages lifecycle (no-op).
-    // On Apple/Desktop, the handle is from UnsafeMutableRawPointer.allocate (system malloc).
-    final ownedFuncs = spec.functions.where((f) => f.isOwned && f.returnType.isNativeHandle).toList();
-    if (ownedFuncs.isNotEmpty) {
-      writer.line('extern "C" {');
-      // Custom release symbols from @NitroOwned(release: '...') — declared
-      // here with the handle-pointer signature so this file compiles without
-      // including the owning library's header. extern "C" names don't mangle,
-      // so the declaration links against the real definition (e.g. webgpu.h's
-      // `void wgpuBufferRelease(WGPUBuffer)`). Deduped: several methods may
-      // share one release function.
-      final customReleases = ownedFuncs.map((f) => f.releaseSymbol).whereType<String>().toSet();
-      for (final sym in customReleases) {
-        writer.line('void $sym(void* handle);');
-      }
-      for (final f in ownedFuncs) {
-        final custom = f.releaseSymbol;
-        if (custom != null) {
-          // Handle is owned by a native library — release through its own
-          // function (@NitroOwned(release: '$custom')), never free().
-          writer.line('NITRO_EXPORT void ${f.cSymbol}_release(void* handle) {');
-          writer.line('    if (handle) { $custom(handle); }');
-          writer.line('}');
-        } else {
-          // On all platforms the handle is a real malloc'd pointer:
-          //   Android: allocated via sun.misc.Unsafe.allocateMemory (ART calls malloc internally).
-          //   Apple:   allocated via UnsafeMutableRawPointer.allocate.
-          // Both are freed with free().
-          writer.line('NITRO_EXPORT void ${f.cSymbol}_release(void* handle) {');
-          writer.line('    if (handle) { free(handle); }');
-          writer.line('}');
-        }
-      }
-      writer.line('}');
-      writer.blankLine();
-    }
+    _emitOwnedReleaseExports(writer, spec);
 
     // ── Struct release functions (used by NativeFinalizer in Dart proxy classes) ──
     if (spec.structs.isNotEmpty) {

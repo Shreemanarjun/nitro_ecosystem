@@ -73,8 +73,9 @@ dart pub global activate nitrogen_cli  # one-time
 ### 1. Scaffold a plugin
 
 ```sh
-nitrogen init my_plugin
-# Creates a fully-wired Flutter plugin with a starter spec, Kotlin impl, and Swift impl.
+nitrogen init --name math
+# Scaffolds the Flutter FFI plugin `math`: starter spec (lib/src/math.native.dart),
+# Kotlin + Swift impl files, CMake/Podspec wiring. Edit that spec in place.
 ```
 
 ### 2. Define your API in a `.native.dart` spec
@@ -82,15 +83,23 @@ nitrogen init my_plugin
 ```dart
 // lib/src/math.native.dart
 import 'package:nitro/nitro.dart';
+import 'math.platform.g.dart'; // generated: createMathInstance, ensureMathReady
 part 'math.g.dart';
 
+// One spec, every target. Omit a platform to skip it.
 @NitroModule(
   lib: 'math',
-  ios: AppleNativeImpl.swift,
-  android: AndroidNativeImpl.kotlin,
+  ios: AppleNativeImpl.swift,        // or AppleNativeImpl.cpp
+  macos: AppleNativeImpl.swift,
+  android: AndroidNativeImpl.kotlin, // or AndroidNativeImpl.cpp
+  windows: WindowsNativeImpl.cpp,
+  linux: LinuxNativeImpl.cpp,
+  web: WebNativeImpl.wasm,           // C++ built with Emscripten
 )
 abstract class Math extends HybridObject {
-  static final Math instance = _MathImpl();
+  // `_MathImpl()` exists only in native-only specs; with `web:` the instance
+  // comes from the platform shim.
+  static final Math instance = createMathInstance();
 
   double add(double a, double b);
   String greet(String name);
@@ -103,13 +112,18 @@ abstract class Math extends HybridObject {
 
 ```sh
 nitrogen generate
-# Runs build_runner, then syncs generated files to ios/Classes/ and android/src/
+# Runs build_runner, then copies the Swift bridge into ios/Classes and macos/Classes.
+# Android, Windows, Linux and web build straight from lib/src/generated/.
 ```
 
 ### 4. Implement on each platform
 
-**Kotlin (`android/.../MathImpl.kt`):**
+**Kotlin (`android/src/main/kotlin/com/example/math/MathImpl.kt`):**
 ```kotlin
+package com.example.math
+
+import nitro.math_module.HybridMathSpec
+
 class MathImpl : HybridMathSpec {
     override fun add(a: Double, b: Double): Double = a + b
     override fun greet(name: String): String = "Hello, $name"
@@ -117,14 +131,33 @@ class MathImpl : HybridMathSpec {
 }
 ```
 
-**Swift (`ios/Classes/MathImpl.swift`):**
+**Swift (`ios/Classes/MathModuleImpl.swift`, the scaffolded file — `nitrogen link` registers `MathModuleImpl`):**
 ```swift
-class MathImpl: NSObject, HybridMathProtocol {
+import Foundation
+
+class MathModuleImpl: NSObject, HybridMathProtocol {
     func add(a: Double, b: Double) -> Double { a + b }
     func greet(name: String) -> String { "Hello, \(name)" }
     var precision: Int64 = 6
 }
 ```
+
+**C++ (`src/HybridMath.cpp` for macOS-C++ and web; `windows/src/HybridMath.cpp` and `linux/src/HybridMath.cpp` are the desktop copies init seeds):**
+```cpp
+#include "math.native.g.h"
+
+class HybridMathImpl final : public HybridMath {
+    double add(double a, double b) override { return a + b; }
+    std::string greet(const std::string& name) override { return "Hello, " + name; }
+    int64_t get_precision() const override { return _precision; }
+    void set_precision(int64_t v) override { _precision = v; }
+    int64_t _precision = 6;
+};
+
+static HybridMathImpl g_math_impl;
+static struct _RegisterMath { _RegisterMath() { math_register_impl(&g_math_impl); } } _registerMath;
+```
+`nitrogen generate` also drops an editable starter with every TODO at `lib/src/generated/cpp/math.impl.g.cpp` (never overwritten). Web compiles the same file with Emscripten via `web/build_web.sh`.
 
 ### 5. Wire the build system
 
@@ -210,6 +243,32 @@ static void math_auto_register() { math_register_impl(&g_math); }
 
 ## All Annotations
 
+### Reference: what each annotation does, when to use it
+
+| Annotation | Target | Does | Use when |
+|---|---|---|---|
+| `@NitroModule(ios:, android:, macos:, windows:, linux:, web:, lib:)` | class | Declares the bridge class and the implementation language per platform | Always; one per `HybridObject` class |
+| `@HybridEnum(startValue:, nativeValues:)` | enum | Crosses as an int; `startValue` offsets contiguous codes, `nativeValues` maps non-contiguous ones | Fixed value sets |
+| `@HybridStruct` | class | Fixed-layout POD, zero-copy over FFI; numeric fields only | Small numeric records on hot paths |
+| `@HybridRecord` | class | Binary-encoded object; nested records, lists, maps, strings, nullables | General DTOs a struct cannot express |
+| `@NitroVariant` | sealed class | Tagged union (one byte tag + fields) | Events/states with alternatives |
+| `@NitroTuple` | typedef record | `(int, String)`-style record crosses as a record | Positional pairs without a class |
+| `@NitroCustomType(codec:, encodedSize:)` | class | User codec (`NitroFfiCodec` / `NitroWireCodec`) | Types outside the built-in set |
+| `@nitroFast` | sync method, or `@nitroNativeAsync` method | `isLeaf` binding, bare body, no error-slot check, no diagnostics; ~13 ns/call; on a `@nitroNativeAsync` method: `Future<T>` completed inline from a sync native impl, no port (0.18 µs vs 16 µs) | Per-token/per-byte loops; native never throws, blocks or calls back |
+| `@nitroAsync` / `@NitroAsync(timeout:)` | method | Runs the sync native call on the isolate pool; ~28 µs | Native work that blocks (>50 µs) and must stay off the UI isolate |
+| `@nitroNativeAsync` | method | Native runs on its own thread and posts the result; no isolate; ~26 µs | Native APIs that are already asynchronous (completion handlers); add `@nitroFast` when the answer is ready at call time |
+| `@mainThread` | method | Kotlin/Swift impl runs on the platform main thread; no effect on C++ | UIKit / Android View APIs; pair with an async annotation |
+| `@NitroStream(backpressure:, batchMaxSize:)` | `Stream<T>` getter/method | Native → Dart events; `dropLatest`, `block`, `bufferDrop`, `batch` | Push data; `batch` for high-frequency scalars, `dropLatest` for frames |
+| `@zeroCopy` | typed-data param/return | Borrowed buffer, no copy | Large buffers (frames, audio, files) |
+| `@NitroOwned(release:)` | `NativeHandle` return | Handle freed by a finalizer (`free` or a custom release) | Opaque native objects Dart owns |
+| `@NitroResult` | method | Returns `NitroResultValue<T>` instead of throwing | Expected failures on hot paths |
+| `@NitroEntryPoint` | top-level function | Runnable in a headless engine (Android/iOS) or spawned isolate; native-initiated jobs | Background work, WorkManager/BGTask, app-killed scenarios |
+
+Choosing: plain sync method by default; `@nitroFast` when a profiler shows the
+call itself; `@nitroNativeAsync` when native is asynchronous anyway;
+`@nitroAsync` only when native blocks; `@NitroStream` for push; `@NitroResult`
+when failure is a normal outcome.
+
 ### `@NitroModule` — define your native API
 
 ```dart
@@ -223,16 +282,16 @@ static void math_auto_register() { math_register_impl(&g_math); }
   web: WebNativeImpl.wasm,   // compiles the C++ impl to WASM
 )
 abstract class Camera extends HybridObject {
-  static final Camera instance = _CameraImpl();
+  static final Camera instance = createCameraInstance(); // from camera.platform.g.dart
   bool isAvailable();
 }
 ```
 
 Every platform is optional — declare only the ones you ship.
 
-> **Targeting web?** Two things differ. The instance comes from the generated
-> platform shim rather than `_CameraImpl()`, and the WASM module must be loaded
-> before first use:
+> **Targeting web?** Two things differ from a native-only spec (where
+> `static final Camera instance = _CameraImpl();` works). The instance comes from
+> the generated platform shim, and the WASM module must be loaded before first use:
 >
 > ```dart
 > import 'camera.platform.g.dart';                  // createCameraInstance, ensureCameraReady
@@ -330,118 +389,69 @@ typedef NamedPair = (String, int);
 @NitroModule(lib: 'geometry', ios: AppleNativeImpl.cpp, android: AndroidNativeImpl.cpp)
 abstract class Geometry extends HybridObject {
   static final Geometry instance = _GeometryImpl();
-  Point2D midpoint(Point2D a, Point2D b);
+  @nitroAsync // a record returned synchronously is allowed but warns (SYNC_RECORD_RETURN)
+  Future<Point2D> midpoint(Point2D a, Point2D b);
 }
 
 // Usage:
-final mid = Geometry.instance.midpoint((1.0, 2.0), (3.0, 4.0));
+final mid = await Geometry.instance.midpoint((1.0, 2.0), (3.0, 4.0));
 print('${mid.$1}, ${mid.$2}'); // "2.0, 3.0"
 ```
 
 
 ### `@NitroEntryPoint` — run Dart in the background from native
 
-Marks a top-level function in the spec file that native can run in a **fresh
-isolate** — a headless `FlutterEngine` on Android/iOS (WorkManager jobs, push
-handlers, BGTasks), a spawned isolate on macOS/desktop — with typed arguments
-and a typed result. Any nitro type in any parameter shape; `void` allowed.
+Marks a top-level function in the spec file. Generated per entry:
+`run<Name>InBackground(...)` (same signature; `Future<T>` or `Stream<T>`), a
+`@pragma('vm:entry-point')` wrapper, `has<Class>BackgroundHost()`,
+`active<Class>BackgroundJobs()`.
 
 ```dart
+// SyncReport and Account are @HybridRecord types of the same spec.
 @nitroEntryPoint
-Future<SyncReport> syncInbox(Account account, {int retries = 3}) async { ... }
+Future<SyncReport> syncInbox(Account account, {int retries = 3}) async { /* any Dart */ }
 ```
 
-Generated: `runSyncInboxInBackground(account, retries: 3)` (same signature,
-returns `Future<SyncReport>`), a `@pragma('vm:entry-point')` wrapper so the
-function needs no pragma and survives AOT, `has<Class>BackgroundHost()`
-(which path this platform uses) and `active<Class>BackgroundJobs()` (jobs
-queued or running in this process — 0 once everything finished). Entries may
-be sync, `Future<T>` or `Stream<T>` (items stream back; cancelling stops the
-producer). Web throws `UnsupportedError`; web-split plugins export the
-runners from their barrel's `show` list.
+- Arguments/results: any record-wire type in any parameter shape (records,
+  structs, variants, tuples, enums, lists, `String`/`int`/enum-keyed maps,
+  typed data, `DateTime`, `NitroAnyMap`, `@NitroCustomType`); `NativeHandle`,
+  `Pointer` and `AnyNativeObject` cross by address/id (same process, caller
+  keeps ownership); `void` callbacks with positional parameters become proxies
+  — every call is posted back to the submitting isolate and runs there.
+  Shapes: sync, `Future<T>`, `Stream<T>` (cancel stops the producer), `void`.
+- Errors: `NitroBackgroundException` (a `HybridException`) with `entry`,
+  `message`, remote `stackTrace`, `isStartFailure`.
+- Each job runs in its own isolate. Android/iOS spawn engines from one
+  `FlutterEngineGroup` per library; the job id is the entrypoint argument, so
+  an engine runs exactly the job it was started for and is destroyed when it
+  finishes. Concurrent jobs run in parallel; a failure tears down only its own
+  engine.
 
-**Errors.** Anything thrown in the background arrives as a
-`NitroBackgroundException` (a `HybridException`, so old catch sites keep
-working) carrying `entry`, `message`, the remote `stackTrace` as text, and
-`isStartFailure` when no engine could be started:
-
-```dart
-try {
-  await runSyncInboxInBackground(account);
-} on NitroBackgroundException catch (e) {
-  log('${e.entry} failed: ${e.message}', stackTrace: e.stackTrace);
-}
-```
-
-**Native-initiated jobs** — no Dart side at all: a WorkManager worker, a
-BroadcastReceiver, a BGTask, a URL launch. The entry takes one `String` and
-persists whatever it produces; completion (with the error text, or null) comes
-back to native so a worker can wait before it returns:
+Native-initiated (no Dart submitter; entry takes one `String`, persists its
+result):
 
 ```kotlin
-// Kotlin — any thread. onDone runs on the main thread.
 FooJniBridge.runInBackground(context, "syncInbox", accountId) { jobId, error -> … }
-// Worker thread (WorkManager / JobIntentService): blocks until done.
-val error = FooJniBridge.runInBackgroundAndWait(context, "syncInbox", accountId, timeoutMs = 60_000)
-return if (error == null) Result.success() else Result.retry()
+val error = FooJniBridge.runInBackgroundAndWait(context, "syncInbox", accountId, timeoutMs = 60_000) // worker thread only
 ```
 
 ```swift
-// Swift — BGTask handler, push handler, scene delegate.
-FooBackground.run(entry: "syncInbox", text: accountId) { jobId, error in task.setTaskCompleted(success: error == nil) }
-let error = await FooBackground.run(entry: "syncInbox", text: accountId)   // async form
+FooBackground.run(entry: "syncInbox", text: accountId) { jobId, error in … }
+let error = await FooBackground.run(entry: "syncInbox", text: accountId)
 ```
 
-Failures are also logged (`Nitro` tag on Android, `NSLog` on iOS).
-`activeBackgroundEngines()` / `FooBackground.activeEngines` report live
-headless engines.
-
-**How jobs run.** Each job gets its own isolate. On Android/iOS engines are
-spawned from one `FlutterEngineGroup` per library (shared VM, snapshot and
-GPU/font context — Flutter's documented way to run several engines cheaply),
-and the host passes the job id as the engine's entrypoint argument so an engine
-takes exactly the job it was started for, then is destroyed when that job
-finishes. N concurrent jobs of one entry, or of different entries, run in N
-engines in parallel; a slow job never queues a fast one; a failing job tears
-down only its own engine. The fallback path (`Isolate.spawn`) behaves the
-same, minus the engine. Plugins are registered on each headless engine, so an
-entry may call back into this or any Nitro module.
-
-| Platform | Dart-initiated (`run…InBackground`) | Native-initiated (`runInBackground` / `Background.run`) | App killed |
+| Platform | Dart-initiated | Native-initiated | App killed |
 |---|---|---|---|
-| Android | headless engine | ✅ receiver / service / WorkManager | ✅ the OS starts the process for the receiver or worker; the job runs with no UI |
-| iOS | headless engine | ✅ URL scheme, BGTaskScheduler, silent push, background fetch | ✅ whenever iOS launches the app for one of those; not after the user swiped it away (OS policy) |
-| macOS | spawned isolate | ✗ (`FlutterMacOS` cannot start an engine at a library entrypoint) | — |
-| Linux / Windows | spawned isolate | ✗ | — |
-| C++-only impl | spawned isolate | ✗ | — |
-| Web | `UnsupportedError` | ✗ | — |
+| Android | headless engine | receiver / service / WorkManager | yes — OS starts the process |
+| iOS | headless engine | URL scheme, BGTaskScheduler, silent push | yes when iOS launches the app; not after a user swipe-kill |
+| macOS, Linux, Windows, C++-only | spawned isolate | no | — |
+| Web | `UnsupportedError` | no | — |
 
-**Edge cases worth knowing.**
-- A native-initiated entry must take exactly one `String` (native has no
-  record-wire encoder); return values are dropped — persist them.
-- On Android a `BroadcastReceiver` returns before the job finishes; the system
-  may kill an idle process shortly after. Sub-second jobs are fine; for longer
-  work use a WorkManager worker with `runInBackgroundAndWait` (the process
-  stays alive until you return).
-- On iOS the engine runs while the app is foreground or in a background
-  execution window (BGTask, push); it does not extend that window.
-- `runInBackgroundAndWait` must not be called on the main thread — the engine
-  starts there.
-- An entry throwing before its first `await` is delivered the same way as an
-  async failure; an infinite stream entry keeps its engine until the
-  subscriber cancels.
-- Multiple Nitro modules each keep their own job table and engine group.
-
-**Compared with the usual patterns.** `workmanager` and friends start one
-fixed `callbackDispatcher` entrypoint and look the real callback up through a
-`CallbackHandle` stored in preferences — untyped, string/JSON arguments, and a
-stale handle after a rebuild is a silent no-op. `@NitroEntryPoint` emits one
-named entrypoint per function with its full typed signature over the same
-record wire the rest of Nitro uses, needs no handle storage, and the fallback
-isolate path uses no platform channel (no `RootIsolateToken` dance) because
-the bridge is FFI. Under the hood it follows Flutter's own guidance:
-`FlutterEngineGroup` for multiple engines and `vm:entry-point` for anything the
-embedder invokes.
+Limits: native-initiated entries take exactly one `String` and their return
+value is dropped; an Android receiver returns before the job ends (use
+`runInBackgroundAndWait` in a worker for long jobs); iOS does not extend the
+background window; `runInBackgroundAndWait` must not run on the main thread.
+Failures are logged (`Nitro` tag / `NSLog`).
 
 ### `@nitroAsync` — background-thread dispatch
 
@@ -453,6 +463,7 @@ Future<String> processImage(String path);
 
 // With timeout:
 @NitroAsync(timeout: 5000)
+@zeroCopy // a naked TypedData return is rejected (INVALID_RETURN_TYPE)
 Future<Uint8List> fetchData(String url);
 ```
 
@@ -468,25 +479,17 @@ Future<String> fetchDataNative(String url);
 Future<int> heavyComputation(int n);
 ```
 
-**Swift implementation** (uses native `async`):
+**Swift implementation** — the generated protocol method is `async throws`; the bridge posts the result:
 ```swift
-// Generated protocol method:
-func fetchDataNative(url: String, port: Int64) {
-    Task {
-        let result = await URLSession.shared.dataTask(url: URL(string: url)!)
-        Nitro.postString(to: port, value: String(data: result.0, encoding: .utf8)!)
-    }
+func fetchDataNative(url: String) async throws -> String {
+    let (data, _) = try await URLSession.shared.data(from: URL(string: url)!)
+    return String(decoding: data, as: UTF8.self)
 }
 ```
 
-**Kotlin implementation** (uses coroutines):
+**Kotlin implementation** — a `suspend fun`; the bridge launches it and posts the result:
 ```kotlin
-override fun fetchDataNative(url: String, port: Long) {
-    scope.launch {
-        val result = httpClient.get(url).bodyAsText()
-        NitroBridge.postString(port, result)
-    }
-}
+override suspend fun fetchDataNative(url: String): String = httpClient.get(url).bodyAsText()
 ```
 
 > **Use `@nitroNativeAsync` when:** the native side already has async infrastructure (coroutines, Swift async, thread pool) — it skips the isolate hop entirely. `@nitroAsync` exists for the opposite case: a blocking native call with no async infrastructure of its own, dispatched off the main isolate via a persistent worker pool.
@@ -539,7 +542,7 @@ The native implementation signals failure by returning an error tag + message in
 
 ```dart
 @NitroResult()
-@nitroNativeAsync
+@nitroAsync // @NitroResult cannot combine with @nitroNativeAsync (E015)
 Future<NitroResultValue<String>> login(String user, String password);
 
 // Dart usage — no try/catch needed:
@@ -556,9 +559,10 @@ Marks a `Uint8List` parameter as a raw native pointer. The callee must **not ret
 
 ```dart
 void processPixels(@zeroCopy Uint8List pixels);
-// C: void processPixels(const uint8_t* pixels, int64_t pixels_length)
-// Kotlin: fun processPixels(pixels: ByteBuffer)
-// Swift: func processPixels(pixels: UnsafeMutablePointer<UInt8>?, pixelsLength: Int64)
+// C symbol: void <lib>_process_pixels(int64_t instanceId, uint8_t* pixels, size_t pixels_length, NitroError*)
+// C++ impl: void processPixels(const uint8_t* pixels, size_t pixels_length)
+// Kotlin:   fun processPixels(pixels: ByteBuffer)
+// Swift:    func processPixels(pixels: Data)
 ```
 
 ### `@NitroOwned` — native heap pointer with auto-release
@@ -566,7 +570,7 @@ void processPixels(@zeroCopy Uint8List pixels);
 The native side heap-allocates a resource and Dart takes ownership. A `NativeFinalizer` calls the generated `_release` C symbol when the `NativeHandle` is GC'd.
 
 ```dart
-@NitroOwned
+@NitroOwned()
 NativeHandle<Void> acquireFrame();
 
 // Usage:
@@ -652,9 +656,9 @@ Each TypedData param expands to `(pointer + length)` at the C boundary:
 ```dart
 // Dart spec:
 void processAudio(Float32List samples);
-// C bridge: void processAudio(const float* samples, int64_t samples_length)
+// C++ impl: void processAudio(const float* samples, size_t samples_length)
 // Kotlin:   fun processAudio(samples: FloatArray)
-// Swift:    func processAudio(samples: UnsafeMutablePointer<Float>?, samplesLength: Int64)
+// Swift:    func processAudio(samples: [Float])
 ```
 
 ### Collections
@@ -746,7 +750,8 @@ part 'scanner.g.dart';
 @NitroModule(lib: 'scanner', ios: AppleNativeImpl.swift, android: AndroidNativeImpl.kotlin)
 abstract class Scanner extends HybridObject {
   static final Scanner instance = _ScannerImpl();
-  List<DeviceInfo> scanDevices();
+  @nitroAsync
+  Future<List<DeviceInfo>> scanDevices();
 }
 ```
 
@@ -776,6 +781,7 @@ For fallible operations that should not throw, `@NitroResult()` gives you a type
 
 ```dart
 @NitroResult()
+@nitroAsync
 Future<NitroResultValue<UserProfile>> fetchUser(String id);
 
 // Dart switch is exhaustive — no uncaught exceptions:
@@ -858,6 +864,57 @@ The gap is the copy itself: Method Channel always serializes the buffer; Nitroge
 
 ---
 
+### Every way of calling through Nitro vs raw FFI (macOS, Apple Silicon, profile, min µs)
+
+Source: `benchmark/example`, `flutter drive --profile`; same C function behind every tier. Ratios are gated in `benchmark_regression_test.dart`.
+
+| tier | what the generated code does | µs/call | vs raw |
+|---|---|---|---|
+| raw `dart:ffi` (`isLeaf`) | hand-rolled lookup, floor | 0.010 | 1.0× |
+| `addFast` — **Fast, bare leaf body** | direct call, no closure, no error check | 0.013 | 1.0× |
+| `add` — checked (callSync closure) | isLeaf binding, closure + error-slot check | 0.261 | 18.6× |
+| raw `dart:ffi` pointer argument | hand-rolled `touch_ptr(void*)` | 0.012 | 1.0× |
+| `touchHandleFast(NativeHandle)` | Fast + handle param (leaf) | 0.011 | 1.0× |
+| `touchHandle(NativeHandle)` | checked, handle param (leaf since #52) | 0.254 | 22.7× |
+| Swift/Kotlin platform impl (`add`) | checked, JNI/Swift shim | 0.258 | — |
+| `@HybridStruct` round-trip | arena + struct copy | 0.392 | — |
+| `String` round-trip | arena + UTF-8 | 0.493 | — |
+| `@nitroAsync` record | isolate-pool dispatch | 28.1 | — |
+| `@nitroNativeAsync` record | native thread + port | 26.1 | — |
+| `@nitroNativeAsync` scalar | same-thread port post + isolate wake | 16.2 | — |
+| `@nitroFast @nitroNativeAsync` scalar — **inline completion** | sync bridge call, `Future` completed inline, no port | 0.18 | — |
+| MethodChannel `add` | codec + platform thread hop | 27.5 | — |
+
+
+### Hot paths: `@nitroFast`
+
+```dart
+@nitroFast
+double add(double a, double b);                  // generated: return _addPtr(_instanceId, a, b, _nitroErr);
+@nitroFast
+int writeByte(NativeHandle<Void> writer, int b);
+```
+
+- Binding `isLeaf: true`; body is a direct call: no `callSync` closure, no
+  error-slot check, no logging/slow-call/timeline. `checkDisposed()` kept.
+- Contract for native: never throw, never call back into Dart, never block.
+- Scalars, enums, nullable scalars and `NativeHandle` parameters are the
+  intended shapes; String/record/typed-data arguments keep the arena path.
+- Handle returns never bind leaf (wrapper + finalizer allocation).
+- Composes with `@nitroNativeAsync`: the Dart signature stays `Future<T>`, the
+  bridge call is synchronous and the future is completed inline — no port, no
+  post, no isolate wake. The native side is then a plain sync method (Kotlin
+  `fun`, Swift `func`, C++ method). Measured on macOS (profile): 16.2 µs (port
+  post) → 0.18 µs per call.
+  ```dart
+  @nitroFast
+  @nitroNativeAsync
+  Future<int> decodeToken(int id);   // generated: Future<int> decodeToken(int id) async { ...; return res; }
+  ```
+- Not allowed on `@nitroAsync`, plain `Future` or `Stream` methods (`FAST_NOT_SYNC`).
+- The `...Fast` name suffix is the legacy spelling and still works.
+- Measured: 175 ns → 19 ns per call (AOT), hand-rolled `isLeaf` 20 ns.
+
 ## Spec Validation
 
 The generator validates your spec before emitting any code:
@@ -886,6 +943,27 @@ The generator validates your spec before emitting any code:
 | **W008** | Warning | Web + `@nitroAsync` — runs inline on the main thread |
 | **W009** | Warning | Web + `@zeroCopy` — one bulk copy, not a true zero-copy view |
 
+Named codes (same severities, reported by `nitrogen generate` and `SpecValidator`):
+
+| Code | Severity | Condition |
+|------|----------|-----------|
+| **NO_TARGET_PLATFORM** | Error | `@NitroModule` names no platform |
+| **INVALID_MACOS_IMPL** / **INVALID_WINDOWS_IMPL** / **INVALID_LINUX_IMPL** / **INVALID_WEB_IMPL** | Error | Impl kind not supported on that platform (macOS: no Kotlin; Windows/Linux: C++ only; web: WASM only) |
+| **MISSING_ANDROID_TARGET** / **MISSING_IOS_TARGET** | Warning | Only one mobile platform targeted |
+| **DUPLICATE_SYMBOL** | Error | Two members map to the same C symbol |
+| **INVALID_OWNED** | Error | `@NitroOwned` not on a `NativeHandle<T>` return, on `void`, on a parameter, or with a bad `release` |
+| **MAIN_THREAD_NO_EFFECT** | Warning | `@mainThread` on a C++ implementation |
+| **FAST_NOT_SYNC** | Error | `@nitroFast` / `Fast` suffix on a `@nitroAsync`, plain `Future` or `Stream` method (it composes with `@nitroNativeAsync`) |
+| **UNSUPPORTED_FUNCTION_TYPE** | Error | Function-typed return, property, or callback parameter/return type not in the ABI |
+| **INVALID_ZERO_COPY** / **INVALID_ZERO_COPY_RETURN** | Error | `@zeroCopy` on a non-TypedData field/return, or with `@NitroNativeAsync` |
+| **INVALID_RETURN_TYPE** / **INVALID_PROPERTY_TYPE** / **INVALID_STRUCT_FIELD_TYPE** | Error | Naked TypedData return/property, `void` property, or unsupported struct field type |
+| **SYNC_STRUCT_RETURN** / **SYNC_RECORD_RETURN** | Warning | Struct or `@HybridRecord` returned synchronously (async avoids a copy on the caller's thread) |
+| **STRUCT_STRING_FIELD** | Warning | `@HybridStruct` with `String` fields (use `@HybridRecord`) |
+| **CYCLIC_STRUCT** | Error | `@HybridStruct` types reference each other in a cycle |
+| **ENTRY_POINT_NO_NATIVE_TARGET** | Error | `@NitroEntryPoint` in a web-only spec |
+| **ENTRY_POINT_DUPLICATE** | Error | Same entry name declared twice |
+| **ENTRY_POINT_UNSUPPORTED_TYPE** | Error | Entry parameter/return type with no by-value meaning: `Stream` parameter, nested `Future`, callback returning non-void or with named parameters |
+
 Errors stop generation. Pass `--fail-on-warn` to also stop on warnings (recommended in CI).
 
 ---
@@ -904,7 +982,6 @@ import 'dart:isolate';
 
 // ✅ 0.5.0+ — not needed; covered by package:nitro/nitro.dart
 import 'package:nitro/nitro.dart';
-part 'my_spec.g.dart';
 ```
 
 ### `@HybridRecord` wire format
@@ -932,6 +1009,21 @@ typedef struct __attribute__((packed)) { uint8_t hasValue; uint8_t  value; } Nit
 ```
 
 ---
+
+## Testing against a spec
+
+Every bridge class gets a generated `<Class>Defaults` mixin: each spec member
+with a `throw UnimplementedError('<Class>.<member>')` body. Fakes apply it so a
+new spec member fails at call time, not at compile time:
+
+```dart
+class FakeEditor extends Editor with EditorDefaults {
+  @override
+  int wordCount(String text) => text.split(' ').length;
+}
+```
+
+Works on web; the C++ twin is the generated `*.mock.g.h`.
 
 ## Known Limitations
 

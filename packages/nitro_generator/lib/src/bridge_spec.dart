@@ -517,6 +517,15 @@ class BridgeFunction {
   /// the returned [NativeHandle] is garbage-collected.
   final bool isOwned;
 
+  /// Hot path (`@nitroFast`, or the legacy `...Fast` name suffix): leaf
+  /// binding + bare body, no error-slot check. Sync methods only.
+  final bool isFast;
+  /// `@nitroFast` on a `@nitroNativeAsync` method: the Dart signature stays
+  /// `Future<T>` but the bridge call is synchronous — no port, no post, no
+  /// isolate wake; the native implementation is a plain sync function and the
+  /// future is completed inline. Native emitters see an ordinary sync method.
+  final bool inlineFuture;
+
   /// Custom C release symbol from `@NitroOwned(release: 'wgpuBufferRelease')`.
   /// The `${cSymbol}_release` thunk calls this instead of `free()` — for
   /// handles owned by a native library rather than malloc'd by the impl.
@@ -553,6 +562,8 @@ class BridgeFunction {
     this.zeroCopyReturn = false,
     this.lineNumber,
     this.isOwned = false,
+    this.isFast = false,
+    this.inlineFuture = false,
     this.releaseSymbol,
     this.mainThread = false,
     this.asyncTimeout,

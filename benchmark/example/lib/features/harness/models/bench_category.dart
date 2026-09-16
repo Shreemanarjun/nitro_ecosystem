@@ -45,6 +45,9 @@ const List<BenchCategory> kBenchCategories = [
       'raw_ffi_add',
       'nitro_leaf_add',
       'nitro_cpp_add',
+      'raw_ffi_touch',
+      'nitro_leaf_handle',
+      'nitro_fast_handle',
       'nitro_platform_add',
       'nitro_struct_roundtrip',
       'nitro_string_roundtrip',
@@ -84,7 +87,7 @@ const List<BenchCategory> kBenchCategories = [
     title: 'Async dispatch (scalar)',
     subtitle: 'Near-zero payload — isolates dispatch overhead',
     baselineId: 'nitro_native_async_scalar',
-    caseIds: ['nitro_native_async_scalar', 'nitro_async_scalar'],
+    caseIds: ['nitro_native_async_scalar', 'nitro_native_async_inline', 'nitro_async_scalar'],
   ),
   BenchCategory(
     title: 'Map<String,int> codec',

@@ -210,6 +210,9 @@ class BenchReport {
   Map<String, double?> get derived => {
     'nitro_leaf_over_raw_ffi': _ratio('nitro_leaf_add', 'raw_ffi_add'),
     'nitro_cpp_over_raw_ffi': _ratio('nitro_cpp_add', 'raw_ffi_add'),
+    'nitro_leaf_handle_over_raw_ffi': _ratio('nitro_leaf_handle', 'raw_ffi_touch'),
+    'nitro_fast_handle_over_raw_ffi': _ratio('nitro_fast_handle', 'raw_ffi_touch'),
+    'nitro_cpp_over_nitro_leaf': _ratio('nitro_cpp_add', 'nitro_leaf_add'),
     'nitro_platform_over_raw_ffi': _ratio('nitro_platform_add', 'raw_ffi_add'),
     'method_channel_over_nitro_cpp': _ratio(
       'method_channel_add',
@@ -233,6 +236,12 @@ class BenchReport {
     'nitro_native_async_xthread_over_inline': _ratio(
       'nitro_native_async_scalar_xthread',
       'nitro_native_async_scalar',
+    ),
+    // Port post (same thread) vs @nitroFast inline completion: what the fast
+    // tier removes from a native-async call whose answer is ready at once.
+    'nitro_native_async_post_over_fast_inline': _ratio(
+      'nitro_native_async_scalar',
+      'nitro_native_async_inline',
     ),
     // Coalescing effect on a 64-in-flight burst: coalesced ÷ per-call post.
     // <1 means batching the drained burst into one wake helped (issue #39).
@@ -382,7 +391,7 @@ class BenchHarness {
       });
     }
 
-    await latencyCase('nitro_leaf_add', 'Nitro C++ (leaf)', config.syncIters, (
+    await latencyCase('nitro_leaf_add', 'Nitro C++ (Fast, bare leaf)', config.syncIters, (
       n,
     ) {
       for (var i = 0; i < n; i++) {
@@ -400,6 +409,31 @@ class BenchHarness {
         }
       },
     );
+    // ── Latency: a NativeHandle parameter across the same tiers ─────────────
+    // raw_ffi_touch is a hand-rolled isLeaf binding taking Pointer<Void>;
+    // nitro_leaf_handle is a plain method (callSync closure, but isLeaf since
+    // handle params count as scalars — GH #52); nitro_fast_handle is its
+    // `Fast` twin with the bare leaf body (GH #51).
+    final rawTouch = rawTouchProbe();
+    if (rawTouch != null) {
+      await latencyCase('raw_ffi_touch', 'Raw FFI pointer arg (leaf)', config.syncIters, (n) {
+        for (var i = 0; i < n; i++) {
+          sink += rawTouch.touch();
+        }
+      });
+      rawTouch.free();
+    }
+    final handle = cpp.makeHandle();
+    await latencyCase('nitro_leaf_handle', 'Nitro C++ handle param (checked, leaf)', config.syncIters, (n) {
+      for (var i = 0; i < n; i++) {
+        sink += cpp.touchHandle(handle);
+      }
+    });
+    await latencyCase('nitro_fast_handle', 'Nitro C++ handle param (Fast, bare leaf)', config.syncIters, (n) {
+      for (var i = 0; i < n; i++) {
+        sink += cpp.touchHandleFast(handle);
+      }
+    });
 
     // Multi-instance dispatch (improvement A): rotate calls across 4 distinct
     // native instances so the C-bridge instance cache is exercised. A single-
@@ -531,6 +565,17 @@ class BenchHarness {
       (n) async {
         for (var i = 0; i < n; i++) {
           sink += (await cpp.nativeAsyncEcho(i)).toDouble();
+        }
+      },
+    );
+
+    await latencyCase(
+      'nitro_native_async_inline',
+      'Nitro @nitroFast @nitroNativeAsync (inline completion, no port)',
+      config.asyncIters,
+      (n) async {
+        for (var i = 0; i < n; i++) {
+          sink += (await cpp.nativeAsyncEchoInline(i)).toDouble();
         }
       },
     );

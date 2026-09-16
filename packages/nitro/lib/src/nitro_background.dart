@@ -88,6 +88,7 @@ class NitroBackground {
     required int Function(int nativePort) submit,
     required void Function(int jobId) cancel,
     required R Function(Uint8List blob) decode,
+    void Function()? onClose,
   }) {
     final port = ReceivePort();
     var jobId = 0;
@@ -97,6 +98,7 @@ class NitroBackground {
         port.listen((dynamic raw) {
           if (raw == null) {
             port.close();
+            onClose?.call();
             controller.close();
             return;
           }
@@ -110,6 +112,7 @@ class NitroBackground {
           }
           controller.addError(NitroBackgroundException.fromPost(entry, raw, jobId: jobId));
           port.close();
+          onClose?.call();
           controller.close();
         });
         jobId = submit(port.sendPort.nativePort);
@@ -117,9 +120,21 @@ class NitroBackground {
       onCancel: () {
         cancel(jobId);
         port.close();
+        onClose?.call();
       },
     );
     return controller.stream;
+  }
+
+  /// Caller-side half of a callback parameter: the background isolate posts
+  /// each invocation's arguments as one blob to this port and [onCall] runs
+  /// the real callback here. Returns the native port to put in the args blob
+  /// and a closer the generated runner calls once the job is over — calls
+  /// that arrive after that are dropped.
+  static (int nativePort, void Function() close) callbackPort(void Function(Uint8List blob) onCall) {
+    final port = ReceivePort();
+    port.listen((dynamic raw) => onCall(raw as Uint8List));
+    return (port.sendPort.nativePort, port.close);
   }
 
   /// No host engine: run the entry wrapper on a fresh isolate. The wrapper

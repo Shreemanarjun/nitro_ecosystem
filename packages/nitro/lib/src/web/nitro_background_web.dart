@@ -32,7 +32,12 @@ class NitroBackground {
     required int Function(int nativePort) submit,
     required void Function(int jobId) cancel,
     required R Function(Uint8List blob) decode,
+    void Function()? onClose,
   }) {
+    throw UnsupportedError('@NitroEntryPoint: background entry points are not available on web');
+  }
+
+  static (int nativePort, void Function() close) callbackPort(void Function(Uint8List blob) onCall) {
     throw UnsupportedError('@NitroEntryPoint: background entry points are not available on web');
   }
 

@@ -98,15 +98,27 @@ void main() {
       expect(codes(spec).where((c) => c.startsWith('ENTRY_POINT')), isEmpty);
     });
 
-    test('callbacks, streams, handles, pointers and nested futures are rejected with the reason', () {
-      expect(codes(direct([ep('a', BridgeType(name: 'Function', isFunction: true))])), contains('ENTRY_POINT_UNSUPPORTED_TYPE'));
+    test('streams-as-parameters, nested futures and non-void or named callbacks are rejected with the reason', () {
       expect(codes(direct([ep('a', BridgeType(name: 'Stream<int>', isStream: true))])), contains('ENTRY_POINT_UNSUPPORTED_TYPE'), reason: 'stream PARAM rejected');
-      expect(codes(direct([BridgeEntryPoint(name: 's', isAsync: false, isStream: true, params: [BridgeParam(name: 'p', type: BridgeType(name: 'int'))], returnType: BridgeType(name: 'int'))])).where((c) => c.startsWith('ENTRY_POINT')), isEmpty, reason: 'stream RETURN accepted');
+      expect(codes(direct([BridgeEntryPoint(name: 's', isAsync: false, isStream: true, params: [BridgeParam(name: 'p', type: BridgeType(name: 'int'))], returnType: BridgeType(name: 'int'))])), isNot(contains('ENTRY_POINT_UNSUPPORTED_TYPE')), reason: 'stream RETURN is the stream entry shape');
       expect(codes(direct([ep('a', BridgeType(name: 'Future<int>', isFuture: true))])), contains('ENTRY_POINT_UNSUPPORTED_TYPE'));
-      expect(codes(direct([ep('a', BridgeType(name: 'Pointer<Void>', isPointer: true))])), contains('ENTRY_POINT_UNSUPPORTED_TYPE'));
-      expect(codes(direct([ep('a', BridgeType(name: 'int'), ret: BridgeType(name: 'Function', isFunction: true))])), contains('ENTRY_POINT_UNSUPPORTED_TYPE'));
-      final msg = SpecValidator.validate(direct([ep('a', BridgeType(name: 'Function', isFunction: true))])).firstWhere((i) => i.code == 'ENTRY_POINT_UNSUPPORTED_TYPE').message;
-      expect(msg, contains('callbacks cannot cross into a background isolate'));
+      expect(codes(direct([ep('a', BridgeType(name: 'int Function(int)', isFunction: true, functionReturnType: 'int'))])), contains('ENTRY_POINT_UNSUPPORTED_TYPE'));
+      expect(codes(direct([ep('a', BridgeType(name: 'void Function({int a})', isFunction: true, functionReturnType: 'void'))])), contains('ENTRY_POINT_UNSUPPORTED_TYPE'));
+      final msg = SpecValidator.validate(direct([ep('a', BridgeType(name: 'int Function(int)', isFunction: true, functionReturnType: 'int'))])).firstWhere((i) => i.code == 'ENTRY_POINT_UNSUPPORTED_TYPE').message;
+      expect(msg, contains('a callback must return void'));
+    });
+
+    test('void callbacks, handles, pointers, AnyNativeObject and custom types cross', () {
+      final ok = [
+        BridgeType(name: 'void Function(int)', isFunction: true, functionReturnType: 'void', functionParams: [BridgeType(name: 'int')]),
+        BridgeType(name: 'void Function(int)?', isFunction: true, isNullable: true, functionReturnType: 'void', functionParams: [BridgeType(name: 'int')]),
+        BridgeType(name: 'NativeHandle<Void>', isNativeHandle: true, nativeHandleTypeParam: 'Void'),
+        BridgeType(name: 'Pointer<Void>', isPointer: true),
+        BridgeType(name: 'AnyNativeObject', isAnyNativeObject: true),
+      ];
+      for (final t in ok) {
+        expect(codes(direct([ep('a', t)])), isNot(contains('ENTRY_POINT_UNSUPPORTED_TYPE')), reason: t.name);
+      }
     });
 
     test('duplicate names are rejected', () {
@@ -229,6 +241,107 @@ void main() {
       expect(web, contains('Stream<Job> runWatchInBackground(Mode mode, int count) =>'));
       final shim = DartFfiGenerator.generatePlatformShim(SpecFromSource.parse(_spec(_allTypes), sourceUri: 'package:demo/src/demo.native.dart'));
       expect(shim, contains('show createDemoInstance, ensureDemoReady, hasDemoBackgroundHost, activeDemoBackgroundJobs, runProcessInBackground, runFlipInBackground, runPingInBackground, runWatchInBackground;'));
+    });
+  });
+
+  group('any type: callbacks, handles, pointers, keyed maps, custom types', () {
+    const entries = '''
+@nitroEntryPoint
+Future<int> progress(int n, void Function(int step, String label) onStep, {void Function()? onDone}) async => n;
+@nitroEntryPoint
+Future<int> peek(NativeHandle<Void> h, Pointer<Uint8> p, AnyNativeObject o, NitroAnyMap m) async => 0;
+@nitroEntryPoint
+Map<Mode, int> tally(Map<int, String> byId, Map<Mode, List<int>> byMode) => {};
+@nitroEntryPoint
+Stream<int> ticks(int n, void Function(int) onTick) async* {}
+''';
+    late String dart, cpp, h;
+    setUpAll(() {
+      final spec = SpecFromSource.parse(_spec(entries), sourceUri: 'package:demo/src/demo.native.dart');
+      expect(SpecValidator.validate(spec).where((i) => i.code.startsWith('ENTRY_POINT')), isEmpty);
+      dart = DartFfiGenerator.generateFfiLibrary(spec);
+      cpp = CppBridgeGenerator.generate(spec);
+      h = CppHeaderGenerator.generate(spec);
+    });
+
+    test('extraction: callback params carry their positional types', () {
+      final spec = SpecFromSource.parse(_spec(entries), sourceUri: 'package:demo/src/demo.native.dart');
+      final cb = spec.entryPoints[0].params[1].type;
+      expect(cb.isFunction, isTrue);
+      expect(cb.functionReturnType, 'void');
+      expect(cb.functionParams.map((t) => t.name), ['int', 'String']);
+    });
+
+    test('caller side: one proxy port per callback, closed when the job is over', () {
+      expect(dart, contains('final closers = <void Function()>[];'));
+      expect(dart, contains('final (_port0, _close0) = NitroBackground.callbackPort((blob) {'));
+      expect(dart, contains('final r = RecordReaderBase.fromPayload(blob);'));
+      expect(dart, contains('onStep(r.readInt(), r.readString());'));
+      expect(dart, contains('closers.add(_close0);'));
+      expect(dart, contains('w.writeInt(_port0);'));
+      // nullable callback: null tag, then the proxy only when present
+      expect(dart, contains('w.writeNullTag(onDone == null);'));
+      expect(dart, contains('onDone();'));
+      expect(dart, contains("return _nitroBgRun<int>('progress', nitroEntry_progress, Uint8List.fromList(w.payloadView()), (r) {"));
+      expect(dart, contains('  }, closers);'));
+      expect(dart, contains('f.whenComplete(() {'));
+      expect(dart, contains("return _nitroBgStream<int>('ticks', nitroEntry_ticks, Uint8List.fromList(w.payloadView()), (r) {"));
+      expect(dart, contains('onClose: () {'));
+    });
+
+    test('background side: the callback becomes a closure posting its arguments to the proxy port', () {
+      expect(dart, contains("final _nitroBgPost = _nitroBgDylib.lookupFunction<Void Function(Int64, Pointer<Uint8>, Int64), void Function(int, Pointer<Uint8>, int)>('demo_bg_post');"));
+      expect(dart, contains('void _nitroBgPostBlob(int port, Uint8List blob) => using((arena) {'));
+      expect(dart, contains('final onStep = (() { final port = r.readInt(); return (int a0, String a1) { final w = RecordWriter(); w.writeInt(a0);\nw.writeString(a1);\n _nitroBgPostBlob(port, Uint8List.fromList(w.payloadView())); }; })();'));
+      expect(dart, contains('final onDone = (r.readNullTag() ? null : (() { final port = r.readInt(); return () { final w = RecordWriter();  _nitroBgPostBlob(port, Uint8List.fromList(w.payloadView())); }; })());'));
+      expect(dart, contains('final result = await progress(n, onStep, onDone: onDone);'));
+    });
+
+    test('handles, pointers and AnyNativeObject cross by address / id; NitroAnyMap uses its binary codec', () {
+      expect(dart, contains('w.writeInt(h.address);'));
+      expect(dart, contains('w.writeInt(p.address);'));
+      expect(dart, contains('w.writeInt(o.instanceId);'));
+      expect(dart, contains('m.writeTo(w);'));
+      expect(dart, contains('final h = NativeHandle<Void>.fromAddress(r.readInt());'));
+      expect(dart, contains('final p = Pointer<Uint8>.fromAddress(r.readInt());'));
+      expect(dart, contains('final o = AnyNativeObject(r.readInt());'));
+      expect(dart, contains('final m = NitroAnyMap.readFrom(r);'));
+    });
+
+    test('int- and enum-keyed maps', () {
+      expect(dart, contains('byId.forEach((_k2, _v2) {\n    w.writeInt(_k2);\n    w.writeString(_v2);'));
+      expect(dart, contains('byMode.forEach((_k2, _v2) {\n    w.writeInt(_k2.nativeValue);'));
+      expect(dart, contains('<int, String>{ for (var i = 0, n = r.readInt32(); i < n; i++) r.readInt(): r.readString() }'));
+      expect(dart, contains('<Mode, List<int>>{ for (var i = 0, n = r.readInt32(); i < n; i++) r.readInt().toMode(): List<int>.generate(r.readInt32(), (_) => r.readInt()) }'));
+      expect(dart, contains('result.forEach((_k6, _v6) {\n        w.writeInt(_k6.nativeValue);'));
+    });
+
+    test('custom types go through their codec', () {
+      final spec = BridgeSpec(
+        dartClassName: 'Demo', lib: 'demo', namespace: 'demo', iosImpl: NativeImpl.swift, androidImpl: NativeImpl.kotlin, sourceUri: 'demo.native.dart',
+        functions: [BridgeFunction(dartName: 'add', cSymbol: 'demo_add', isAsync: false, returnType: BridgeType(name: 'int'), params: const [])],
+        customTypes: const [BridgeCustomType(name: 'Color', codecClass: 'ColorCodec', encodedSize: 5)],
+        entryPoints: [BridgeEntryPoint(name: 'tint', isAsync: true, params: [BridgeParam(name: 'c', type: BridgeType(name: 'Color'))], returnType: BridgeType(name: 'Color?', isNullable: true))],
+      );
+      expect(SpecValidator.validate(spec).where((i) => i.code.startsWith('ENTRY_POINT')), isEmpty);
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('w.writeBlob(using((a) => Uint8List.fromList(const ColorCodec().encode(c, a).asTypedList(const ColorCodec().encodedSize))));'));
+      expect(out, contains('final c = using((a) { final b = r.readBlob(); final p = a<Uint8>(b.length); p.asTypedList(b.length).setAll(0, b); return const ColorCodec().decode(p)!; });'));
+      expect(out, contains('w.writeNullTag(result == null);'));
+    });
+
+    test('C++: bg_post export and header declaration only matter with callbacks, but are always there', () {
+      expect(cpp, contains('NITRO_EXPORT void demo_bg_post(int64_t port, const uint8_t* data, int64_t len) {'));
+      expect(cpp, contains('NitroBgTable::postBlob(port, data, len < 0 ? 0 : (size_t)len);'));
+      expect(h, contains('NITRO_EXPORT void demo_bg_post(int64_t port, const uint8_t* data, int64_t len);'));
+    });
+
+    test('no callback anywhere: no proxy bindings emitted', () {
+      final spec = SpecFromSource.parse(_spec(_allTypes), sourceUri: 'package:demo/src/demo.native.dart');
+      final out = DartFfiGenerator.generateFfiLibrary(spec);
+      expect(out, isNot(contains('_nitroBgPost')));
+      expect(out, isNot(contains('callbackPort')));
+      expect(out, isNot(contains('final closers')));
     });
   });
 }

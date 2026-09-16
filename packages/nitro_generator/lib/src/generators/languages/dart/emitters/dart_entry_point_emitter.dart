@@ -30,6 +30,10 @@ void emitEntryPointSection(CodeWriter w, BridgeSpec spec) {
   w.line("final _nitroBgFail = _nitroBgDylib.lookupFunction<Int8 Function(Int64, Pointer<Utf8>, Pointer<Utf8>), int Function(int, Pointer<Utf8>, Pointer<Utf8>)>('${lib}_bg_fail');");
   w.line("final _nitroBgFree = _nitroBgDylib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('${lib}_nitro_free');");
   final hasStreams = spec.entryPoints.any((e) => e.isStream);
+  final hasCallbacks = spec.entryPoints.any(_EntryCodec.hasCallback);
+  if (hasCallbacks) {
+    w.line("final _nitroBgPost = _nitroBgDylib.lookupFunction<Void Function(Int64, Pointer<Uint8>, Int64), void Function(int, Pointer<Uint8>, int)>('${lib}_bg_post');");
+  }
   if (hasStreams) {
     w.line("final _nitroBgEmit = _nitroBgDylib.lookupFunction<Int8 Function(Int64, Pointer<Uint8>, Int64), int Function(int, Pointer<Uint8>, int)>('${lib}_bg_emit');");
     w.line("final _nitroBgEnd = _nitroBgDylib.lookupFunction<Int8 Function(Int64), int Function(int)>('${lib}_bg_end');");
@@ -73,6 +77,18 @@ void emitEntryPointSection(CodeWriter w, BridgeSpec spec) {
   w.line('  _nitroBgFail(jobId, error.toNativeUtf8(allocator: arena), stackTrace.toNativeUtf8(allocator: arena));');
   w.line('});');
   w.blankLine();
+  if (hasCallbacks) {
+    w.line('// Background side of a callback parameter: one blob per call to the');
+    w.line("// caller's proxy port.");
+    w.line('void _nitroBgPostBlob(int port, Uint8List blob) => using((arena) {');
+    w.line('  final buf = arena<Uint8>(blob.length + 1);');
+    w.line('  if (blob.isNotEmpty) {');
+    w.line('    buf.asTypedList(blob.length).setAll(0, blob);');
+    w.line('  }');
+    w.line('  _nitroBgPost(port, buf, blob.length);');
+    w.line('});');
+    w.blankLine();
+  }
   w.line('int _nitroBgSubmitJob(String entry, void Function(List<String>) wrapper, Uint8List args, int port) {');
   w.line('  return using((arena) {');
   w.line('    final buf = arena<Uint8>(args.length + 1);');
@@ -100,20 +116,25 @@ void emitEntryPointSection(CodeWriter w, BridgeSpec spec) {
     w.blankLine();
     w.line('void _nitroBgEndJob(int jobId) => _nitroBgEnd(jobId);');
     w.blankLine();
-    w.line('Stream<R> _nitroBgStream<R>(String entry, void Function(List<String>) wrapper, Uint8List args, R Function(RecordReaderBase r) decode) {');
+    w.line('Stream<R> _nitroBgStream<R>(String entry, void Function(List<String>) wrapper, Uint8List args, R Function(RecordReaderBase r) decode, [List<void Function()> closers = const []]) {');
     w.line('  _nitroBgEnsureApi();');
     w.line('  return NitroBackground.openStream<R>(');
     w.line('    entry: entry,');
     w.line('    submit: (port) => _nitroBgSubmitJob(entry, wrapper, args, port),');
     w.line('    cancel: (jobId) => _nitroBgCancel(jobId),');
     w.line('    decode: (blob) => decode(RecordReaderBase.fromPayload(blob)),');
+    w.line('    onClose: () {');
+    w.line('      for (final c in closers) {');
+    w.line('        c();');
+    w.line('      }');
+    w.line('    },');
     w.line('  );');
     w.line('}');
     w.blankLine();
   }
-  w.line('Future<R> _nitroBgRun<R>(String entry, void Function(List<String>) wrapper, Uint8List args, R Function(RecordReaderBase r) decode) {');
+  w.line('Future<R> _nitroBgRun<R>(String entry, void Function(List<String>) wrapper, Uint8List args, R Function(RecordReaderBase r) decode, [List<void Function()> closers = const []]) {');
   w.line('  _nitroBgEnsureApi();');
-  w.line('  return NitroRuntime.openNativeAsync<R>(');
+  w.line('  final f = NitroRuntime.openNativeAsync<R>(');
   w.line("    methodName: '\$entry (background)',");
   w.line('    call: (port) => _nitroBgSubmitJob(entry, wrapper, args, port),');
   w.line('    unpack: (raw) {');
@@ -125,6 +146,14 @@ void emitEntryPointSection(CodeWriter w, BridgeSpec spec) {
   w.line('      throw NitroBackgroundException.fromPost(entry, raw);');
   w.line('    },');
   w.line('  );');
+  w.line('  if (closers.isNotEmpty) {');
+  w.line('    f.whenComplete(() {');
+  w.line('      for (final c in closers) {');
+  w.line('        c();');
+  w.line('      }');
+  w.line('    }).ignore();');
+  w.line('  }');
+  w.line('  return f;');
   w.line('}');
 
   final codec = _EntryCodec(spec);
@@ -132,18 +161,21 @@ void emitEntryPointSection(CodeWriter w, BridgeSpec spec) {
     final sig = entryPointSignature(e);
     final call = entryPointCallArgs(e);
     final ret = e.returnsVoid ? 'void' : e.returnType.name;
+    final cb = _EntryCodec.hasCallback(e);
+    final tail = cb ? ', closers' : '';
     w.blankLine();
     if (e.isStream) {
       w.line('/// Streams [${e.name}]\'s items from the background — a headless engine on');
       w.line('/// Android/iOS, a spawned isolate elsewhere. Cancelling stops the producer.');
       w.line('Stream<$ret> ${e.runnerName}($sig) {');
       w.line('  final w = RecordWriter();');
+      if (cb) w.line('  final closers = <void Function()>[];');
       for (final p in e.params) {
         w.raw(codec.write(p.type.name, p.name, '  '));
       }
       w.line("  return _nitroBgStream<$ret>('${e.name}', ${e.wrapperName}, Uint8List.fromList(w.payloadView()), (r) {");
       w.line('    return ${codec.read(e.returnType.name)};');
-      w.line('  });');
+      w.line('  }$tail);');
       w.line('}');
       w.blankLine();
       w.line('/// Entry a headless engine (or the fallback isolate) starts at with the');
@@ -179,6 +211,7 @@ void emitEntryPointSection(CodeWriter w, BridgeSpec spec) {
     w.line('/// a spawned isolate elsewhere — and returns its result.');
     w.line('Future<$ret> ${e.runnerName}($sig) {');
     w.line('  final w = RecordWriter();');
+    if (cb) w.line('  final closers = <void Function()>[];');
     for (final p in e.params) {
       w.raw(codec.write(p.type.name, p.name, '  '));
     }
@@ -188,7 +221,7 @@ void emitEntryPointSection(CodeWriter w, BridgeSpec spec) {
     } else {
       w.line('    return ${codec.read(e.returnType.name)};');
     }
-    w.line('  });');
+    w.line('  }$tail);');
     w.line('}');
     w.blankLine();
     w.line('/// Entry a headless engine (or the fallback isolate) starts at with the');
@@ -248,12 +281,46 @@ class _EntryCodec {
   /// @NitroTuple typedefs have no extension methods (a typedef cannot carry
   /// them), so they are written field by field: `\$1`, `\$2`, ...
   final Map<String, BridgeRecordType> tuples;
+  int _callbackSeq = 0;
 
   static const _typedData = {'Uint8List', 'Int8List', 'Int16List', 'Uint16List', 'Int32List', 'Uint32List', 'Int64List', 'Uint64List', 'Float32List', 'Float64List'};
   static final _list = RegExp(r'^List<(.+)>$');
-  static final _map = RegExp(r'^Map<\s*String\s*,\s*(.+)>$');
+  static final _map = RegExp(r'^Map<\s*(\w+)\s*,\s*(.+)>$');
+  static final _handle = RegExp(r'^NativeHandle<(.+)>$');
+  static final _pointer = RegExp(r'^Pointer<(.+)>$');
+  static final _callback = RegExp(r'^void Function\((.*)\)$');
+
+  /// Any parameter (also nested in a list/map/nullable) that is a callback:
+  /// the runner then owns proxy ports it must close when the job is over.
+  static bool hasCallback(BridgeEntryPoint e) => e.params.any((p) => p.type.name.contains(' Function('));
 
   static String _norm(String t) => t.trim().replaceAll(RegExp(r'\s+'), ' ').replaceAll(RegExp(r'\s*,\s*'), ', ');
+
+  /// Top-level comma split of a type-argument / parameter list.
+  static List<String> _splitTop(String s) {
+    final out = <String>[];
+    var depth = 0, start = 0;
+    for (var i = 0; i < s.length; i++) {
+      final c = s[i];
+      if (c == '<' || c == '(') depth++;
+      if (c == '>' || c == ')') depth--;
+      if (c == ',' && depth == 0) {
+        out.add(s.substring(start, i).trim());
+        start = i + 1;
+      }
+    }
+    final last = s.substring(start).trim();
+    if (last.isNotEmpty) out.add(last);
+    return out;
+  }
+
+  /// `int a` → `int`; the analyzer may or may not print positional names.
+  static String _paramType(String seg) {
+    final m = RegExp(r'^(.*\S)\s+(\w+)$').firstMatch(seg);
+    return m == null ? seg : m.group(1)!;
+  }
+
+  static List<String> _callbackParams(RegExpMatch cb) => _splitTop(cb.group(1)!).map(_paramType).toList();
 
   String write(String type, String expr, String indent) {
     final t = _norm(type);
@@ -273,13 +340,37 @@ class _EntryCodec {
       case 'DateTime':
         return '${indent}w.writeInt($expr.millisecondsSinceEpoch);\n';
       case 'NitroAnyMap':
-        return '${indent}w.writeString(jsonEncode($expr.toDynamic()));\n';
+        return '$indent$expr.writeTo(w);\n';
+      case 'AnyNativeObject':
+        return '${indent}w.writeInt($expr.instanceId);\n';
     }
     if (_typedData.contains(t)) {
       return '${indent}w.writeBlob(Uint8List.view($expr.buffer, $expr.offsetInBytes, $expr.lengthInBytes));\n';
     }
     if (enums.contains(t)) return '${indent}w.writeInt($expr.nativeValue);\n';
     if (structs.contains(t) || records.contains(t) || variants.contains(t)) return '$indent$expr.writeFields(w);\n';
+    // Same process on both sides: handles and pointers cross by address, the
+    // caller keeps ownership.
+    if (_handle.hasMatch(t) || _pointer.hasMatch(t)) return '${indent}w.writeInt($expr.address);\n';
+    final custom = spec.customTypeByName(t);
+    if (custom != null) {
+      final c = 'const ${custom.codecClass}()';
+      return '${indent}w.writeBlob(using((a) => Uint8List.fromList($c.encode($expr, a).asTypedList($c.encodedSize))));\n';
+    }
+    final cb = _callback.firstMatch(t);
+    if (cb != null) {
+      // Caller side: a proxy port; each posted blob is one call's arguments.
+      final n = _callbackSeq++;
+      final params = _callbackParams(cb);
+      final b = StringBuffer();
+      b.write('${indent}final (_port$n, _close$n) = NitroBackground.callbackPort((blob) {\n');
+      if (params.isNotEmpty) b.write('$indent  final r = RecordReaderBase.fromPayload(blob);\n');
+      b.write('$indent  $expr(${params.map(read).join(', ')});\n');
+      b.write('$indent});\n');
+      b.write('${indent}closers.add(_close$n);\n');
+      b.write('${indent}w.writeInt(_port$n);\n');
+      return b.toString();
+    }
     final tuple = tuples[t];
     if (tuple != null) {
       final b = StringBuffer();
@@ -297,9 +388,23 @@ class _EntryCodec {
     if (m != null) {
       final k = '_k${indent.length}';
       final v = '_v${indent.length}';
-      return '${indent}w.writeInt32($expr.length);\n$indent$expr.forEach(($k, $v) {\n$indent  w.writeString($k);\n${write(m.group(1)!, v, '$indent  ')}$indent});\n';
+      return '${indent}w.writeInt32($expr.length);\n$indent$expr.forEach(($k, $v) {\n$indent  ${_writeKey(m.group(1)!, k)};\n${write(m.group(2)!, v, '$indent  ')}$indent});\n';
     }
     throw StateError('@NitroEntryPoint: no wire codec for type "$t" (SpecValidator should have rejected it)');
+  }
+
+  String _writeKey(String keyType, String expr) {
+    if (keyType == 'String') return 'w.writeString($expr)';
+    if (keyType == 'int') return 'w.writeInt($expr)';
+    if (enums.contains(keyType)) return 'w.writeInt($expr.nativeValue)';
+    throw StateError('@NitroEntryPoint: unsupported map key type "$keyType"');
+  }
+
+  String _readKey(String keyType) {
+    if (keyType == 'String') return 'r.readString()';
+    if (keyType == 'int') return 'r.readInt()';
+    if (enums.contains(keyType)) return 'r.readInt().to$keyType()';
+    throw StateError('@NitroEntryPoint: unsupported map key type "$keyType"');
   }
 
   String read(String type) {
@@ -317,19 +422,42 @@ class _EntryCodec {
       case 'DateTime':
         return 'DateTime.fromMillisecondsSinceEpoch(r.readInt())';
       case 'NitroAnyMap':
-        return 'NitroAnyMap.fromDynamic(jsonDecode(r.readString()) as Map<String, dynamic>)';
+        return 'NitroAnyMap.readFrom(r)';
+      case 'AnyNativeObject':
+        return 'AnyNativeObject(r.readInt())';
     }
     if (t == 'Uint8List') return 'r.readBlob()';
     if (_typedData.contains(t)) return '$t.view(r.readBlob().buffer)';
     if (enums.contains(t)) return 'r.readInt().to$t()';
     if (structs.contains(t) || records.contains(t)) return '${t}RecordExt.fromReader(r)';
     if (variants.contains(t)) return '${t}VariantExt.fromReader(r)';
+    final h = _handle.firstMatch(t);
+    if (h != null) return 'NativeHandle<${h.group(1)}>.fromAddress(r.readInt())';
+    final ptr = _pointer.firstMatch(t);
+    if (ptr != null) return 'Pointer<${ptr.group(1)}>.fromAddress(r.readInt())';
+    final custom = spec.customTypeByName(t);
+    if (custom != null) {
+      final c = 'const ${custom.codecClass}()';
+      return 'using((a) { final b = r.readBlob(); final p = a<Uint8>(b.length); p.asTypedList(b.length).setAll(0, b); return $c.decode(p)!; })';
+    }
+    final cb = _callback.firstMatch(t);
+    if (cb != null) {
+      // Background side: a closure that posts its arguments to the proxy port
+      // read from the blob right here (the IIFE keeps the read in sequence).
+      final params = _callbackParams(cb);
+      final sig = [for (var i = 0; i < params.length; i++) '${params[i]} a$i'].join(', ');
+      final body = StringBuffer();
+      for (var i = 0; i < params.length; i++) {
+        body.write(write(params[i], 'a$i', ''));
+      }
+      return '(() { final port = r.readInt(); return ($sig) { final w = RecordWriter(); $body _nitroBgPostBlob(port, Uint8List.fromList(w.payloadView())); }; })()';
+    }
     final tuple = tuples[t];
     if (tuple != null) return '(${tuple.fields.map((f) => read(f.dartType)).join(', ')})';
     final l = _list.firstMatch(t);
     if (l != null) return 'List<${l.group(1)}>.generate(r.readInt32(), (_) => ${read(l.group(1)!)})';
     final m = _map.firstMatch(t);
-    if (m != null) return '<String, ${m.group(1)}>{ for (var i = 0, n = r.readInt32(); i < n; i++) r.readString(): ${read(m.group(1)!)} }';
+    if (m != null) return '<${m.group(1)}, ${m.group(2)}>{ for (var i = 0, n = r.readInt32(); i < n; i++) ${_readKey(m.group(1)!)}: ${read(m.group(2)!)} }';
     throw StateError('@NitroEntryPoint: no wire codec for type "$t" (SpecValidator should have rejected it)');
   }
 }

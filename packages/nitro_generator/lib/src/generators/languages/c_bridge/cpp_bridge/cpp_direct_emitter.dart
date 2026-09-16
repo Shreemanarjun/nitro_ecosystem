@@ -88,6 +88,7 @@ String _generateCppDirect(BridgeSpec spec) {
   writer.blankLine();
 
   // Dart API DL init
+  CppBridgeGenerator._emitOwnedReleaseExports(writer, spec);
   writer.line('extern "C" {');
   writer.line('NITRO_EXPORT uint32_t ${libStem}_nitro_abi_version(void) {');
   writer.line('    return 1;');

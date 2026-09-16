@@ -179,7 +179,8 @@ class NitroBgTable {
     return true;
   }
 
- private:
+  // Posts one blob (copied) to any native port of this process — job results,
+  // stream items, and callback-parameter invocations alike.
   static void postBlob(int64_t port, const uint8_t* data, size_t len) {
     if (port == 0) return;
     Dart_CObject obj;
@@ -190,6 +191,7 @@ class NitroBgTable {
     Dart_PostCObject_DL(port, &obj);
   }
 
+ private:
   bool pop(int64_t id, NitroBgJob* out) {
     std::lock_guard<std::mutex> lk(mutex_);
     std::unordered_map<int64_t, NitroBgJob>::iterator it = inflight_.find(id);

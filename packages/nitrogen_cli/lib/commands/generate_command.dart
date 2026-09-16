@@ -184,10 +184,10 @@ class GenerateCommand extends Command {
 
     // Detect whether any spec uses NativeImpl.cpp to tailor the next-steps hint
     final libDir = Directory(p.join(projectDir.path, 'lib'));
-    final hasCppModules = libDir.existsSync() && libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).any(isCppModule);
+    final cppLibs = libDir.existsSync() ? (libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart') && isCppModule(f)).map((f) => p.basename(f.path).replaceFirst('.native.dart', '')).toList()..sort()) : const <String>[];
 
     _logTiming('total', DateTime.now().difference(totalStart));
-    _reportSuccess(projectDir.path, hasCppModules);
+    _reportSuccess(projectDir.path, cppLibs);
     return 0;
   }
 
@@ -468,24 +468,21 @@ class GenerateCommand extends Command {
     stderr.writeln(_headless ? '[nitro:warn] $msg' : red('  ⚠  $msg'));
   }
 
-  void _reportSuccess(String projectRoot, bool hasCppModules) {
+  void _reportSuccess(String projectRoot, List<String> cppLibs) {
+    // The registration symbol is per module (`<lib>_register_impl`), not per plugin.
+    final regs = cppLibs.map((l) => '${l}_register_impl(&impl)').join(' / ');
     if (_headless) {
       stdout.writeln('[nitro] generation complete');
-      if (hasCppModules) {
-        final pubspecName = _readPluginName(projectRoot);
-        stdout.writeln('[nitro] C++ modules: subclass Hybrid<Module>, call ${pubspecName}_register_impl(&impl)');
+      if (cppLibs.isNotEmpty) {
+        stdout.writeln('[nitro] C++ modules: subclass Hybrid<Module>, call $regs');
       }
     } else {
       stdout.writeln('');
       stdout.writeln(boldGreen('  ✨ Generation complete!'));
-      if (hasCppModules) {
-        final pubspecName = _readPluginName(projectRoot);
-        stdout.writeln(gray('     C++ modules: subclass Hybrid<Module>, call ${pubspecName}_register_impl(&impl).'));
-        stdout.writeln(gray('     Run nitrogen link to wire bridges into the build system.'));
-      } else {
-        stdout.writeln(gray('     Run nitrogen link to wire bridges into the build system.'));
+      if (cppLibs.isNotEmpty) {
+        stdout.writeln(gray('     C++ modules: subclass Hybrid<Module>, call $regs.'));
       }
-      stdout.writeln('');
+      stdout.writeln(gray('     Run nitrogen link to wire bridges into the build system.'));
     }
   }
 

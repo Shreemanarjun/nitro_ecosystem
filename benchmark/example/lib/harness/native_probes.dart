@@ -18,6 +18,7 @@ double Function(double, double)? rawAddProbe() => null;
 
 /// Raw dart:ffi sieve probe — native-only comparison tier.
 int Function(int)? rawSieveProbe() => null;
+({int Function() touch, void Function() free})? rawTouchProbe() => null;
 
 /// Raw dart:ffi buffer-copy probe — native-only comparison tier.
 int Function()? rawBufferSendProbe(Uint8List buffer) => null;

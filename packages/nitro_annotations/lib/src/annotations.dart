@@ -328,6 +328,38 @@ class NitroNativeAsync {
   const NitroNativeAsync();
 }
 
+/// Marks a synchronous method as a **hot path**: the binding is `isLeaf: true`
+/// and the generated body is a bare call — no `callSync` closure, no
+/// error-slot check, no logging/slow-call/timeline diagnostics. Measured on
+/// Apple Silicon this takes a generated call from ~260 ns to ~13 ns, level
+/// with a hand-written `dart:ffi` binding.
+///
+/// The contract the native side must keep: never throw (nothing reads the
+/// error slot), never call back into Dart, never block. Arena arguments
+/// (String, records, typed data) keep the arena path; scalars, enums,
+/// nullable scalars and `NativeHandle` parameters are the intended shapes.
+/// Not allowed on `Future`/`Stream`/`@nitroAsync` methods.
+///
+/// Composes with `@nitroNativeAsync`: the Dart signature stays `Future<T>` but
+/// the call completes inline — no port, no post, no isolate wake. The native
+/// implementation is then a plain synchronous function (Kotlin `fun`, Swift
+/// `func`, C++ method) that must not block; the future is completed from its
+/// return value. Use it for APIs that must be `Future`-shaped (a platform
+/// interface, an interface other implementations satisfy asynchronously) whose
+/// native side has the answer immediately.
+///
+/// ```dart
+/// @nitroFast
+/// int writeByte(NativeHandle<Void> writer, int byte);
+/// ```
+///
+/// The older `...Fast` name suffix keeps working and means the same thing.
+const nitroFast = NitroFast();
+
+class NitroFast {
+  const NitroFast();
+}
+
 /// Runs the Kotlin/Swift implementation of this method on the platform's
 /// main/UI thread instead of the calling thread.
 ///

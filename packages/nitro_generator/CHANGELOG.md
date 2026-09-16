@@ -1,36 +1,50 @@
 ## 0.7.6
 
 Added
-- `@NitroEntryPoint` background invocation. Per annotated top-level function
-  the generator emits a typed `run<Name>InBackground(...)` with the same
-  signature, a `@pragma('vm:entry-point')` wrapper (the user function needs
-  no pragma and survives AOT), and `has<Class>BackgroundHost()`.
-  Arguments/results cross a C++ job table as one record-wire blob — every
-  type a record field or parameter can carry: primitives, String, DateTime,
-  enums, records/tuples/structs/variants, lists, `Map<String, T>`, typed
-  data, `NitroAnyMap`, all nullable. Entries may be sync, `Future<T>`, or
-  `Stream<T>` — a stream entry yields typed items back until done or error,
-  and cancelling the subscription stops the producer. Kotlin/Swift bridges
-  gain a headless `FlutterEngine` starter (Android; iOS via `libraryURI`) plus
-  a native-initiated runner for jobs with no Dart submitter —
-  `<Class>JniBridge.runInBackground(context, entry, text)` /
-  `<Class>Background.run(entry:text:)` (WorkManager, BroadcastReceiver,
-  BGTask, URL launch) with a completion callback carrying the error text
-  (`onDone`), a blocking `runInBackgroundAndWait` for workers, an `async`
-  Swift form, and `activeBackgroundEngines()` / `activeEngines`. Engines are
-  spawned from one `FlutterEngineGroup` per library and receive the job id as
-  their entrypoint argument, so concurrent jobs of one entry never share or
-  tear down each other's engine. Failures reach Dart as
-  `NitroBackgroundException` with the remote stack; `active<Class>BackgroundJobs()`
-  reports queued + running jobs. macOS/desktop and C++-only impls fall back to a
-  spawned isolate; web throws. Validator:
-  `ENTRY_POINT_UNSUPPORTED_TYPE` (callbacks, streams, handles, nested
-  futures, custom types), `ENTRY_POINT_DUPLICATE`, `ENTRY_POINT_NO_NATIVE_TARGET`.
-  Web-split plugins add the runners to their barrel's `show` list. Specs
-  without entry points generate byte-identical output.
+- `@NitroEntryPoint`: per annotated top-level function, a typed
+  `run<Name>InBackground(...)`, a `@pragma('vm:entry-point')` wrapper,
+  `has<Class>BackgroundHost()` and `active<Class>BackgroundJobs()`. Entries may
+  be sync, `Future<T>` or `Stream<T>`; any record-wire type in any parameter
+  shape. Errors arrive as `NitroBackgroundException`.
+- Headless engine hosts: Android (`FlutterEngineGroup`, job id as entrypoint
+  arg) and iOS (`FlutterEngineGroup`, `libraryURI`). macOS/desktop/C++-only
+  specs run entries on a spawned isolate; web throws `UnsupportedError`.
+- Native-initiated jobs: Kotlin `runInBackground(context, entry, text, onDone)`
+  and `runInBackgroundAndWait(...)`, Swift `<Class>Background.run(entry:text:onDone:)`
+  and an `async` form, `activeBackgroundEngines()` / `activeEngines`.
+- Validator codes `ENTRY_POINT_UNSUPPORTED_TYPE`, `ENTRY_POINT_DUPLICATE`,
+  `ENTRY_POINT_NO_NATIVE_TARGET`, `FAST_NOT_SYNC`.
+- `<Class>Defaults` mixin: every spec member as `throw UnimplementedError`, for
+  hand-written fakes (`class Fake extends Foo with FooDefaults`).
+- `@nitroFast` (nitro_annotations): hot-path contract; the `...Fast` name
+  suffix still works.
+- `@nitroFast` + `@nitroNativeAsync`: the Dart signature stays `Future<T>` but
+  the bridge call is synchronous and the future completes inline — no port, no
+  post, no isolate wake; native emitters see a plain sync method. macOS
+  (profile): 16.2 µs → 0.18 µs per call.
+- Entry points take every parameter kind: `void` callbacks with positional
+  parameters (proxied back to the submitting isolate over a port; closed when
+  the job ends), `NativeHandle`/`Pointer`/`AnyNativeObject` by address or id,
+  `@NitroCustomType` through its codec, `int`- and enum-keyed maps.
+  `NitroAnyMap` uses its binary codec. New C export `<lib>_bg_post`.
 
-**Re-run `nitrogen generate`, and `nitrogen link` for plugins with entry points
-(it refreshes the copied `nitro_background.h`).**
+Changed
+- Hot-path methods without arena arguments emit a bare leaf body (no
+  `callSync` closure, no error-slot check, no diagnostics). AOT: 175 ns → 19 ns
+  per call, level with hand-rolled `isLeaf` FFI (20 ns). (#51)
+- Methods with `NativeHandle<T>` parameters bind `isLeaf: true`; handle
+  returns stay non-leaf. (#52)
+
+Fixed
+- `NativeHandle<T>` parameters were passed as the wrapper object instead of
+  `.pointer` (compile error in the generated FFI part).
+- Direct C++ bridge did not emit `<symbol>_release` for `@NitroOwned` handles
+  (symbol lookup failure at runtime).
+- Web bridge: `invalid_override` suppression now covers handle/pointer
+  parameters, not only returns.
+
+Specs without entry points generate byte-identical output. **Re-run
+`nitrogen generate`; plugins with entry points also `nitrogen link`.**
 
 ## 0.7.5
 
