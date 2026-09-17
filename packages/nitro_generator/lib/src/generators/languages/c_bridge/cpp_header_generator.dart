@@ -5,6 +5,50 @@ import '../../code_writer.dart';
 import '../../generator_metadata.dart';
 
 class CppHeaderGenerator {
+
+  /// C return type of the synchronous export of [func] — the single source the
+  /// worker-dispatch wrapper mirrors.
+  static String syncReturnCType(BridgeSpec spec, BridgeFunction func) {
+    final retBase = bareTypeName(func.returnType.name);
+    final isVariantRet = spec.isVariantName(retBase);
+    final isCustomTypeRet = spec.isCustomTypeName(retBase);
+    final isEnumRet = spec.isEnumName(retBase);
+    return func.isResult
+        ? 'uint8_t*'
+        : isVariantRet
+        ? 'uint8_t*'
+        : func.returnType.isAnyNativeObject
+        ? 'int64_t'
+        : isCustomTypeRet
+        ? 'uint8_t*'
+        : func.returnType.name == 'int?'
+        ? 'uint8_t*'
+        : func.returnType.name == 'uint64?'
+        ? 'uint8_t*'
+        : func.returnType.name == 'double?'
+        ? 'uint8_t*'
+        : func.returnType.name == 'bool?'
+        ? 'uint8_t*'
+        : func.returnType.name == 'DateTime?'
+        ? 'uint8_t*'
+        : isEnumRet
+        ? 'int64_t'
+        : func.returnType.isTypedData
+        ? 'uint8_t*'
+        : _typeToC(func.returnType.name);
+  }
+
+  /// C parameter type of [p] as declared in the bridge header.
+  static String cParamType(BridgeSpec spec, BridgeParam p) {
+    final paramBase = bareTypeName(p.type.name);
+    if (p.type.isAnyNativeObject) return 'int64_t';
+    if (spec.isCustomTypeName(paramBase)) return 'const uint8_t*';
+    if (p.type.isNullableNitroPrim) return 'const uint8_t*';
+    if (spec.isEnumName(paramBase)) return 'int64_t';
+    if (spec.isStructName(paramBase) || p.type.isNativeHandle) return 'void*';
+    return _typeToC(p.type.name);
+  }
+
   static String generate(BridgeSpec spec) {
     final nodes = <CodeNode>[
       CodeSnippet(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash)),
@@ -114,6 +158,17 @@ class CppHeaderGenerator {
         CodeLine('NITRO_EXPORT int64_t ${libStem}_bg_run_string(const char* entry, const char* text);'),
         CodeLine('NITRO_EXPORT void ${libStem}_bg_register_host(int (*starter)(const char*, int64_t, void*), void (*done)(int64_t, const char*, void*), void* ctx);'),
       ],
+      // Completion batching (nitro_completion_batch.h): every Dart_PostCObject_DL
+      // in this library — generated helpers, nitro_background.h, hand-written
+      // impls that include this header — goes through the batcher. Unbound
+      // ports post straight through; @nitroNativeAsync ids are batched.
+      if (spec.targetsWeb) CodeLine('#ifndef __EMSCRIPTEN__'),
+      CodeLine('struct _Dart_CObject;'),
+      CodeLine('NITRO_EXPORT bool ${libStem}_nitro_post(int64_t port, struct _Dart_CObject* obj);'),
+      CodeLine('NITRO_EXPORT int64_t ${libStem}_nitro_bind(int64_t batchPort);'),
+      CodeLine('NITRO_EXPORT void ${libStem}_nitro_ack(int64_t batchPort);'),
+      CodeLine('#define Dart_PostCObject_DL(port, obj) ${libStem}_nitro_post((port), (obj))'),
+      if (spec.targetsWeb) CodeLine('#endif'),
       if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) CodeLine('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr);'),
       // @NitroOwned: emit a _release symbol for each owned NativeHandle function.
       // The user implements these to free the native heap allocation.
@@ -128,7 +183,6 @@ class CppHeaderGenerator {
     if (spec.functions.isNotEmpty) {
       nodes.add(const CodeLine('// Methods'));
       for (final func in spec.functions) {
-        final isEnumRet = spec.isEnumName(bareTypeName(func.returnType.name));
         // instanceId is the first parameter for all bridge functions (Point 13 multi-instance).
         final paramParts = <String>['int64_t instanceId'];
         for (final p in func.params) {
@@ -169,36 +223,15 @@ class CppHeaderGenerator {
             paramParts.add('NitroError* _nitro_err');
           }
           // Sync nullable prim returns: uint8_t* pointer (Dart re-interprets as Pointer<NitroOptXxx>).
-          final retBase = bareTypeName(func.returnType.name);
-          // @NitroResult: C returns uint8_t* [1B tag][payload].
-          // @NitroVariant: C returns uint8_t* [4B len][1B tag][fields].
-          final isVariantRet = spec.isVariantName(retBase);
-          final isCustomTypeRet = spec.isCustomTypeName(retBase);
-          final ret = func.isResult
-              ? 'uint8_t*'
-              : isVariantRet
-              ? 'uint8_t*'
-              : func.returnType.isAnyNativeObject
-              ? 'int64_t'
-              : isCustomTypeRet
-              ? 'uint8_t*'
-              : func.returnType.name == 'int?'
-              ? 'uint8_t*'
-              : func.returnType.name == 'uint64?'
-              ? 'uint8_t*'
-              : func.returnType.name == 'double?'
-              ? 'uint8_t*'
-              : func.returnType.name == 'bool?'
-              ? 'uint8_t*'
-              : func.returnType.name == 'DateTime?'
-              ? 'uint8_t*'
-              : isEnumRet
-              ? 'int64_t'
-              : func.returnType.isTypedData
-              ? 'uint8_t*'
-              : _typeToC(func.returnType.name);
+          final ret = syncReturnCType(spec, func);
           final params = paramParts.join(', ');
           nodes.add(CodeLine('NITRO_EXPORT $ret ${func.cSymbol}($params);'));
+          if (spec.dispatchesAsync(func)) {
+            // Worker-dispatched twin (NitroWorkerPool in the bridge): same
+            // arguments, completes through the completion batcher.
+            final dispatchParams = [...paramParts.where((x) => x != 'NitroError* _nitro_err'), 'NitroError* _nitro_err', 'int64_t dart_port'].join(', ');
+            nodes.add(CodeLine('NITRO_EXPORT void ${func.cSymbol}_dispatch($dispatchParams);'));
+          }
         }
       }
       nodes.add(const BlankLine());

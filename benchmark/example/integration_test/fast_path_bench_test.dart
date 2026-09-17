@@ -10,6 +10,8 @@ import 'package:nitro/nitro.dart';
 
 typedef _AddFastC = Double Function(Int64, Double, Double, Pointer<NitroErrorFfi>);
 typedef _AddFastDart = double Function(int, double, double, Pointer<NitroErrorFfi>);
+late final void Function(Pointer<Void>) _nitroFreeRaw;
+void _nitroFree(Pointer<NativeType> p) => _nitroFreeRaw(p.cast());
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -52,6 +54,43 @@ void main() {
         sink += gen.addFast(1.5, 2.5);
       }
     });
+    _nitroFreeRaw = lib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('benchmark_nitro_free');
+    final handChecked = nsPerCall(() {
+      for (var i = 0; i < n; i++) {
+        final res = addFast(id, 1.5, 2.5, err);
+        NitroRuntime.throwIfOutParamError(err, nativeFree: _nitroFree, methodName: 'add');
+        sink += res;
+      }
+    });
+    final handTimed = nsPerCall(() {
+      for (var i = 0; i < n; i++) {
+        final t0 = NitroRuntime.syncStart('add');
+        try {
+          sink += addFast(id, 1.5, 2.5, err);
+        } finally {
+          NitroRuntime.syncEnd(t0, 'add');
+        }
+      }
+    });
+    final handBoth = nsPerCall(() {
+      for (var i = 0; i < n; i++) {
+        final t0 = NitroRuntime.syncStart('add');
+        try {
+          final res = addFast(id, 1.5, 2.5, err);
+          NitroRuntime.throwIfOutParamError(err, nativeFree: _nitroFree, methodName: 'add');
+          sink += res;
+        } finally {
+          NitroRuntime.syncEnd(t0, 'add');
+        }
+      }
+    });
+    final generatedChecked = nsPerCall(() {
+      for (var i = 0; i < n; i++) {
+        sink += gen.add(1.5, 2.5);
+      }
+    });
+    // ignore: avoid_print
+    print('CHECKED hand leaf+errcheck: ${handChecked.toStringAsFixed(1)} | hand leaf+syncStart/End: ${handTimed.toStringAsFixed(1)} | hand both: ${handBoth.toStringAsFixed(1)} | generated add (checked): ${generatedChecked.toStringAsFixed(1)} ns/call');
     calloc.free(err);
     malloc.free(key);
     expect(sink, greaterThan(0));

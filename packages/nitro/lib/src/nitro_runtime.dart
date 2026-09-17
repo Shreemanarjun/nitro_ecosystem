@@ -9,6 +9,7 @@ import 'annotations.dart';
 import 'hybrid_exception.dart';
 import 'isolate_pool.dart';
 import 'nitro_error_ffi.dart';
+import 'nitro_completion_batch.dart';
 import 'nitro_config.dart';
 
 export 'nitro_config.dart';
@@ -280,6 +281,7 @@ class NitroRuntime {
   static void throwIfOutParamError(
     Pointer<NitroErrorFfi> errPtr, {
     void Function(Pointer<NativeType>)? nativeFree,
+    String methodName = '',
   }) {
     // Cache the struct view once — each `errPtr.ref` builds a fresh Struct
     // proxy. It is a view, so writes through `err` still hit native memory.
@@ -314,12 +316,18 @@ class NitroRuntime {
       err.stackTrace = nullptr;
     }
     err.hasError = 0;
-    throw HybridException(
+    final ex = HybridException(
       name: name,
       message: message,
       code: code,
       stackTrace: stack,
     );
+    // Generated sync calls pass [methodName]: this is the `threw:` log the
+    // callSync wrapper used to emit from its catch block.
+    if (methodName.isNotEmpty && NitroConfig.instance.effectiveLogLevel != NitroLogLevel.none) {
+      _log(NitroLogLevel.error, 'callSync($methodName)', 'threw: $ex', ex, StackTrace.current);
+    }
+    throw ex;
   }
 
   /// Checks and frees a [NitroErrorFfi] slot allocated fresh for a single
@@ -372,12 +380,47 @@ class NitroRuntime {
   static void _logCallTiming(Stopwatch? sw, String tag) {
     if (sw == null) return;
     sw.stop();
-    final us = sw.elapsedMicroseconds;
+    _logElapsed(sw.elapsedMicroseconds, tag);
+  }
+
+  static void _logElapsed(int us, String tag) {
     _log(NitroLogLevel.verbose, tag, 'completed in $us µs');
     final threshold = NitroConfig.instance.slowCallThresholdUs;
     if (threshold > 0 && us > threshold) {
       _log(NitroLogLevel.warning, tag, 'slow call: $us µs exceeded threshold of $threshold µs');
     }
+  }
+
+  // ── Generated sync calls: instrumentation without a closure ──────────────
+  // Generated methods used to wrap their body in `callSync(() => ...)`; the
+  // closure captured the arguments, so AOT allocated a context on every call
+  // (~160 ns on a 20 ns leaf call). They now run the body inline between
+  // [syncStart] and [syncEnd], which keep callSync's semantics — verbose
+  // "calling"/"completed in" logs, timeline spans, slow-call warnings — and
+  // cost one static-stopwatch read each when only the slow-call threshold is
+  // active (the default), nothing when instrumentation is off.
+  static final Stopwatch _clock = Stopwatch()..start();
+
+  /// Start tick for a generated sync call, or -1 when no per-call
+  /// instrumentation is on and [syncEnd] has nothing to do.
+  static int syncStart(String methodName) {
+    final cfg = NitroConfig.instance;
+    final level = cfg.effectiveLogLevel;
+    final trace = cfg.timelineTracingEnabled;
+    if (level != NitroLogLevel.verbose && !trace && cfg.slowCallThresholdUs == 0) return -1;
+    if (level == NitroLogLevel.verbose) _log(NitroLogLevel.verbose, 'callSync($methodName)', 'calling');
+    if (trace) developer.Timeline.startSync(_timelineLabel('callSync($methodName)'));
+    return _clock.elapsedMicroseconds;
+  }
+
+  /// Pairs with [syncStart]; runs from the generated `finally`, so timeline
+  /// spans stay balanced when the call throws.
+  static void syncEnd(int start, String methodName) {
+    if (start < 0) return;
+    final cfg = NitroConfig.instance;
+    final us = _clock.elapsedMicroseconds - start;
+    if (cfg.effectiveLogLevel == NitroLogLevel.verbose || cfg.slowCallThresholdUs > 0) _logElapsed(us, 'callSync($methodName)');
+    if (cfg.timelineTracingEnabled) developer.Timeline.finishSync();
   }
 
   /// Legacy async dispatch: spawn a fresh isolate per call (used when the
@@ -579,6 +622,7 @@ class NitroRuntime {
     required T Function(dynamic raw) unpack,
     void Function()? cleanup,
     String methodName = '',
+    NitroCompletionBatch? batch,
   }) {
     final cfg = NitroConfig.instance;
     final effective = cfg.effectiveLogLevel;
@@ -590,11 +634,14 @@ class NitroRuntime {
 
     if (effective == NitroLogLevel.verbose) _log(NitroLogLevel.verbose, tag(), 'calling');
 
-    // A fresh ReceivePort per call is ~0.1 µs of a ~27 µs round trip — not worth
-    // a shared-port + callId demux for a single call (the isolate wake dominates).
-    // For concurrent bursts, NitroCoalescer batches instead. See issue #39.
-    final port = ReceivePort();
     if (traceTimeline) developer.Timeline.startSync(_timelineLabel(tag()));
+
+    // Generated bridges pass a per-library [batch]: the call gets an id on the
+    // shared batch port instead of a port of its own, and completions that
+    // land while this isolate is busy arrive together as one message.
+    if (batch != null) return _openBatched<T>(batch, call, unpack, cleanup, tag, sw, effective, traceTimeline, timeoutMs);
+
+    final port = ReceivePort();
 
     // Guaranteed teardown — runs exactly once when the call settles (success,
     // native error, or timeout): closes the ReceivePort and frees the per-call
@@ -656,6 +703,63 @@ class NitroRuntime {
     });
   }
 
+  static Future<T> _openBatched<T>(
+    NitroCompletionBatch batch,
+    void Function(int id) call,
+    T Function(dynamic raw) unpack,
+    void Function()? cleanup,
+    String Function() tag,
+    Stopwatch? sw,
+    NitroLogLevel effective,
+    bool traceTimeline,
+    int timeoutMs,
+  ) {
+    final completer = Completer<T>();
+    void terminate() {
+      cleanup?.call();
+      if (traceTimeline) developer.Timeline.finishSync();
+    }
+    final id = batch.register((dynamic raw) {
+      if (completer.isCompleted) return;
+      if (sw != null) _logCallTiming(sw, tag());
+      _completeUnpacked(completer, unpack, raw, tag, effective);
+    });
+    try {
+      call(id);
+    } catch (e, st) {
+      batch.forget(id);
+      terminate();
+      if (effective != NitroLogLevel.none) _log(NitroLogLevel.error, tag(), 'threw: $e', e, st);
+      rethrow;
+    }
+    return _finish(completer, terminate, timeoutMs, () {
+      batch.forget(id);
+      completer.completeError(TimeoutException('${tag()} did not post a result within ${timeoutMs}ms', Duration(milliseconds: timeoutMs)));
+    });
+  }
+
+  static void _completeUnpacked<T>(Completer<T> completer, T Function(dynamic raw) unpack, dynamic raw, String Function() tag, NitroLogLevel effective) {
+    try {
+      completer.complete(unpack(raw));
+    } catch (e, st) {
+      if (effective != NitroLogLevel.none) _log(NitroLogLevel.error, tag(), 'threw during unpack: $e', e, st);
+      completer.completeError(e, st);
+    }
+  }
+
+  /// The call's future with [terminate] run at the end and, for a positive
+  /// [timeoutMs], [onTimeout] fired if nothing completed it by then.
+  static Future<T> _finish<T>(Completer<T> completer, void Function() terminate, int timeoutMs, void Function() onTimeout) {
+    if (timeoutMs <= 0) return completer.future.whenComplete(terminate);
+    final timer = Timer(Duration(milliseconds: timeoutMs), () {
+      if (!completer.isCompleted) onTimeout();
+    });
+    return completer.future.whenComplete(() {
+      timer.cancel();
+      terminate();
+    });
+  }
+
   // ── Stream ───────────────────────────────────────────────────────────────
 
   /// Opens a high-performance stream from a native event source.
@@ -684,6 +788,11 @@ class NitroRuntime {
     required T Function(dynamic message) unpack,
     required void Function(int dartPort) release,
     required Backpressure backpressure,
+
+    /// Coalesced streams (`Backpressure.batch` on an all-C++ spec): called
+    /// after every delivered message so the bridge flushes what accumulated
+    /// meanwhile, or goes idle.
+    void Function(int dartPort)? ack,
 
     /// Optional tag used in log messages to identify this stream.
     /// Defaults to `'Stream<$T>'`.
@@ -750,6 +859,7 @@ class NitroRuntime {
         );
         controller.addError(e, st);
       }
+      if (!released) ack?.call(nativePort);
     });
 
     return controller.stream;

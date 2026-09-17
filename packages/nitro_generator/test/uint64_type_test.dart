@@ -58,6 +58,8 @@ BridgeSpec _streamSpec(String itemType) => BridgeSpec(
 
 // ── Dart FFI ──────────────────────────────────────────────────────────────────
 
+// @nitroAsync fixtures here carry a timeout so they exercise the isolate-pool
+// path; bridge dispatch (the default now) is covered in async_dispatch_test.dart.
 void main() {
   group('L13 uint64 — Dart FFI return', () {
     test('uint64 return: native type is Uint64', () {
@@ -252,7 +254,7 @@ void main() {
         BridgeFunction(
           dartName: 'getAsync',
           cSymbol: 'counter_getAsync',
-          isAsync: true,
+          isAsync: true, asyncTimeout: 1000,
           returnType: BridgeType(name: ret, isNullable: ret.endsWith('?')),
           params: [],
         ),

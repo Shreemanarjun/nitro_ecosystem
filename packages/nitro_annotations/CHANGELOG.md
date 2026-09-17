@@ -1,6 +1,9 @@
 ## 0.7.6
 
 Added
+- `NitroStream.batchMaxSize` is ignored: `Backpressure.batch` now coalesces
+  whatever native emits while Dart is busy, on every backend. The field stays
+  for source compatibility.
 - `@nitroFast`: synchronous hot-path method — leaf binding, bare body, no
   error-slot check. Supersedes the `...Fast` name suffix (still accepted).
   Composes with `@nitroNativeAsync`: `Future<T>` signature, sync native

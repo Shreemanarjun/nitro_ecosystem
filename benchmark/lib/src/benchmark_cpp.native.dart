@@ -246,6 +246,29 @@ abstract class BenchmarkCpp extends HybridObject {
   /// [coalesceFlushes] for the average batch size a burst achieved.
   int coalesceItems();
 
+  /// Emits [count] struct items synchronously on the calling thread — to
+  /// [pointBurstBatched] when [batched], else [pointBurstPerItem]. Item i is
+  /// `(x: i, y: -i)`.
+  void burstPoints(int count, bool batched);
+
+  /// Same burst with int items: [intBurstBatched] / [intBurstPerItem].
+  void burstInts(int count, bool batched);
+
+  /// One message per item.
+  @NitroStream(backpressure: Backpressure.dropLatest)
+  Stream<BenchmarkPoint> get pointBurstPerItem;
+
+  /// All-C++ spec: everything that lands while Dart is busy travels as one
+  /// message (the bridge batcher), no size or timer.
+  @NitroStream(backpressure: Backpressure.batch)
+  Stream<BenchmarkPoint> get pointBurstBatched;
+
+  @NitroStream(backpressure: Backpressure.dropLatest)
+  Stream<int> get intBurstPerItem;
+
+  @NitroStream(backpressure: Backpressure.batch)
+  Stream<int> get intBurstBatched;
+
   /// Continuous stream of zero-copy [BenchmarkPoint] structs.
   ///
   /// Each item is delivered as a [BenchmarkPointProxy] at runtime — a proxy

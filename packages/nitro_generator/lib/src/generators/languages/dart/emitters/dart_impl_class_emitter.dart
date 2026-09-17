@@ -68,7 +68,7 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   // pointer the native side produced with malloc/strdup corrupts the heap.
   // Native memory must always be released by the allocator that produced it.
   writer.line(
-    "  late final void Function(Pointer<Void>) _nitroFreePtr = _dylib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('${libStem}_nitro_free');",
+    "  late final void Function(Pointer<Void>) _nitroFreePtr = _dylib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('${libStem}_nitro_free', isLeaf: true);",
   );
   writer.line('  void _nitroFree(Pointer<NativeType> ptr) => _nitroFreePtr(ptr.cast());');
   // Same symbol as a raw function pointer, for NativeFinalizer-based owners
@@ -81,8 +81,19 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   // allocated by the module's C-runtime malloc, not package:ffi's allocators
   // (CoTaskMemAlloc on Windows).
   writer.line(
-    "  late final Pointer<Void> Function(int) _nitroAllocPtr = _dylib.lookupFunction<Pointer<Void> Function(IntPtr), Pointer<Void> Function(int)>('${libStem}_nitro_alloc');",
+    "  late final Pointer<Void> Function(int) _nitroAllocPtr = _dylib.lookupFunction<Pointer<Void> Function(IntPtr), Pointer<Void> Function(int)>('${libStem}_nitro_alloc', isLeaf: true);",
   );
+  if (spec.functions.any(spec.bridgeAsync) || spec.streams.any((st) => st.isBatch)) {
+    // Ack for the per-library batcher: native-async completions and
+    // coalesced batch streams both flush on it.
+    writer.line("  late final void Function(int) _nitroAckPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('${libStem}_nitro_ack', isLeaf: true);");
+  }
+  if (spec.functions.any(spec.bridgeAsync)) {
+    // Shared completion port for @nitroNativeAsync (see NitroCompletionBatch):
+    // one message per burst instead of one per call.
+    writer.line("  late final int Function(int) _nitroBindPtr = _dylib.lookupFunction<Int64 Function(Int64), int Function(int)>('${libStem}_nitro_bind', isLeaf: true);");
+    writer.line('  late final NitroCompletionBatch _nitroBatch = NitroCompletionBatch(bind: _nitroBindPtr, ack: _nitroAckPtr);');
+  }
   writer.line('  late final NitroNativeAllocator _nitroNativeAllocator = NitroNativeAllocator(_nitroAllocPtr, _nitroFreePtr);');
   writer.blankLine();
   writer.line('  static DynamicLibrary _loadSupportedLibrary() {');
@@ -200,11 +211,11 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
     final isLeaf = _isLeafCandidate(func, spec);
     if (isLeaf) {
       writer.line(
-        "  late final $dartType _${func.dartName}Ptr = _dylib.lookup<NativeFunction<$nativeType>>('${func.cSymbol}').asFunction<$dartType>(isLeaf: true);",
+        "  late final $dartType _${func.dartName}Ptr = _dylib.lookup<NativeFunction<$nativeType>>('${spec.nativeSymbol(func)}').asFunction<$dartType>(isLeaf: true);",
       );
     } else {
       writer.line(
-        "  late final $dartType _${func.dartName}Ptr = _dylib.lookupFunction<$nativeType, $dartType>('${func.cSymbol}');",
+        "  late final $dartType _${func.dartName}Ptr = _dylib.lookupFunction<$nativeType, $dartType>('${spec.nativeSymbol(func)}');",
       );
     }
     // @NitroOwned: emit a release function pointer and a NativeFinalizer.
@@ -275,7 +286,7 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   // Only emit the native-pointer variants when there are regular callAsync
   // functions that need them. isNativeAsync functions use openNativeAsync
   // which doesn't require these pointers.
-  final hasCallAsync = spec.functions.any((f) => f.isAsync && !f.isNativeAsync);
+  final hasCallAsync = spec.functions.any((f) => f.isAsync && !spec.bridgeAsync(f));
   if (hasCallAsync) {
     writer.line('  // ignore: unused_field');
     writer.line(

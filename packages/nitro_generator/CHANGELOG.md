@@ -1,6 +1,31 @@
 ## 0.7.6
 
 Added
+- `@nitroAsync` dispatches on the bridge on every backend: a `<sym>_dispatch`
+  twin runs the unchanged sync export (JNI, Swift shim or C++ virtual
+  dispatch) on `NitroWorkerPool`, moves the thread-local error into the call
+  and posts by kind through the completion batcher. No isolate hop. Stay on
+  the isolate pool: per-method timeouts, `@NitroResult`, `@zeroCopy`,
+  typed-data / `@HybridStruct` / nullable-primitive returns, maps,
+  `@mainThread`, and function/pointer/`AnyNativeObject`/custom-type
+  parameters (`BridgeSpec.dispatchesAsync`). macOS C++: 29.6 → 24.3 µs.
+- `@NitroStream(backpressure: Backpressure.batch)` is one mechanism on every
+  backend: native posts per item, the stream port is bound to the library's
+  completion batcher (`coalesce` at register, `uncoalesce` at release), so
+  everything emitted while Dart is busy arrives as one `[item, item, ...]`
+  message and Dart acks after each. Every item kind, `@HybridStruct`
+  included; `batchMaxSize` is ignored. The Kotlin/Swift accumulators, their
+  JNI/shim batch helpers and the `[count, items...]` / string-array / framed
+  batch wires are gone, and so is validator E005. 256 ints: 1116 → 110 µs;
+  256 structs: 1312 → 283 µs (macOS C++, per burst).
+- `@nitroNativeAsync` completions share one port per library
+  (`NitroCompletionBatch`); the generated bridge header redirects every
+  `Dart_PostCObject_DL` through `<lib>_nitro_post`, Swift posts through it
+  too. Bursts of 16/64/256 in-flight calls: 278/1015/3768 → 63/133/531 µs.
+- Struct returns are deep-copied (`_nitro_clone_<Struct>`: strdup'd strings,
+  copied typed-data fields, `@zeroCopy` fields skipped) at every return site;
+  the direct-C++ path used to hand Dart a pointer the impl still owned.
+
 - `@NitroEntryPoint`: per annotated top-level function, a typed
   `run<Name>InBackground(...)`, a `@pragma('vm:entry-point')` wrapper,
   `has<Class>BackgroundHost()` and `active<Class>BackgroundJobs()`. Entries may
@@ -29,13 +54,56 @@ Added
   `NitroAnyMap` uses its binary codec. New C export `<lib>_bg_post`.
 
 Changed
+- Sync calls run their body between `NitroRuntime.syncStart` / `syncEnd`
+  instead of a `callSync` closure; `_nitroFree` / `_nitroAlloc` bindings are
+  leaf.
+- Record/variant `toNative` uses `RecordWriter.acquire()` / `release()`.
 - Hot-path methods without arena arguments emit a bare leaf body (no
   `callSync` closure, no error-slot check, no diagnostics). AOT: 175 ns → 19 ns
   per call, level with hand-rolled `isLeaf` FFI (20 ns). (#51)
 - Methods with `NativeHandle<T>` parameters bind `isLeaf: true`; handle
   returns stay non-leaf. (#52)
 
+Performance
+Same benchmark app before and after this release (`benchmark/example`,
+macOS M4, `flutter drive --profile`, quick mode; medians, µs per call or per
+burst). The reference rows (raw FFI, `@nitroFast`, MethodChannel) moved within
+noise. Mobile uses the same code paths but was not benchmarked on a device.
+
+| case | before | after | speedup |
+|---|---:|---:|---:|
+| raw `dart:ffi` leaf (floor) | 0.013 | 0.013 | 1.0× |
+| `@nitroFast` add | 0.013 | 0.014 | 1.0× |
+| checked add (C++) | 0.273 | 0.033 | 8.4× |
+| checked add (Swift) | 0.280 | 0.032 | 8.6× |
+| checked handle param | 0.259 | 0.024 | 10.9× |
+| `String` round-trip | 0.537 | 0.193 | 2.8× |
+| `@HybridStruct` round-trip | 0.408 | 0.107 | 3.8× |
+| `List<@HybridRecord>` round-trip | 1.574 | 1.186 | 1.3× |
+| `Map<String,int>` round-trip | 3.446 | 2.686 | 1.3× |
+| `@nitroAsync` scalar / record | 29.6 / 30.5 | 23.8 / 24.4 | 1.2× |
+| `@nitroNativeAsync` scalar / record | 13.3 / 29.3 | 11.7 / 23.8 | 1.1× / 1.2× |
+| `@nitroFast @nitroNativeAsync` inline | 16.2 | 0.20 | 81× |
+| native-async burst, 16 in flight | 278 | 69 | 4.0× |
+| native-async burst, 64 in flight | 1,015 | 140 | 7.3× |
+| native-async burst, 256 in flight | 3,768 | 560 | 6.7× |
+| MethodChannel add | 29.8 | 25.9 | 1.2× |
+
+Stream coalescing is new, so it is measured against per-item posting in the
+same run (256 items per burst):
+
+| stream item | per-item | `Backpressure.batch` | speedup |
+|---|---:|---:|---:|
+| `Stream<int>` | 1,118 | 103 | 10.8× |
+| `Stream<@HybridStruct>` | 1,283 | 290 | 4.4× |
+
 Fixed
+- Direct C++ bridge (Linux, Windows, macOS/iOS with `NativeImpl.cpp`): a
+  returned `@HybridStruct` was copied shallowly, so its `String`, typed-data
+  and nested-struct pointer fields still pointed at the caller's arena and
+  Dart's `freeFields` freed them — glibc aborts (type-coverage §71 on Linux).
+  Every struct return site (sync, `@nitroAsync`, property getter) now hands
+  back a deep copy (`_nitro_clone_<Struct>`: `strdup` / `malloc`+`memcpy`).
 - `NativeHandle<T>` parameters were passed as the wrapper object instead of
   `.pointer` (compile error in the generated FFI part).
 - Direct C++ bridge did not emit `<symbol>_release` for `@NitroOwned` handles

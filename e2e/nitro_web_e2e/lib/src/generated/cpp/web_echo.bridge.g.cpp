@@ -16,6 +16,30 @@
 #include "dart_api_dl.h"
 #endif
 #include "web_echo.bridge.g.h"
+#ifndef __EMSCRIPTEN__
+#include "nitro_completion_batch.h"
+static NitroCompletionBatch g_nitro_batch_web_echo;
+extern "C" {
+NITRO_EXPORT bool web_echo_nitro_post(int64_t port, struct _Dart_CObject* obj) { return g_nitro_batch_web_echo.post(port, obj); }
+NITRO_EXPORT int64_t web_echo_nitro_bind(int64_t batchPort) { return g_nitro_batch_web_echo.bind(batchPort); }
+NITRO_EXPORT void web_echo_nitro_ack(int64_t batchPort) { g_nitro_batch_web_echo.ack(batchPort); }
+}
+#include "nitro_worker_pool.h"
+static NitroWorkerPool g_nitro_pool_web_echo;
+[[maybe_unused]] static void _nitro_post_null(int64_t port) { Dart_CObject o; o.type = Dart_CObject_kNull; Dart_PostCObject_DL(port, &o); }
+[[maybe_unused]] static void _nitro_post_i64(int64_t port, int64_t v) { Dart_CObject o; o.type = Dart_CObject_kInt64; o.value.as_int64 = v; Dart_PostCObject_DL(port, &o); }
+[[maybe_unused]] static void _nitro_post_f64(int64_t port, double v) { Dart_CObject o; o.type = Dart_CObject_kDouble; o.value.as_double = v; Dart_PostCObject_DL(port, &o); }
+[[maybe_unused]] static void _nitro_post_bool(int64_t port, int8_t v) { Dart_CObject o; o.type = Dart_CObject_kBool; o.value.as_bool = v != 0; Dart_PostCObject_DL(port, &o); }
+[[maybe_unused]] static void _nitro_post_ptr(int64_t port, const void* p) { _nitro_post_i64(port, (int64_t)(intptr_t)p); }
+// Owned C string (strdup'd by the async sync export): posted as kString, then freed.
+[[maybe_unused]] static void _nitro_post_str_owned(int64_t port, char* s) { if (!s) { _nitro_post_null(port); return; } Dart_CObject o; o.type = Dart_CObject_kString; o.value.as_string = s; Dart_PostCObject_DL(port, &o); free(s); }
+// [int32 len][payload] blob → owned copy (empty for null).
+[[maybe_unused]] static std::vector<uint8_t> _nitro_copy_framed(const void* p) { if (!p) return {}; int32_t n = 0; memcpy(&n, p, 4); const uint8_t* b = (const uint8_t*)p; return std::vector<uint8_t>(b, b + 4 + (n < 0 ? 0 : n)); }
+[[maybe_unused]] static std::vector<uint8_t> _nitro_copy_bytes(const void* p, size_t n) { if (!p) return {}; const uint8_t* b = (const uint8_t*)p; return std::vector<uint8_t>(b, b + n); }
+// Moves the thread-local error of the worker into the per-call slot Dart reads.
+[[maybe_unused]] static void _nitro_move_err(NitroError* dst, NitroError* src) { if (!dst || !src) return; dst->hasError = 1; dst->name = src->name; dst->message = src->message; dst->code = src->code; dst->stackTrace = src->stackTrace; src->hasError = 0; src->name = src->message = src->code = src->stackTrace = nullptr; }
+#endif
+
 #include "web_echo.native.g.h"
 
 extern "C" {
@@ -570,6 +594,19 @@ void web_echo_emit_ticks(int64_t instanceId, int64_t count, NitroError* _nitro_e
     }
 }
 
+#ifndef __EMSCRIPTEN__
+NITRO_EXPORT void web_echo_sum_to_dispatch(int64_t instanceId, int64_t n, NitroError* _nitro_err, int64_t dart_port) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }
+    g_nitro_pool_web_echo.enqueue([=]() mutable {
+        web_echo_clear_error();
+        int64_t _r = web_echo_sum_to(instanceId, n);
+        NitroError* _e = web_echo_get_error();
+        if (_e->hasError) { _nitro_move_err(_nitro_err, _e); _nitro_post_null(dart_port); return; }
+        _nitro_post_i64(dart_port, _r);
+    });
+}
+
+#endif
 int64_t web_echo_get_counter(int64_t instanceId, NitroError* _nitro_err) {
     if (_nitro_err) { _nitro_err->hasError = 0; }  // S8: clear slot
     auto _impl = _nitro_get_instance(instanceId);

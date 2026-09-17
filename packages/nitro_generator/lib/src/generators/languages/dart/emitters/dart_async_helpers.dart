@@ -27,6 +27,7 @@ void _emitNativeAsyncBody(
     writer.line('        call: (port) => _${func.dartName}Ptr($callArgs, _nitroErr, port),');
     writer.line('        unpack: $wrappedUnpack,');
     writer.line('        cleanup: () => calloc.free(_nitroErr),');
+    writer.line('        batch: _nitroBatch,');
     writer.line("        methodName: '${func.dartName}',");
     writer.line('      );');
     writer.line('    } finally {');
@@ -65,6 +66,7 @@ void _emitNativeAsyncBody(
     writer.line('      call: (port) => _${func.dartName}Ptr($allCallArgs, _nitroErr, port),');
     writer.line('      unpack: $wrappedUnpack,');
     writer.line('      cleanup: () => calloc.free(_nitroErr),');
+    writer.line('      batch: _nitroBatch,');
     writer.line("      methodName: '${func.dartName}',");
     writer.line('    );');
   }

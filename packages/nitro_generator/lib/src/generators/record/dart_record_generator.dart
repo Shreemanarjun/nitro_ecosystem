@@ -129,9 +129,11 @@ String _generateDartRecordExtensions(BridgeSpec spec, DartCodecSlice slice) {
       s.writeln('      ${rt.name}RecordExt.fromReader(RecordReader.fromNative(ptr));');
       s.writeln();
       s.writeln('  Pointer<Uint8> toNative(Allocator alloc) {');
-      s.writeln('    final writer = RecordWriter();');
+      s.writeln('    final writer = RecordWriter.acquire();');
       s.writeln('    writeFields(writer);');
-      s.writeln('    return writer.toNative(alloc);');
+      s.writeln('    final ptr = writer.toNative(alloc);');
+      s.writeln('    RecordWriter.release(writer);');
+      s.writeln('    return ptr;');
       s.writeln('  }');
       s.writeln('}');
       s.writeln();
@@ -170,9 +172,11 @@ String _generateDartRecordExtensions(BridgeSpec spec, DartCodecSlice slice) {
     if (slice == DartCodecSlice.all) {
       // ── toNative (top-level, allocates native buffer) ─────────────────
       s.writeln('  Pointer<Uint8> toNative(Allocator alloc) {');
-      s.writeln('    final writer = RecordWriter();');
+      s.writeln('    final writer = RecordWriter.acquire();');
       s.writeln('    writeFields(writer);');
-      s.writeln('    return writer.toNative(alloc);');
+      s.writeln('    final ptr = writer.toNative(alloc);');
+      s.writeln('    RecordWriter.release(writer);');
+      s.writeln('    return ptr;');
       s.writeln('  }');
     }
 
@@ -214,11 +218,15 @@ String _generateDartRecordExtensions(BridgeSpec spec, DartCodecSlice slice) {
 
     // ── _nitroEncode_<Name> ──
     s.writeln('Pointer<Uint8> _nitroEncode_${rt.name}($tupleType v, Allocator alloc) {');
-    s.writeln('  final writer = RecordWriter();');
+    s.writeln('  final writer = RecordWriter.acquire();');
     for (var i = 0; i < rt.fields.length; i++) {
       _writeTupleFieldStmt(s, rt.fields[i], i + 1);
     }
-    s.writeln('  return writer.toNative(alloc);');
+    s.writeln('  final ptr = writer.toNative(alloc);');
+
+    s.writeln('  RecordWriter.release(writer);');
+
+    s.writeln('  return ptr;');
     s.writeln('}');
     s.writeln();
   }

@@ -83,7 +83,13 @@ class NitroConfig {
 
   /// Threshold in microseconds above which a [NitroRuntime.callAsync] call
   /// emits a [NitroLogLevel.warning] log.  Set to `0` to disable.
-  int slowCallThresholdUs = 16000; // 16 ms ≈ one frame at 60 fps
+  /// Slow-call warning threshold for sync calls, in microseconds; 0 disables.
+  ///
+  /// Off by default since 0.7.6: timing a call needs two clock reads, which
+  /// cost ~150 ns in a Flutter build — more than the checked sync call itself
+  /// (~20 ns). Turn it on for a diagnosis session with [enable] (16 ms, one
+  /// frame at 60 fps) or by setting this directly.
+  int slowCallThresholdUs = 0;
 
   /// Timeout in milliseconds for `@nitroNativeAsync` calls. When `> 0`, if the
   /// native side fails to post a result within this window (a crashed or buggy
@@ -148,7 +154,7 @@ class NitroConfig {
     logLevel = NitroLogLevel.error;
     logHandler = _defaultLog;
     isolatePoolSize = 1;
-    slowCallThresholdUs = 16000;
+    slowCallThresholdUs = 0;
     nativeAsyncTimeoutMs = 0;
     timelineTracingEnabled = false;
   }

@@ -97,8 +97,10 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
         ? 'NativeHandle<$nativeHandleTypeParam>'
         : func.returnType.name;
     final returnType = (func.isAsync || func.isNativeAsync || func.inlineFuture) ? 'Future<$effectiveDartReturnName>' : effectiveDartReturnName;
-    // inlineFuture: the sync body below runs inside an `async` function, so the
-    // future completes inline with no port and no isolate wake.
+    // inlineFuture: the sync body runs inside an `async` function; the future
+    // completes inline (no port, no isolate wake). Measured: Future.sync,
+    // Future.value and a sync Completer are no cheaper in a Flutter build —
+    // the await/microtask is the floor.
     final asyncMod = (func.isAsync || func.inlineFuture) ? 'async ' : '';
 
     writer.line('  @override');
@@ -112,7 +114,7 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
     // Classify once — avoids repeated spec.structs.any() / spec.enums.any() calls.
     final returnKind = classifyReturn(func.returnType, spec);
 
-    if (func.isNativeAsync) {
+    if (spec.bridgeAsync(func)) {
       _emitNativeAsyncBody(writer, func, spec, instancedCallArgs, needsArena);
     } else if (func.isAsync) {
       // plainCallArgs: used when no arena is needed. Apply the same optional-primitive
@@ -212,51 +214,52 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
       // ── @NitroResult sync path ────────────────────────────────────────────
       // C function returns Pointer<Uint8>: [1B tag: 0=ok, 1=err][record payload].
       // Errors are communicated through the tag, not the error slot.
-      final mnArg = ", methodName: '${func.dartName}'";
       final syncArgs = '$instancedCallArgs, _nitroErr';
-      if (needsArena) {
-        writer.line('    return NitroRuntime.callSync(() => withArena((arena) {');
-        writer.line('      final res = _${func.dartName}Ptr($syncArgs);');
-        _emitResultDecode(writer, resultReturnType, 'res', '      ', spec);
-        writer.line('    })$mnArg);');
-      } else {
-        writer.line('    return NitroRuntime.callSync(() {');
-        writer.line('      final res = _${func.dartName}Ptr($syncArgs);');
-        _emitResultDecode(writer, resultReturnType, 'res', '      ', spec);
-        writer.line('    }$mnArg);');
-      }
+      _emitInstrumentedSync(writer, func.dartName, (indent) {
+        if (needsArena) {
+          writer.line('${indent}return withArena((arena) {');
+          writer.line('$indent  final res = _${func.dartName}Ptr($syncArgs);');
+          _emitResultDecode(writer, resultReturnType, 'res', '$indent  ', spec);
+          writer.line('$indent});');
+        } else {
+          writer.line('${indent}final res = _${func.dartName}Ptr($syncArgs);');
+          _emitResultDecode(writer, resultReturnType, 'res', indent, spec);
+        }
+      });
     } else {
-      // ── Synchronous path — wrapped in callSync for logging + slow-call detection ──
-      final mnArg = ", methodName: '${func.dartName}'";
+      // ── Synchronous path — inline body between syncStart/syncEnd (no closure) ──
       // S8: append the pre-allocated error slot as the last argument so the C
       // bridge can write error info directly without a separate get_error() call.
-
       final syncArgs = '$instancedCallArgs, _nitroErr';
-      if (needsArena) {
-        // callSync wraps withArena so timing covers arena allocation + native call.
+      final checkErr = "NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree, methodName: '${func.dartName}');";
+      void emitCall(String indent) {
         if (rt == 'void') {
-          writer.line('    NitroRuntime.callSync<void>(() => withArena((arena) {');
-          writer.line('      _${func.dartName}Ptr($syncArgs);');
-          if (!isFast) writer.line(_assertCheckError('      '));
-          writer.line('    })$mnArg);');
-        } else {
-          writer.line('    return NitroRuntime.callSync(() => withArena((arena) {');
-          writer.line('      final res = _${func.dartName}Ptr($syncArgs);');
-          if (!isFast) writer.line(_assertCheckError('      '));
-          _emitReturnDecode(
-            writer,
-            func.returnType,
-            'res',
-            '      ',
-            spec,
-            zeroCopy: func.zeroCopyReturn,
-            dartName: func.dartName,
-            isOwned: func.isOwned,
-            nativeHandleTypeParam: nativeHandleTypeParam,
-            optIsBorrowed: true,
-          );
-          writer.line('    })$mnArg);');
+          writer.line('${indent}_${func.dartName}Ptr($syncArgs);');
+          if (!isFast) writer.line('$indent$checkErr');
+          return;
         }
+        writer.line('${indent}final res = _${func.dartName}Ptr($syncArgs);');
+        if (!isFast) writer.line('$indent$checkErr');
+        _emitReturnDecode(
+          writer,
+          func.returnType,
+          'res',
+          indent,
+          spec,
+          zeroCopy: func.zeroCopyReturn,
+          dartName: func.dartName,
+          isOwned: func.isOwned,
+          nativeHandleTypeParam: nativeHandleTypeParam,
+          optIsBorrowed: true,
+        );
+      }
+      if (needsArena) {
+        // The arena lives inside the instrumented span so timing covers it.
+        _emitInstrumentedSync(writer, func.dartName, (indent) {
+          writer.line('$indent${rt == 'void' ? '' : 'return '}withArena((arena) {');
+          emitCall('$indent  ');
+          writer.line('$indent});');
+        });
       } else if (isFast) {
         // ── Bare leaf body (#51) ── a `...Fast` method is the developer's
         // contract that this is a hot path: no error-slot check, and no
@@ -284,34 +287,24 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
           );
         }
       } else {
-        if (rt == 'void') {
-          writer.line('    NitroRuntime.callSync<void>(() {');
-          writer.line('      _${func.dartName}Ptr($syncArgs);');
-          if (!isFast) writer.line(_assertCheckError('      '));
-          writer.line('    }$mnArg);');
-        } else {
-          writer.line('    return NitroRuntime.callSync(() {');
-          writer.line('      final res = _${func.dartName}Ptr($syncArgs);');
-          if (!isFast) writer.line(_assertCheckError('      '));
-          _emitReturnDecode(
-            writer,
-            func.returnType,
-            'res',
-            '      ',
-            spec,
-            zeroCopy: func.zeroCopyReturn,
-            dartName: func.dartName,
-            isOwned: func.isOwned,
-            nativeHandleTypeParam: nativeHandleTypeParam,
-            optIsBorrowed: true,
-          );
-          writer.line('    }$mnArg);');
-        }
+        _emitInstrumentedSync(writer, func.dartName, emitCall);
       }
     }
     writer.line('  }');
     writer.blankLine();
   }
+}
+
+/// `final t0 = NitroRuntime.syncStart(name); try { body } finally { syncEnd }`
+/// — the body runs inline (no closure capturing the arguments), and the
+/// runtime keeps callSync's logging / timeline / slow-call semantics.
+void _emitInstrumentedSync(CodeWriter writer, String name, void Function(String indent) body) {
+  writer.line("    final t0 = NitroRuntime.syncStart('$name');");
+  writer.line('    try {');
+  body('      ');
+  writer.line('    } finally {');
+  writer.line("      NitroRuntime.syncEnd(t0, '$name');");
+  writer.line('    }');
 }
 
 BridgeType _nitroResultInnerType(BridgeType returnType) {

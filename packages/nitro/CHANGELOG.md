@@ -1,5 +1,25 @@
 ## 0.7.6
 
+Performance: the before/after table for this release (checked sync call
+0.273 → 0.033 µs, 64-call native-async burst 1015 → 140 µs, coalesced
+streams 4–11×) is in the nitro_generator 0.7.6 changelog.
+
+Changed
+- `RecordWriter.acquire()` / `release()` reuse one scratch writer per isolate
+  and `toNative` copies the framed payload without a typed-data view;
+  `withArena` hands out a bump allocator (64 KiB block, malloc fallback) at
+  depth 0. Sync call with a record list: 1.57 → 1.05 µs; map: 3.45 → 3.05 µs.
+- `openStream(ack:)`: called after every delivered message on a
+  `Backpressure.batch` stream (see nitro_generator: the port is bound to the
+  completion batcher on every backend).
+- `NitroConfig.slowCallThresholdUs` defaults to 0 (was 16 ms). Timing a
+  call costs two clock reads (~150 ns in a Flutter build), more than the
+  checked sync call itself, so slow-call detection is now opt-in via
+  `NitroConfig.instance.enable()` or the setter. Generated sync calls run
+  their body inline between `NitroRuntime.syncStart`/`syncEnd` instead of a
+  `callSync` closure; `throwIfOutParamError(methodName:)` logs the `threw:`
+  line the closure used to.
+
 Added
 - `NitroBackground`: `runEntry`, `runStreamEntry`, `openStream`, `spawnFallback`,
   `jobIdOf` — runtime side of `@NitroEntryPoint`. Web twin throws
@@ -11,6 +31,16 @@ Added
   `<lib>_bg_post` export (callback-parameter proxies).
 - `NitroBackground.callbackPort` (caller-side proxy for an entry point's
   callback parameter) and `openStream(onClose:)`.
+- `NitroCompletionBatch` + `nitro_completion_batch.h`: one shared port per
+  library for `@nitroNativeAsync` completions and `@nitroAsync` bridge
+  dispatch; results that arrive while Dart is still handling the previous
+  message travel together (`[id, value, ...]`), acked with `<lib>_nitro_ack`.
+  A stream port registered with `coalesce(port)` is its own batch target
+  (`[item, item, ...]`). 64 concurrent completions: 1015 → 133 µs on macOS.
+- `nitro_worker_pool.h`: lazy pool (≤4 threads) the generated
+  `<sym>_dispatch` exports run on. `NitroRuntime.openNativeAsync(batch:)`.
+- `NitroRuntime.syncStart` / `syncEnd`: the instrumentation half of a
+  generated sync call; `-1` and a no-op when nothing is enabled.
 
 ## 0.7.5
 

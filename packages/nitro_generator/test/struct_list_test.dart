@@ -88,7 +88,7 @@ BridgeSpec _asyncStructListReturnSpec() => BridgeSpec(
     BridgeFunction(
       dartName: 'fetchPrinters',
       cSymbol: 'print_module_fetch_printers',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(
         name: 'List<Printer>',
         isRecord: true,
@@ -198,6 +198,8 @@ BridgeSpec _mixedStructListAndRecordSpec() => BridgeSpec(
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
+// @nitroAsync fixtures here carry a timeout so they exercise the isolate-pool
+// path; bridge dispatch (the default now) is covered in async_dispatch_test.dart.
 void main() {
   // ── Section 1: Dart FFI sync method return ────────────────────────────────
 

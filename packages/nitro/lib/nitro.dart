@@ -31,6 +31,7 @@ export 'src/nitro_promise.dart';
 
 export 'src/nitro_runtime.dart' if (dart.library.js_interop) 'src/web/nitro_runtime_web.dart';
 export 'src/nitro_background.dart' if (dart.library.js_interop) 'src/web/nitro_background_web.dart';
+export 'src/nitro_completion_batch.dart' if (dart.library.js_interop) 'src/web/nitro_completion_batch_web.dart';
 
 export 'src/isolate_pool.dart' if (dart.library.js_interop) 'src/web/isolate_pool_web.dart';
 

@@ -18,6 +18,10 @@
 //     Dart would decode-and-free a live local buffer.
 //   • Record/variant PARAMS are non-owning payload views (no length prefix)
 //     — copy if you need them after the call.
+//   • @HybridStruct RETURNS: the bridge deep-copies every pointer field
+//     (String, typed data, nested struct) before Dart sees it, so return
+//     views of your own storage (or the argument) and keep ownership of
+//     what you return; do not malloc fields for Dart to free.
 //   • TypedData RETURNS use NitroCppBuffer{ data, size } where size is in
 //     BYTES, not elements (Float32List: count * sizeof(float)). A wrong
 //     unit silently truncates the list Dart sees (bytes / elemSize).
@@ -170,6 +174,16 @@ public:
         // return 0;
     }
 
+    void burstPoints(int64_t count, bool batched) override {
+        // TODO: implement burstPoints
+        throw std::runtime_error("Not implemented: burstPoints");
+    }
+
+    void burstInts(int64_t count, bool batched) override {
+        // TODO: implement burstInts
+        throw std::runtime_error("Not implemented: burstInts");
+    }
+
     int64_t sendLargeBufferFast(const uint8_t* buffer, size_t buffer_length) override {
         // TODO: implement sendLargeBufferFast
         throw std::runtime_error("Not implemented: sendLargeBufferFast");
@@ -202,6 +216,10 @@ public:
     // as record returns). Never emit a non-owning writer.toBuffer() view.
     // Example — start emitting from a background thread:
     //
+    //   std::thread([this]{ emit_pointBurstPerItem(/* BenchmarkPoint value */); }).detach();
+    //   std::thread([this]{ emit_pointBurstBatched(/* BenchmarkPoint value */); }).detach();
+    //   std::thread([this]{ emit_intBurstPerItem(/* int64_t value */); }).detach();
+    //   std::thread([this]{ emit_intBurstBatched(/* int64_t value */); }).detach();
     //   std::thread([this]{ emit_dataStream(/* BenchmarkPoint value */); }).detach();
     //   std::thread([this]{ emit_boxStream(/* BenchmarkBox value */); }).detach();
 };

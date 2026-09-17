@@ -355,7 +355,7 @@ class SwiftFunctionEmitter {
     writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else {');
     writer.line('        var _null = Dart_CObject()');
     writer.line('        _null.type = Dart_CObject_kNull');
-    writer.line('        Dart_PostCObject_DL(dartPort, &_null)');
+    writer.line('        _ = ${_libStem(spec)}_nitro_post(dartPort, &_null)');
     writer.line('        return');
     writer.line('    }');
     // Pre-decode nullable prim/DateTime pointer params BEFORE Task.detached.
@@ -434,35 +434,35 @@ class SwiftFunctionEmitter {
         writer.line('        try await impl.${func.dartName}($callArgs)');
         writer.line('        var _null = Dart_CObject()');
         writer.line('        _null.type = Dart_CObject_kNull');
-        writer.line('        Dart_PostCObject_DL(dartPort, &_null)');
+        writer.line('        _ = ${_libStem(spec)}_nitro_post(dartPort, &_null)');
       case 'String':
         writer.line('        let _result = try await impl.${func.dartName}($callArgs)');
         writer.line('        _result.withCString { cStr in');
         writer.line('            var _obj = Dart_CObject()');
         writer.line('            _obj.type = Dart_CObject_kString');
         writer.line('            _obj.value.as_string = cStr');
-        writer.line('            Dart_PostCObject_DL(dartPort, &_obj)');
+        writer.line('            _ = ${_libStem(spec)}_nitro_post(dartPort, &_obj)');
         writer.line('        }');
       case 'String?':
         writer.line('        let _result = try await impl.${func.dartName}($callArgs)');
         writer.line('        guard let _value = _result ?? nil else {');
         writer.line('            var _null = Dart_CObject()');
         writer.line('            _null.type = Dart_CObject_kNull');
-        writer.line('            Dart_PostCObject_DL(dartPort, &_null)');
+        writer.line('            _ = ${_libStem(spec)}_nitro_post(dartPort, &_null)');
         writer.line('            return');
         writer.line('        }');
         writer.line('        _value.withCString { cStr in');
         writer.line('            var _obj = Dart_CObject()');
         writer.line('            _obj.type = Dart_CObject_kString');
         writer.line('            _obj.value.as_string = cStr');
-        writer.line('            Dart_PostCObject_DL(dartPort, &_obj)');
+        writer.line('            _ = ${_libStem(spec)}_nitro_post(dartPort, &_obj)');
         writer.line('        }');
       case 'bool':
         writer.line('        let _result = try await impl.${func.dartName}($callArgs)');
         writer.line('        var _obj = Dart_CObject()');
         writer.line('        _obj.type = Dart_CObject_kBool');
         writer.line('        _obj.value.as_bool = _result');
-        writer.line('        Dart_PostCObject_DL(dartPort, &_obj)');
+        writer.line('        _ = ${_libStem(spec)}_nitro_post(dartPort, &_obj)');
       case 'bool?':
         // Pointer approach: malloc NitroOptBool (2B), post address as kInt64. Dart frees.
         writer.line('        let _result = try await impl.${func.dartName}($callArgs)');
@@ -472,7 +472,7 @@ class SwiftFunctionEmitter {
         writer.line('        var _obj = Dart_CObject()');
         writer.line('        _obj.type = Dart_CObject_kInt64');
         writer.line('        _obj.value.as_int64 = Int64(bitPattern: UInt64(UInt(bitPattern: _out_nb)))');
-        writer.line('        Dart_PostCObject_DL(dartPort, &_obj)');
+        writer.line('        _ = ${_libStem(spec)}_nitro_post(dartPort, &_obj)');
       default:
         final isDouble = retName == 'double';
         final isNullDbl = retName == 'double?';
@@ -669,7 +669,7 @@ class SwiftFunctionEmitter {
             writer.line('        _obj.type = Dart_CObject_kInt64');
             writer.line('        _obj.value.as_int64 = Int64(_result)');
         }
-        writer.line('        Dart_PostCObject_DL(dartPort, &_obj)');
+        writer.line('        _ = ${_libStem(spec)}_nitro_post(dartPort, &_obj)');
     }
 
     writer.line('        } catch {');
@@ -685,7 +685,7 @@ class SwiftFunctionEmitter {
     writer.line('            }');
     writer.line('            var _null = Dart_CObject()');
     writer.line('            _null.type = Dart_CObject_kNull');
-    writer.line('            Dart_PostCObject_DL(dartPort, &_null)');
+    writer.line('            _ = ${_libStem(spec)}_nitro_post(dartPort, &_null)');
     writer.line('        }');
     writer.line('    }');
     writer.line('}');
@@ -1322,3 +1322,6 @@ class SwiftFunctionEmitter {
     }
   }
 }
+
+/// C symbol prefix of this library (`lib` with dashes as underscores).
+String _libStem(BridgeSpec spec) => spec.lib.replaceAll('-', '_');

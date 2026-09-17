@@ -2,6 +2,8 @@ import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
+// @nitroAsync fixtures here carry a timeout so they exercise the isolate-pool
+// path; bridge dispatch (the default now) is covered in async_dispatch_test.dart.
 void main() {
   group('DartFfiGenerator', () {
     test('emits part directive', () {
@@ -108,9 +110,11 @@ void main() {
       );
     });
 
-    test('async String function returns NitroRuntime.callAsync', () {
+    test('async String function dispatches on the bridge (no isolate pool)', () {
       final out = DartFfiGenerator.generate(simpleSpec());
-      expect(out, contains('NitroRuntime.callAsync'));
+      expect(out, contains("('my_camera_get_greeting_dispatch')"));
+      expect(out, contains('NitroRuntime.openNativeAsync'));
+      expect(out, isNot(contains('NitroRuntime.callAsync')));
     });
 
     test('enum return type uses Int64 FFI type and isLeaf binding', () {
@@ -293,7 +297,7 @@ void main() {
           BridgeFunction(
             dartName: 'print',
             cSymbol: 'printer_print',
-            isAsync: true,
+            isAsync: true, asyncTimeout: 1000,
             returnType: BridgeType(name: 'bool'),
             params: [
               BridgeParam(
@@ -439,13 +443,13 @@ void main() {
   });
 
   group('DartFfiGenerator (@HybridRecord)', () {
-    test('async single record return uses Pointer<Uint8> FFI lookup type', () {
+    test('async single record return binds the dispatch twin (port-ABI signature)', () {
       final out = DartFfiGenerator.generate(singleRecordSpec());
       expect(
         out,
         contains(
-          "lookupFunction<Pointer<Uint8> Function(Int64), Pointer<Uint8> Function(int)>"
-          "('camera_module_get_device')",
+          "lookupFunction<Void Function(Int64, Pointer<NitroErrorFfi>, Int64), void Function(int, Pointer<NitroErrorFfi>, int)>"
+          "('camera_module_get_device_dispatch')",
         ),
       );
     });
@@ -659,7 +663,7 @@ void main() {
           BridgeFunction(
             dartName: 'getTags',
             cSymbol: 'foo_get_tags',
-            isAsync: true,
+            isAsync: true, asyncTimeout: 1000,
             returnType: BridgeType(
               name: 'List<String>',
               isRecord: true,
@@ -688,7 +692,7 @@ void main() {
           BridgeFunction(
             dartName: 'getCounts',
             cSymbol: 'foo_get_counts',
-            isAsync: true,
+            isAsync: true, asyncTimeout: 1000,
             returnType: BridgeType(
               name: 'List<int>',
               isRecord: true,
@@ -716,7 +720,7 @@ void main() {
           BridgeFunction(
             dartName: 'getScores',
             cSymbol: 'foo_get_scores',
-            isAsync: true,
+            isAsync: true, asyncTimeout: 1000,
             returnType: BridgeType(
               name: 'List<double>',
               isRecord: true,
@@ -836,7 +840,7 @@ void main() {
           BridgeFunction(
             dartName: 'getMetadata',
             cSymbol: 'foo_get_metadata',
-            isAsync: true,
+            isAsync: true, asyncTimeout: 1000,
             returnType: BridgeType(
               name: 'Map<String, dynamic>',
               isRecord: true,
@@ -1016,14 +1020,14 @@ void main() {
             BridgeFunction(
               dartName: 'getConfig',
               cSymbol: 'hybrid_get_config',
-              isAsync: true,
+              isAsync: true, asyncTimeout: 1000,
               returnType: BridgeType(name: 'Config', isRecord: true, isFuture: true),
               params: [],
             ),
             BridgeFunction(
               dartName: 'processFrame',
               cSymbol: 'hybrid_process_frame',
-              isAsync: true,
+              isAsync: true, asyncTimeout: 1000,
               returnType: BridgeType(name: 'Frame', isFuture: true),
               params: [],
             ),

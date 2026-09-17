@@ -98,59 +98,21 @@ void _emitStreamImpls(CodeWriter writer, BridgeSpec spec) {
         : 'Stream<$streamItemType${stream.itemType.isNullable ? '?' : ''}> get ${stream.dartName}';
     writer.line('  $streamSig {');
     writer.line('    checkDisposed();');
-    if (stream.isBatch && itemType == 'String') {
-      // String batch: native sends Dart_CObject_kArray of kStrings → List<dynamic>.
-      writer.line('    return NitroRuntime.openStream<List<dynamic>>(');
+    if (stream.isBatch) {
+      // Batch stream: the bridge batcher delivers [item, item, ...] per Dart
+      // wake (whatever native emitted while Dart was busy) and expects an ack
+      // after each message. Same shape on every backend.
+      final openType = (isStruct || isStructBase) ? '${baseItemType}Proxy${stream.itemType.isNullable ? '?' : ''}' : '$streamItemType${stream.itemType.isNullable ? '?' : ''}';
+      // unpackExpr is a `(message) ...` closure; declare it as a local function.
+      final decl = '$openType unpackItem(dynamic message)${unpackExpr.substring('(message)'.length)}';
+      writer.line('    ${decl.endsWith('}') ? decl : '$decl;'}');
+      writer.line('    return NitroRuntime.openStream<List<$openType>>(');
       writer.line('      register: (port) => _register${cap}Ptr(_instanceId, port),');
-      writer.line('      unpack: (message) => message as List<dynamic>,');
+      writer.line('      unpack: (message) => [for (final m in message as List<dynamic>) unpackItem(m)],');
       writer.line('      release: (port) => _release${cap}Ptr(port),');
       writer.line('      backpressure: Backpressure.batch,');
-      writer.line('    ).asyncExpand((batch) {');
-      writer.line('      return Stream.fromIterable(batch.cast<String>());');
-      writer.line('    });');
-    } else if (stream.isBatch && (isRecord || isVariant)) {
-      // Record/variant batch: native emits [4B outer_len][4B count][item bytes...] as Uint8List.
-      // Dart copies to native memory and decodes with RecordReader.decodeList.
-      final decodeCall = isRecord ? 'RecordReader.decodeList(ptr, (r) => ${baseItemType}Ext.fromReader(r))' : 'RecordReader.decodeList(ptr, (r) => ${baseItemType}VariantExt.fromReader(r))';
-      writer.line('    return NitroRuntime.openStream<Uint8List>(');
-      writer.line('      register: (port) => _register${cap}Ptr(_instanceId, port),');
-      writer.line('      unpack: (message) => message as Uint8List,');
-      writer.line('      release: (port) => _release${cap}Ptr(port),');
-      writer.line('      backpressure: Backpressure.batch,');
-      writer.line('    ).asyncExpand((batch) {');
-      writer.line('      final ptr = malloc<Uint8>(batch.length);');
-      writer.line('      ptr.asTypedList(batch.length).setAll(0, batch);');
-      writer.line('      try {');
-      writer.line('        return Stream.fromIterable($decodeCall);');
-      writer.line('      } finally {');
-      writer.line('        malloc.free(ptr);');
-      writer.line('      }');
-      writer.line('    });');
-    } else if (stream.isBatch) {
-      // Numeric batch: native emits Int64List [count, item0, item1, ...].
-      writer.line('    return NitroRuntime.openStream<List<int>>(');
-      writer.line('      register: (port) => _register${cap}Ptr(_instanceId, port),');
-      // Dart_CObject_kArray arrives as List<dynamic>; .cast<int>() lazy-reifies it.
-      writer.line('      unpack: (message) => (message as List).cast<int>(),');
-      writer.line('      release: (port) => _release${cap}Ptr(port),');
-      writer.line('      backpressure: Backpressure.batch,');
-      writer.line('    ).asyncExpand((batch) {');
-      writer.line('      final count = batch[0];');
-      // Build a List of decoded items and return Stream.fromIterable.
-      switch (itemType) {
-        case 'int':
-          writer.line('      return Stream.fromIterable([for (var i = 1; i <= count; i++) batch[i]]);');
-        case 'double':
-          writer.line('      return Stream.fromIterable([for (var i = 1; i <= count; i++) Int64List.fromList([batch[i]]).buffer.asFloat64List()[0]]);');
-        case 'bool':
-          writer.line('      return Stream.fromIterable([for (var i = 1; i <= count; i++) batch[i] != 0]);');
-        case _ when spec.isEnumName(itemType):
-          // Enum batch: items packed as Int64 rawValues → decode to enum via extension.
-          writer.line('      return Stream.fromIterable([for (var i = 1; i <= count; i++) batch[i].to$itemType()]);');
-        default:
-          writer.line('      return Stream.fromIterable([for (var i = 1; i <= count; i++) batch[i] as $itemType]);');
-      }
-      writer.line('    });');
+      writer.line('      ack: _nitroAckPtr,');
+      writer.line('    ).asyncExpand(Stream.fromIterable);');
     } else {
       // For struct streams, openStream is typed to the Proxy so the NativeFinalizer
       // is attached correctly, but the return is implicitly upcast to Stream<value>.

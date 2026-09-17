@@ -744,7 +744,7 @@ Directory _spmScaffoldSharedCppTarget(
   // nitro_wasm_compat.h is deliberately excluded: SwiftPM compiles every
   // header in include/, and its non-Emscripten #error guard fails the build.
   // Only CMake targets, which take an explicit source list, can carry it.
-  for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h', 'nitro_background.h']) {
+  for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h', 'nitro_background.h', 'nitro_completion_batch.h', 'nitro_worker_pool.h']) {
     final src = File(p.join(nitroNativePath, headerName));
     if (src.existsSync()) src.copySync(p.join(includeDir.path, headerName));
   }
@@ -967,11 +967,12 @@ void _spmSyncOneModuleCppTarget(
       final relPath = p.relative(implSrc.path, from: moduleTargetDir.path).replaceAll(r'\', '/');
       implForwarder.writeAsStringSync(managedCppForwarder(relPath));
     }
-    final hSrc = File(p.join(baseDir, 'lib', 'src', 'generated', 'cpp', '${m.lib}.bridge.g.h'));
-    if (hSrc.existsSync()) hSrc.copySync(p.join(moduleIncludeDir.path, '${m.lib}.bridge.g.h'));
   } else {
     if (implForwarder.existsSync()) implForwarder.deleteSync();
   }
+  // Bridge header for every module (the Swift bridge needs <lib>_nitro_post).
+  final hSrc = File(p.join(baseDir, 'lib', 'src', 'generated', 'cpp', '${m.lib}.bridge.g.h'));
+  if (hSrc.existsSync()) hSrc.copySync(p.join(moduleIncludeDir.path, '${m.lib}.bridge.g.h'));
 
   // REPAIR: this module's sources used to be synced into the
   // plugin-level target — remove them there so both targets never
@@ -1057,17 +1058,6 @@ void _spmSyncMainModuleCppForwarders(
         implForwarder.writeAsStringSync(managedCppForwarder(relPath));
       }
 
-      // Copy only the C-compatible bridge header into include/. The .native.g.h
-      // uses C++ types (std::string, classes) and must NOT be a public module
-      // header — CocoaPods would include it in the umbrella and break Swift/ObjC
-      // module compilation. It is reachable via HEADER_SEARCH_PATHS instead.
-      final bridgeHeader = '$lib.bridge.g.h';
-      final hSrc = File(
-        p.join(baseDir, 'lib', 'src', 'generated', 'cpp', bridgeHeader),
-      );
-      if (hSrc.existsSync()) {
-        hSrc.copySync(p.join(includeDir.path, bridgeHeader));
-      }
     } else {
       // ── Remove stale impl forwarder for non-Apple-C++ modules ─────────────
       // e.g. a module with `windows: WindowsNativeImpl.cpp, ios: NativeImpl.swift`
@@ -1077,6 +1067,20 @@ void _spmSyncMainModuleCppForwarders(
       // even for Swift-backed modules. Deleting it causes a symbol-not-found
       // crash at runtime on any second/third spec in a multi-spec plugin.
       if (implForwarder.existsSync()) implForwarder.deleteSync();
+    }
+
+    // Copy only the C-compatible bridge header into include/ — for EVERY
+    // module, not just C++-implemented ones: the Swift bridge calls the
+    // library's exported <lib>_nitro_post, declared there. The .native.g.h
+    // uses C++ types (std::string, classes) and must NOT be a public module
+    // header — CocoaPods would include it in the umbrella and break Swift/ObjC
+    // module compilation. It is reachable via HEADER_SEARCH_PATHS instead.
+    final bridgeHeader = '$lib.bridge.g.h';
+    final hSrc = File(
+      p.join(baseDir, 'lib', 'src', 'generated', 'cpp', bridgeHeader),
+    );
+    if (hSrc.existsSync()) {
+      hSrc.copySync(p.join(includeDir.path, bridgeHeader));
     }
   }
 }

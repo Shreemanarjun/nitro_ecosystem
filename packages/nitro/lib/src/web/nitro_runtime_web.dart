@@ -17,6 +17,7 @@ import 'package:meta/meta.dart';
 
 import '../annotations.dart';
 import '../nitro_config.dart';
+import 'nitro_completion_batch_web.dart';
 import '../shared/nitro_bytes.dart';
 import 'nitro_error_web.dart';
 import 'nitro_wasm_module.dart';
@@ -418,6 +419,11 @@ class NitroRuntime {
 
   /// Calls a bridge function synchronously, with the same logging and
   /// slow-call detection as the native runtime.
+  /// Generated native code brackets sync calls with these; the web bridge
+  /// still uses [callSync], so they are parity stubs.
+  static int syncStart(String methodName) => -1;
+  static void syncEnd(int start, String methodName) {}
+
   static T callSync<T>(T Function() call, {String methodName = ''}) {
     final cfg = NitroConfig.instance;
     final effective = cfg.effectiveLogLevel;
@@ -525,6 +531,8 @@ class NitroRuntime {
     required T Function(dynamic raw) unpack,
     void Function()? cleanup,
     String methodName = '',
+
+    NitroCompletionBatch? batch,
   }) {
     final cfg = NitroConfig.instance;
     final effective = cfg.effectiveLogLevel;
@@ -601,6 +609,11 @@ class NitroRuntime {
     required T Function(dynamic message) unpack,
     required void Function(int dartPort) release,
     required Backpressure backpressure,
+
+    /// Coalesced streams (`Backpressure.batch` on an all-C++ spec): called
+    /// after every delivered message so the bridge flushes what accumulated
+    /// meanwhile, or goes idle.
+    void Function(int dartPort)? ack,
     String? debugLabel,
     @visibleForTesting WebReceivePort? testPort,
   }) {
@@ -655,6 +668,7 @@ class NitroRuntime {
         );
         controller.addError(e, st);
       }
+      if (!released) ack?.call(nativePort);
     });
 
     return controller.stream;

@@ -93,6 +93,8 @@ BridgeSpec _spec(String returnType, {List<BridgeParam> params = const [], bool i
 
 // ── BridgeType.kind ───────────────────────────────────────────────────────────
 
+// @nitroAsync fixtures here carry a timeout so they exercise the isolate-pool
+// path; bridge dispatch (the default now) is covered in async_dispatch_test.dart.
 void main() {
   group('L12 tuple — BridgeType.kind', () {
     test('isTuple=true → BridgeTypeKind.tuple', () {
@@ -338,7 +340,7 @@ void main() {
         BridgeFunction(
           dartName: 'getPairAsync',
           cSymbol: 'counter_getPairAsync',
-          isAsync: true,
+          isAsync: true, asyncTimeout: 1000,
           returnType: _tupleType('MyPair'),
           params: [],
         ),

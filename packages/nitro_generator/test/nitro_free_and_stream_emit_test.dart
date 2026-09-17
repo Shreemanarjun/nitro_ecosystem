@@ -104,7 +104,7 @@ void main() {
 
     test('Dart impl class binds _nitroFree + finalizer variant from the export', () {
       final out = DartFfiGenerator.generate(_spec());
-      expect(out, contains("_dylib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('nitro_free_test_nitro_free')"));
+      expect(out, contains("_dylib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('nitro_free_test_nitro_free', isLeaf: true)"));
       expect(out, contains('void _nitroFree(Pointer<NativeType> ptr) => _nitroFreePtr(ptr.cast());'));
       expect(out, contains("_dylib.lookup<NativeFinalizerFunction>('nitro_free_test_nitro_free').cast()"));
     });
@@ -134,7 +134,7 @@ void main() {
 
     test('S8 error-slot checks pass the native free for the strdup\'d string fields', () {
       final out = DartFfiGenerator.generate(_spec());
-      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);'));
+      expect(out, contains('NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree'));
     });
   });
 

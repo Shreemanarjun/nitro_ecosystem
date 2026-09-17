@@ -5,6 +5,7 @@ import '../../../bridge_spec.dart';
 import '../../code_writer.dart';
 import '../../generator_metadata.dart';
 import '../cpp_native/cpp_interface_generator.dart';
+import 'cpp_header_generator.dart';
 import '../../struct_generator.dart';
 
 part 'cpp_bridge/swift_shim_emitter.dart';
@@ -55,6 +56,176 @@ class CppBridgeGenerator {
   /// method — the NativeFinalizer target on the Dart side. Shared by the
   /// JNI/Swift bridge and the direct C++ bridge (the latter had none, so an
   /// owned handle on a C++-only spec failed at symbol lookup).
+  /// Deep-copy helpers for every @HybridStruct. Dart frees each pointer field
+  /// of a struct the C++ implementation returns (`freeFields` →
+  /// `<lib>_nitro_free`), so the bridge must hand back fresh malloc'd copies —
+  /// never the impl's own storage or the caller's arguments. The shallow
+  /// `*_ptr = _res` this replaces made Dart free the input arena (glibc aborts).
+  static void _emitStructCloneHelpers(CodeWriter writer, BridgeSpec spec) {
+    if (spec.structs.isEmpty) return;
+    final names = spec.structs.map((s) => s.name).toSet();
+    writer.line('// Deep copies of returned structs: Dart frees every pointer field.');
+    for (final st in spec.structs) {
+      writer.line('[[maybe_unused]] static ${st.name} _nitro_clone_${st.name}(const ${st.name}& _s);');
+    }
+    for (final st in spec.structs) {
+      writer.line('[[maybe_unused]] static ${st.name} _nitro_clone_${st.name}(const ${st.name}& _s) {');
+      writer.line('    ${st.name} _c = _s;');
+      for (final f in st.fields) {
+        final base = bareTypeName(f.type.name);
+        final n = f.name;
+        if (base == 'String') {
+          writer.line('    _c.$n = _s.$n ? strdup(_s.$n) : nullptr;');
+        } else if (f.type.isTypedData) {
+          if (f.zeroCopy) continue; // borrowed Dart-pinned view: Dart never frees it
+          final len = zeroCopyCompanionField(st, n) ?? '${n}Length';
+          writer.line('    if (_s.$n) {');
+          writer.line('        size_t _len = (size_t)_s.$len * sizeof(*_s.$n);');
+          writer.line('        _c.$n = (decltype(_c.$n))malloc(_len ? _len : 1);');
+          writer.line('        if (_len) memcpy(_c.$n, _s.$n, _len);');
+          writer.line('    }');
+        } else if (names.contains(base)) {
+          writer.line('    if (_s.$n) {');
+          writer.line('        _c.$n = ($base*)malloc(sizeof($base));');
+          writer.line('        *_c.$n = _nitro_clone_$base(*_s.$n);');
+          writer.line('    }');
+        }
+      }
+      writer.line('    return _c;');
+      writer.line('}');
+    }
+    writer.blankLine();
+  }
+
+  /// Per-library completion batcher instance + its three exports. Emitted
+  /// right after the DL header so the macro from the bridge header can route
+  /// every later post site through it (web builds have no ports: skipped).
+  static void _emitCompletionBatch(CodeWriter writer, BridgeSpec spec) {
+    final libStem = spec.lib.replaceAll('-', '_');
+    if (spec.targetsWeb) writer.line('#ifndef __EMSCRIPTEN__');
+    writer.line('#include "nitro_completion_batch.h"');
+    writer.line('static NitroCompletionBatch g_nitro_batch_$libStem;');
+    writer.line('extern "C" {');
+    writer.line('NITRO_EXPORT bool ${libStem}_nitro_post(int64_t port, struct _Dart_CObject* obj) { return g_nitro_batch_$libStem.post(port, obj); }');
+    writer.line('NITRO_EXPORT int64_t ${libStem}_nitro_bind(int64_t batchPort) { return g_nitro_batch_$libStem.bind(batchPort); }');
+    writer.line('NITRO_EXPORT void ${libStem}_nitro_ack(int64_t batchPort) { g_nitro_batch_$libStem.ack(batchPort); }');
+    writer.line('}');
+    if (spec.functions.any(spec.dispatchesAsync)) _emitWorkerDispatchInfra(writer, spec, libStem);
+    if (spec.targetsWeb) writer.line('#endif');
+    writer.blankLine();
+  }
+
+  /// Batch stream: the port is its own batch target in the per-library
+  /// batcher while it is registered (see nitro_completion_batch.h).
+  static void _emitStreamCoalesce(CodeWriter writer, BridgeSpec spec, String call) {
+    if (spec.targetsWeb) writer.line('#ifndef __EMSCRIPTEN__');
+    writer.line('    g_nitro_batch_${spec.lib.replaceAll('-', '_')}.$call(dart_port);');
+    if (spec.targetsWeb) writer.line('#endif');
+  }
+
+  /// Worker pool + post helpers behind `<sym>_dispatch` (see
+  /// [emitCppWorkerDispatch]); emitted inside the same non-web guard.
+  static void _emitWorkerDispatchInfra(CodeWriter writer, BridgeSpec spec, String libStem) {
+    writer.line('#include "nitro_worker_pool.h"');
+    writer.line('static NitroWorkerPool g_nitro_pool_$libStem;');
+    writer.line('[[maybe_unused]] static void _nitro_post_null(int64_t port) { Dart_CObject o; o.type = Dart_CObject_kNull; Dart_PostCObject_DL(port, &o); }');
+    writer.line('[[maybe_unused]] static void _nitro_post_i64(int64_t port, int64_t v) { Dart_CObject o; o.type = Dart_CObject_kInt64; o.value.as_int64 = v; Dart_PostCObject_DL(port, &o); }');
+    writer.line('[[maybe_unused]] static void _nitro_post_f64(int64_t port, double v) { Dart_CObject o; o.type = Dart_CObject_kDouble; o.value.as_double = v; Dart_PostCObject_DL(port, &o); }');
+    writer.line('[[maybe_unused]] static void _nitro_post_bool(int64_t port, int8_t v) { Dart_CObject o; o.type = Dart_CObject_kBool; o.value.as_bool = v != 0; Dart_PostCObject_DL(port, &o); }');
+    writer.line('[[maybe_unused]] static void _nitro_post_ptr(int64_t port, const void* p) { _nitro_post_i64(port, (int64_t)(intptr_t)p); }');
+    writer.line('// Owned C string (strdup\'d by the async sync export): posted as kString, then freed.');
+    writer.line('[[maybe_unused]] static void _nitro_post_str_owned(int64_t port, char* s) { if (!s) { _nitro_post_null(port); return; } Dart_CObject o; o.type = Dart_CObject_kString; o.value.as_string = s; Dart_PostCObject_DL(port, &o); free(s); }');
+    writer.line('// [int32 len][payload] blob → owned copy (empty for null).');
+    writer.line('[[maybe_unused]] static std::vector<uint8_t> _nitro_copy_framed(const void* p) { if (!p) return {}; int32_t n = 0; memcpy(&n, p, 4); const uint8_t* b = (const uint8_t*)p; return std::vector<uint8_t>(b, b + 4 + (n < 0 ? 0 : n)); }');
+    writer.line('[[maybe_unused]] static std::vector<uint8_t> _nitro_copy_bytes(const void* p, size_t n) { if (!p) return {}; const uint8_t* b = (const uint8_t*)p; return std::vector<uint8_t>(b, b + n); }');
+    writer.line('// Moves the thread-local error of the worker into the per-call slot Dart reads.');
+    writer.line('[[maybe_unused]] static void _nitro_move_err(NitroError* dst, NitroError* src) { if (!dst || !src) return; dst->hasError = 1; dst->name = src->name; dst->message = src->message; dst->code = src->code; dst->stackTrace = src->stackTrace; src->hasError = 0; src->name = src->message = src->code = src->stackTrace = nullptr; }');
+  }
+
+  /// `<sym>_dispatch`: the `@nitroAsync` twin that copies its arguments, runs
+  /// the unchanged sync export on the worker pool and posts the result (the
+  /// thread-local error becomes the per-call slot; a kNull post tells Dart to
+  /// read it). Emitted by both C++ dispatch paths after the sync functions.
+  static void emitCppWorkerDispatch(CodeWriter w, BridgeSpec spec, String libStem) {
+    final funcs = spec.functions.where(spec.dispatchesAsync).toList();
+    if (funcs.isEmpty) return;
+    if (spec.targetsWeb) w.line('#ifndef __EMSCRIPTEN__');
+    for (final st in spec.structs) {
+      w.line('void ${libStem}_release_${st.name}(void* ptr);');
+    }
+    for (final func in funcs) {
+      _emitDispatchFunction(w, spec, libStem, func);
+    }
+    if (spec.targetsWeb) w.line('#endif');
+  }
+
+  /// One `<sym>_dispatch` export (see [emitCppWorkerDispatch]).
+  static void _emitDispatchFunction(CodeWriter w, BridgeSpec spec, String libStem, BridgeFunction func) {
+    final sym = func.cSymbol;
+    final pieces = [for (final p in func.params) _dispatchParam(spec, libStem, p)];
+    final params = ['int64_t instanceId', for (final x in pieces) ...x.params];
+    final args = ['instanceId', for (final x in pieces) ...x.args];
+    final cRet = CppHeaderGenerator.syncReturnCType(spec, func);
+    final post = switch (cRet) {
+      'void' => '_nitro_post_null(dart_port);',
+      'double' => '_nitro_post_f64(dart_port, _r);',
+      'int8_t' || 'bool' => '_nitro_post_bool(dart_port, _r);',
+      'char*' || 'const char*' => '_nitro_post_str_owned(dart_port, (char*)_r);',
+      'int64_t' => '_nitro_post_i64(dart_port, _r);',
+      _ => '_nitro_post_ptr(dart_port, (const void*)_r);',
+    };
+    w.line('NITRO_EXPORT void ${sym}_dispatch(${params.join(', ')}, NitroError* _nitro_err, int64_t dart_port) {');
+    w.line('    if (_nitro_err) { _nitro_err->hasError = 0; }');
+    for (final c in pieces.map((x) => x.copy).nonNulls) {
+      w.line(c);
+    }
+    w.line('    g_nitro_pool_$libStem.enqueue([=]() mutable {');
+    w.line('        ${libStem}_clear_error();');
+    w.line(cRet == 'void' ? '        $sym(${args.join(', ')});' : '        $cRet _r = $sym(${args.join(', ')});');
+    for (final r in pieces.map((x) => x.release).nonNulls) {
+      w.line(r);
+    }
+    w.line('        NitroError* _e = ${libStem}_get_error();');
+    w.line('        if (_e->hasError) { _nitro_move_err(_nitro_err, _e); _nitro_post_null(dart_port); return; }');
+    w.line('        $post');
+    w.line('    });');
+    w.line('}');
+    w.blankLine();
+  }
+
+  /// One parameter of a `<sym>_dispatch` export: its C parameter(s), the copy
+  /// taken before enqueueing (null = passed by value), the argument(s) the
+  /// worker hands the sync export, and the release after the call.
+  static ({List<String> params, String? copy, List<String> args, String? release}) _dispatchParam(BridgeSpec spec, String libStem, BridgeParam p) {
+    final cType = CppHeaderGenerator.cParamType(spec, p);
+    final base = bareTypeName(p.type.name);
+    final n = p.name;
+    final params = ['$cType $n', if (p.type.isTypedData) 'size_t ${n}_length'];
+    final framed = p.type.isRecord || p.type.isMap || p.type.isAnyMap || spec.isVariantName(base) || p.type.name.startsWith('List<');
+    if (base == 'String') {
+      return (params: params, copy: '    std::string _c_$n($n ? $n : ""); const bool _n_$n = $n == nullptr;', args: ['_n_$n ? nullptr : _c_$n.c_str()'], release: null);
+    }
+    if (p.type.isTypedData) {
+      return (params: params, copy: '    std::vector<uint8_t> _c_$n = _nitro_copy_bytes($n, (size_t)${n}_length * sizeof(*$n));', args: ['($cType)_c_$n.data()', '${n}_length'], release: null);
+    }
+    if (spec.isStructName(base)) {
+      return (
+        params: params,
+        copy: '    $base* _c_$n = nullptr; if ($n) { _c_$n = ($base*)malloc(sizeof($base)); *_c_$n = _nitro_clone_$base(*static_cast<const $base*>($n)); }',
+        args: ['(void*)_c_$n'],
+        release: '        if (_c_$n) ${libStem}_release_$base(_c_$n);',
+      );
+    }
+    if (p.type.isNullableNitroPrim) {
+      final opt = base == 'bool' ? 'NitroOptBool' : (base == 'double' ? 'NitroOptFloat64' : 'NitroOptInt64');
+      return (params: params, copy: '    std::vector<uint8_t> _c_$n = _nitro_copy_bytes($n, sizeof($opt));', args: ['_c_$n.empty() ? nullptr : ($cType)_c_$n.data()'], release: null);
+    }
+    if (framed) {
+      return (params: params, copy: '    std::vector<uint8_t> _c_$n = _nitro_copy_framed($n);', args: ['_c_$n.empty() ? nullptr : ($cType)_c_$n.data()'], release: null);
+    }
+    return (params: params, copy: null, args: [n], release: null); // scalars, enums, handles: by value
+  }
+
   static void _emitOwnedReleaseExports(CodeWriter writer, BridgeSpec spec) {
     // ── @NitroOwned release functions ────────────────────────────────────────────
     // Emitted globally (before platform guards) so the symbol exists on ALL platforms.
@@ -138,6 +309,7 @@ class CppBridgeGenerator {
       writer.line('#include "dart_api_dl.h"');
     }
     writer.line('#include "$headerName"');
+    _emitCompletionBatch(writer, spec);
     writer.blankLine();
     // MSVC deprecates the POSIX name (warning C4996); _strdup is identical.
     writer.line('#if defined(_MSC_VER) && !defined(strdup)');
@@ -194,6 +366,7 @@ class CppBridgeGenerator {
     // Swift-shim dispatch. Sync only — see cpp_direct_emitter for the rule.
     writer.line('alignas(8) static thread_local uint8_t _g_opt_ret[16];');
     writer.line('static thread_local std::string _g_str_ret;');
+    _emitStructCloneHelpers(writer, spec);
     writer.blankLine();
     writer.line('extern "C" {');
     writer.line('NitroError* ${libStem}_get_error() { return &g_nitro_error; }');
@@ -370,7 +543,10 @@ class CppBridgeGenerator {
     // Close the preprocessor ifdef chain when more than one platform section
     // was opened (android+apple or android+standalone-cpp).
     if (includeAndroid && (includeApple || hasStandaloneCpp)) writer.line('#endif');
-        return writer.toString();
+    // `<sym>_dispatch` twins: platform-independent, they call the sync exports
+    // above (JNI / Swift shim / C++) from the bridge worker pool.
+    emitCppWorkerDispatch(writer, spec, libStem);
+    return writer.toString();
   }
 
   // ── Apple C++ dispatch section emitter ────────────────────────────────────
@@ -828,7 +1004,7 @@ class CppBridgeGenerator {
             writer.line('        static thread_local $stName _g_ret_st;');
             writer.line('        $stName* _ptr = &_g_ret_st;');
           }
-          writer.line('        *_ptr = _res;');
+          writer.line('        *_ptr = _nitro_clone_$stName(_res);');
           writer.line('        return _ptr;');
         case _ when isVariantRet:
           // Impl returns a malloc'd [4B len][payload] block (toNativeBuffer / _to_native).
@@ -994,7 +1170,7 @@ class CppBridgeGenerator {
             writer.line('        $stName _res = _impl->get_${prop.dartName}();');
             writer.line('        static thread_local $stName _g_ret_st;');
             writer.line('        $stName* _ptr = &_g_ret_st;');
-            writer.line('        *_ptr = _res;');
+            writer.line('        *_ptr = _nitro_clone_$stName(_res);');
             writer.line('        return _ptr;');
           default:
             writer.line('        return _impl->get_${prop.dartName}();');
@@ -1082,10 +1258,12 @@ class CppBridgeGenerator {
       // single int64 slot here previously let a second subscriber overwrite
       // the first, which then received nothing.
       writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
+      if (stream.isBatch) _emitStreamCoalesce(writer, spec, 'coalesce');
       writer.line('    g_ports_${stream.dartName}.add(_nitro_get_instance(instanceId), dart_port);');
       writer.line('}');
       writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
       writer.line('    g_ports_${stream.dartName}.remove(dart_port);');
+      if (stream.isBatch) _emitStreamCoalesce(writer, spec, 'uncoalesce');
       writer.line('}');
       writer.blankLine();
     }
@@ -1503,30 +1681,6 @@ class CppBridgeGenerator {
     Set<String> structNames,
     Set<String> variantNames,
   ) {
-    // Shared batch-post helper (kArray of kInt64: [count, items...]) — same
-    // wire shape the JNI path uses; Dart's asyncExpand unpacks batch[0]=count.
-    final hasBatchStreams = spec.streams.any(
-      (st) => st.isBatch && const {'int', 'double', 'bool'}.contains(bareTypeName(st.itemType.name)),
-    );
-    if (hasBatchStreams) {
-      writer.line('static bool _nitro_desktop_post_batch(int64_t port, const int64_t* items, int32_t count) {');
-      writer.line('    const int32_t total = count + 1;');
-      writer.line('    Dart_CObject* objs = (Dart_CObject*)malloc((size_t)total * sizeof(Dart_CObject));');
-      writer.line('    Dart_CObject** ptrs = (Dart_CObject**)malloc((size_t)total * sizeof(Dart_CObject*));');
-      writer.line('    if (!objs || !ptrs) { free(objs); free(ptrs); return false; }');
-      writer.line('    objs[0].type = Dart_CObject_kInt64; objs[0].value.as_int64 = (int64_t)count; ptrs[0] = &objs[0];');
-      writer.line('    for (int32_t i = 0; i < count; i++) {');
-      writer.line('        objs[i+1].type = Dart_CObject_kInt64; objs[i+1].value.as_int64 = items[i]; ptrs[i+1] = &objs[i+1];');
-      writer.line('    }');
-      writer.line('    Dart_CObject arr; arr.type = Dart_CObject_kArray;');
-      writer.line('    arr.value.as_array.length = (intptr_t)total; arr.value.as_array.values = ptrs;');
-      writer.line('    bool ok = Dart_PostCObject_DL(port, &arr);');
-      writer.line('    free(objs); free(ptrs);');
-      writer.line('    return ok;');
-      writer.line('}');
-      writer.blankLine();
-    }
-
     for (final stream in spec.streams) {
       final base = bareTypeName(stream.itemType.name);
       final isNullable = stream.itemType.isNullable || stream.itemType.name.endsWith('?');
@@ -1541,9 +1695,6 @@ class CppBridgeGenerator {
         structNames,
         {...spec.recordTypes.map((r) => r.name), ...variantNames},
       );
-      // Dart's batch unpack ([count, items...]) only exists for numeric items;
-      // batch-annotated String streams fall back to plain per-item posting.
-      final isBatchNumeric = stream.isBatch && const {'int', 'double', 'bool'}.contains(base);
 
       final ports = 'g_ports_${stream.dartName}';
       // `this` is the emitting instance — only its subscribers get the event.
@@ -1570,23 +1721,6 @@ class CppBridgeGenerator {
         writer.line('    }');
       }
       final v = (isNullable && !isRecord) ? '(*item)' : 'item';
-
-      if (isBatchNumeric) {
-        // Single-item batch — semantically identical; native-side accumulation
-        // is an optimization the desktop path does not need.
-        final bits = base == 'double'
-            ? 'int64_t _bits; { double _d = $v; memcpy(&_bits, &_d, 8); }'
-            : base == 'bool'
-            ? 'int64_t _bits = $v ? 1 : 0;'
-            : 'int64_t _bits = $v;';
-        writer.line('    $bits');
-        writer.line('    for (int64_t _port : _ports) {');
-        writer.line('        if (!_nitro_desktop_post_batch(_port, &_bits, 1)) { $ports.remove(_port); }');
-        writer.line('    }');
-        writer.line('}');
-        writer.blankLine();
-        continue;
-      }
 
       if (isRecord) {
         // Record/variant: item is a SELF-DESCRIBING heap [4B len][payload]

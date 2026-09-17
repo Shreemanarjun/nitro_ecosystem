@@ -78,6 +78,41 @@ class BridgeSpec {
   /// True when Web is a targeted platform.
   bool get targetsWeb => webImpl != null;
 
+  /// Every targeted native platform is implemented in C++ (direct dispatch).
+  bool get allNativeCpp => [iosImpl, androidImpl, macosImpl, windowsImpl, linuxImpl].every((i) => i == null || i is CppImpl);
+
+  /// True when the bridge runs [f] on its own thread and posts the result
+  /// back (native-async transport): every `@nitroNativeAsync` method, plus
+  /// the `@nitroAsync` methods of [dispatchesAsync].
+  bool bridgeAsync(BridgeFunction f) => f.isNativeAsync || dispatchesAsync(f);
+
+  /// `@nitroAsync` methods the bridge completes natively instead of on the
+  /// Dart isolate pool (28 µs → the native-async floor), on every platform:
+  /// the `<sym>_dispatch` twin runs the same sync export (JNI, Swift shim or
+  /// C++ virtual dispatch) on the bridge worker pool. Plain argument and
+  /// return kinds only; no per-method timeout (its semantics stay Dart-side
+  /// on the pool). Struct and nullable-primitive returns are thread-local
+  /// borrows in every backend, so they stay on the pool too.
+  bool dispatchesAsync(BridgeFunction f) {
+    if (!f.isAsync || f.isNativeAsync || f.isResult || f.zeroCopyReturn || f.asyncTimeout != null || f.mainThread) return false;
+    final rt = f.returnType;
+    final base = rt.baseName;
+    if (rt.isNullableNitroPrim || isStructName(base)) return false;
+    final retOk = rt.name == 'void' ||
+        const {'int', 'double', 'bool', 'String', 'DateTime', 'uint64'}.contains(base) ||
+        isEnumName(base) || isVariantName(base) || rt.isAnyMap ||
+        (rt.isRecord && !rt.isMap);
+    if (!retOk) return false;
+    return f.params.every((p) {
+      final t = p.type;
+      if (t.isFunction || t.isPointer || t.isAnyNativeObject || isCustomTypeName(t.baseName)) return false;
+      return true;
+    });
+  }
+
+  /// The C symbol the Dart FFI part binds for [f] on native targets.
+  String nativeSymbol(BridgeFunction f) => dispatchesAsync(f) ? '${f.cSymbol}_dispatch' : f.cSymbol;
+
   /// True when the iOS platform uses a direct C++ implementation.
   bool get iosIsCpp => iosImpl is CppImpl;
 
@@ -520,6 +555,7 @@ class BridgeFunction {
   /// Hot path (`@nitroFast`, or the legacy `...Fast` name suffix): leaf
   /// binding + bare body, no error-slot check. Sync methods only.
   final bool isFast;
+
   /// `@nitroFast` on a `@nitroNativeAsync` method: the Dart signature stays
   /// `Future<T>` but the bridge call is synchronous — no port, no post, no
   /// isolate wake; the native implementation is a plain sync function and the
@@ -608,9 +644,11 @@ class BridgeEntryPoint {
 
   final String name;
   final List<BridgeParam> params;
+
   /// The unwrapped result type (`Future<T>` / `Stream<T>` → `T`); `void` for none.
   final BridgeType returnType;
   final bool isAsync;
+
   /// `Stream<T>` entry: items are streamed back until done; [returnType] is T.
   final bool isStream;
 
@@ -767,4 +805,25 @@ class BridgeVariant {
 /// replaces — removes the FIRST one, which for a generic is the INNER type's:
 /// `Map<String, int?>` became `Map<String, int>`, silently dropping the value's
 /// nullability. That shipped as a real bug on the Kotlin and web backends.
+/// Splits a type-argument or parameter list on its top-level commas:
+/// `Map<String, int>, void Function(int, int), T` → three entries.
+List<String> splitTopLevelTypeArgs(String s) {
+  final out = <String>[];
+  var depth = 0, start = 0;
+  for (var i = 0; i < s.length; i++) {
+    switch (s[i]) {
+      case '<' || '(':
+        depth++;
+      case '>' || ')':
+        depth--;
+      case ',' when depth == 0:
+        out.add(s.substring(start, i).trim());
+        start = i + 1;
+    }
+  }
+  final last = s.substring(start).trim();
+  if (last.isNotEmpty) out.add(last);
+  return out;
+}
+
 String bareTypeName(String typeName) => typeName.endsWith('?') ? typeName.substring(0, typeName.length - 1) : typeName;

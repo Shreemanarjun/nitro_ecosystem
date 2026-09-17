@@ -18,7 +18,7 @@ No method channels. No manual FFI. No boilerplate.
 
 | | Method Channel | Manual FFI | **Nitrogen** |
 |---|---|---|---|
-| Call overhead | ~107 µs | ~0 µs (floor) | **~0.26 µs (macOS) – ~2.1 µs (Android)** |
+| Call overhead | ~107 µs | ~0 µs (floor) | **~0.03 µs checked / ~0.014 µs `@nitroFast` (macOS)** |
 | Type safety | stringly-typed | hand-written, error-prone | **generated from one Dart spec, strict** |
 | Async | ✅ | manual isolates | **✅ generated (`@nitroAsync` / `@nitroNativeAsync`)** |
 | Streams + backpressure | ✅ slow | manual `SendPort` plumbing | **✅ zero-copy, 4 backpressure strategies** |
@@ -255,10 +255,10 @@ static void math_auto_register() { math_register_impl(&g_math); }
 | `@NitroTuple` | typedef record | `(int, String)`-style record crosses as a record | Positional pairs without a class |
 | `@NitroCustomType(codec:, encodedSize:)` | class | User codec (`NitroFfiCodec` / `NitroWireCodec`) | Types outside the built-in set |
 | `@nitroFast` | sync method, or `@nitroNativeAsync` method | `isLeaf` binding, bare body, no error-slot check, no diagnostics; ~13 ns/call; on a `@nitroNativeAsync` method: `Future<T>` completed inline from a sync native impl, no port (0.18 µs vs 16 µs) | Per-token/per-byte loops; native never throws, blocks or calls back |
-| `@nitroAsync` / `@NitroAsync(timeout:)` | method | Runs the sync native call on the isolate pool; ~28 µs | Native work that blocks (>50 µs) and must stay off the UI isolate |
-| `@nitroNativeAsync` | method | Native runs on its own thread and posts the result; no isolate; ~26 µs | Native APIs that are already asynchronous (completion handlers); add `@nitroFast` when the answer is ready at call time |
+| `@nitroAsync` / `@NitroAsync(timeout:)` | method | The sync export (Kotlin, Swift or C++) runs on the bridge's worker pool and completes through the shared completion port (~24 µs). A `timeout:`, struct/nullable-primitive returns and callback parameters use the isolate pool instead (~28 µs) | Native work that blocks (>50 µs) and must stay off the UI isolate |
+| `@nitroNativeAsync` | method | Native runs on its own thread and posts the result to the library's shared completion port; no isolate; ~12 µs alone, ~2 µs per call in a burst | Native APIs that are already asynchronous (completion handlers); add `@nitroFast` when the answer is ready at call time |
 | `@mainThread` | method | Kotlin/Swift impl runs on the platform main thread; no effect on C++ | UIKit / Android View APIs; pair with an async annotation |
-| `@NitroStream(backpressure:, batchMaxSize:)` | `Stream<T>` getter/method | Native → Dart events; `dropLatest`, `block`, `bufferDrop`, `batch` | Push data; `batch` for high-frequency scalars, `dropLatest` for frames |
+| `@NitroStream(backpressure:)` | `Stream<T>` getter/method | Native → Dart events; `dropLatest`, `block`, `bufferDrop`, `batch`. `batch` coalesces whatever native emits while Dart is busy into one message (any item type, structs included, every backend; `batchMaxSize` is ignored) | Push data; `batch` for bursts and high-frequency items, `dropLatest` for frames |
 | `@zeroCopy` | typed-data param/return | Borrowed buffer, no copy | Large buffers (frames, audio, files) |
 | `@NitroOwned(release:)` | `NativeHandle` return | Handle freed by a finalizer (`free` or a custom release) | Opaque native objects Dart owns |
 | `@NitroResult` | method | Returns `NitroResultValue<T>` instead of throwing | Expected failures on hot paths |
@@ -513,7 +513,7 @@ Stream<double> get audioSamples;
 | `Backpressure.dropLatest` | Drop the newest item if Dart is behind | Camera frames, sensors — stale data is useless |
 | `Backpressure.bufferDrop` | Ring buffer; oldest item dropped when full | Logging, monitoring — prefer recent, tolerate loss |
 | `Backpressure.block` | Block the emitter until Dart consumes | Reliable delivery, emitter is interruptible |
-| `Backpressure.batch` | Accumulate up to `batchMaxSize` before one bridge crossing | High-frequency primitives (IMU, audio samples) |
+| `Backpressure.batch` | Every item native emits while Dart is busy travels in the next message (no size, no timer; any item type; every backend) | High-frequency primitives (IMU, audio samples); bursts of structs or records |
 
 #### Zero-copy proxy streaming for `@HybridStruct` items
 
@@ -828,22 +828,24 @@ Measured against a raw `dart:ffi` leaf call as the theoretical floor — the ent
 
 | Bridge | Latency | vs raw FFI | vs Method Channel |
 |---|---|---|---|
-| Raw FFI (leaf) | 0.011 µs | 1.0× (floor) | 2318× faster |
-| **Nitrogen (Direct C++)** | **0.272 µs** | 23.6× | **98× faster** |
-| **Nitrogen (Swift)** | **0.261 µs** | 22.7× | **102× faster** |
-| Method Channel | 26.7 µs | 2318× | 1× |
+| Raw FFI (leaf) | 0.008 µs | 1.0× (floor) | 3300× faster |
+| **Nitrogen `@nitroFast`** | **0.014 µs** | 1.7× | **1900× faster** |
+| **Nitrogen (Direct C++, checked)** | **0.027 µs** | 3.4× | **990× faster** |
+| **Nitrogen (Swift, checked)** | **0.032 µs** | 4.0× | **830× faster** |
+| Method Channel | 26.7 µs | 3300× | 1× |
 
-At 60 fps, that's **~63,000** Nitrogen calls per frame budget vs **~625** for a method channel — 101× more headroom for per-frame native work (sensors, codecs, game state).
+At 60 fps, that's **~600,000** checked Nitrogen calls per frame budget vs **~625** for a method channel — three orders of magnitude more headroom for per-frame native work (sensors, codecs, game state).
 
 ### Async overhead (macOS, `computeStats`/`computeStatsNative` benchmark cases)
 
 | Annotation | Latency | vs Method Channel | Mechanism |
 |---|---|---|---|
 | Method Channel | 26.8 µs | 1× | — |
-| `@nitroAsync` | ~28 µs | ~1.05× (slightly slower) | Persistent-worker isolate pool dispatch |
-| `@nitroNativeAsync` | ~27 µs | ~1.0× (parity) | Native `Dart_PostCObject_DL`, no isolate hop |
+| `@nitroAsync` | ~24 µs | ~0.9× | Bridge worker pool + shared completion port, no isolate (any backend) |
+| `@NitroAsync(timeout:)` | ~28 µs | ~1.05× | Persistent-worker isolate pool dispatch |
+| `@nitroNativeAsync` | ~25 µs | ~0.9× | Native post to the shared completion port, no isolate hop |
 
-`@nitroAsync`'s isolate pool was rewritten to use a persistent reply port and least-busy worker scheduling (no per-call `ReceivePort` allocation) — current overhead is dominated by the inherent cost of an isolate message round-trip, not by pool bookkeeping. `@nitroNativeAsync` skips that hop entirely because native already owns the async work; use it whenever the native side has its own async infrastructure (coroutines, Swift `async`, a thread pool). Use `@nitroAsync` for the opposite case — a *blocking* native call that just needs to run off the main isolate.
+`@nitroAsync` no longer touches an isolate: a generated `<sym>_dispatch` twin runs the sync export (JNI, Swift shim or C++) on the bridge's worker pool and posts the result. The isolate pool remains for `timeout:` and a few return kinds; it uses a persistent reply port and least-busy worker scheduling; its overhead is the isolate message round-trip. Every completion goes through one shared port per library, so calls that finish while Dart is still busy arrive together: 64 in flight cost 133 µs instead of 1015 µs. `@nitroNativeAsync` skips that hop entirely because native already owns the async work; use it whenever the native side has its own async infrastructure (coroutines, Swift `async`, a thread pool). Use `@nitroAsync` for the opposite case — a *blocking* native call that just needs to run off the main isolate.
 
 ### High-bandwidth throughput (1 GB `@zeroCopy Uint8List`, Android)
 
@@ -870,20 +872,26 @@ Source: `benchmark/example`, `flutter drive --profile`; same C function behind e
 
 | tier | what the generated code does | µs/call | vs raw |
 |---|---|---|---|
-| raw `dart:ffi` (`isLeaf`) | hand-rolled lookup, floor | 0.010 | 1.0× |
-| `addFast` — **Fast, bare leaf body** | direct call, no closure, no error check | 0.013 | 1.0× |
-| `add` — checked (callSync closure) | isLeaf binding, closure + error-slot check | 0.261 | 18.6× |
-| raw `dart:ffi` pointer argument | hand-rolled `touch_ptr(void*)` | 0.012 | 1.0× |
+| raw `dart:ffi` (`isLeaf`) | hand-rolled lookup, floor | 0.008 | 1.0× |
+| `addFast` — **Fast, bare leaf body** | direct call, no closure, no error check | 0.014 | 1.7× |
+| `add` — checked | isLeaf binding, inline body between `syncStart`/`syncEnd`, error-slot check | 0.027 | 3.4× |
+| raw `dart:ffi` pointer argument | hand-rolled `touch_ptr(void*)` | 0.011 | 1.0× |
 | `touchHandleFast(NativeHandle)` | Fast + handle param (leaf) | 0.011 | 1.0× |
-| `touchHandle(NativeHandle)` | checked, handle param (leaf since #52) | 0.254 | 22.7× |
-| Swift/Kotlin platform impl (`add`) | checked, JNI/Swift shim | 0.258 | — |
-| `@HybridStruct` round-trip | arena + struct copy | 0.392 | — |
-| `String` round-trip | arena + UTF-8 | 0.493 | — |
-| `@nitroAsync` record | isolate-pool dispatch | 28.1 | — |
-| `@nitroNativeAsync` record | native thread + port | 26.1 | — |
-| `@nitroNativeAsync` scalar | same-thread port post + isolate wake | 16.2 | — |
+| `touchHandle(NativeHandle)` | checked, handle param (leaf since #52) | 0.019 | 1.7× |
+| Swift/Kotlin platform impl (`add`) | checked, JNI/Swift shim | 0.032 | — |
+| `@HybridStruct` round-trip | scratch arena + struct clone | 0.097 | — |
+| `String` round-trip | scratch arena + ASCII fast path | 0.202 | — |
+| `List<@HybridRecord>` round-trip | scratch `RecordWriter`, view-free copy | 0.934 | — |
+| `Map<String,int>` round-trip | binary map codec | 2.75 | — |
+| `@nitroAsync` record | bridge worker pool + shared completion port | 24.1 | — |
+| `@nitroNativeAsync` record | native thread + shared completion port | 23.9 | — |
+| `@nitroNativeAsync` scalar | same-thread post + isolate wake | 10.9 | — |
 | `@nitroFast @nitroNativeAsync` scalar — **inline completion** | sync bridge call, `Future` completed inline, no port | 0.18 | — |
-| MethodChannel `add` | codec + platform thread hop | 27.5 | — |
+| `@nitroNativeAsync` ×64 in flight | one message per Dart wake (was one per call: 978 µs) | 126 | — |
+| `Stream<int>` burst ×256, `dropLatest` | one message per item | 1045 | — |
+| `Stream<int>` burst ×256, `batch` | coalesced by the bridge batcher | 105 | — |
+| `Stream<@HybridStruct>` burst ×256, `batch` | coalesced, struct proxies (was 1212 per item) | 189 | — |
+| MethodChannel `add` | codec + platform thread hop | 26.7 | — |
 
 
 ### Hot paths: `@nitroFast`

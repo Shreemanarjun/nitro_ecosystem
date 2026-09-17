@@ -1,9 +1,7 @@
-/// Tests for L3 — Backpressure.batch for @HybridRecord and @NitroVariant streams.
-///
-/// Wire format: [4B outer_len][4B count][item0 raw bytes][item1 raw bytes]...
-/// where raw bytes = writeFields() output (no per-item length prefix).
-/// Native posts as kTypedData/kUint8; Dart receives Uint8List.
-/// Dart decode: copy to malloc, call RecordReader.decodeList, free.
+/// Backpressure.batch for @HybridRecord / @NitroVariant / numeric streams on a
+/// Kotlin/Swift spec: native posts one framed item per emit (exactly like
+/// dropLatest), the C bridge binds the port to the completion batcher, and
+/// Dart receives `[item, item, ...]` per wake and acks each message.
 library;
 
 import 'package:nitro_annotations/nitro_annotations.dart' show NativeImpl, Backpressure;
@@ -88,231 +86,104 @@ BridgeSpec _variantBatchSpec() => BridgeSpec(
 );
 
 void main() {
-  // ── §28: L3 — Backpressure.batch for @HybridRecord ───────────────────────
+  final record = _recordBatchSpec();
+  final variant = _variantBatchSpec();
+  final numeric = BridgeSpec(
+    dartClassName: 'Sensor',
+    lib: 'sensor',
+    namespace: 'sensor',
+    iosImpl: NativeImpl.swift,
+    androidImpl: NativeImpl.kotlin,
+    sourceUri: 'sensor.native.dart',
+    streams: [
+      BridgeStream(
+        dartName: 'readings',
+        registerSymbol: 'sensor_register_readings_stream',
+        releaseSymbol: 'sensor_release_readings_stream',
+        isMethodStyle: false,
+        isAnnotated: true,
+        backpressure: Backpressure.batch,
+        batchMaxSize: 128,
+        itemType: BridgeType(name: 'double'),
+      ),
+    ],
+  );
 
-  group('§28: L3 — Backpressure.batch for @HybridRecord streams', () {
-    late String dartCode;
-    late String kotlinCode;
-    late String swiftCode;
-    late String cCode;
+  test('validator: batch is accepted for record, variant and numeric items', () {
+    for (final spec in [record, variant, numeric]) {
+      expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
+    }
+  });
 
-    setUpAll(() {
-      final spec = _recordBatchSpec();
-      dartCode = DartFfiGenerator.generate(spec);
-      kotlinCode = KotlinGenerator.generate(spec);
-      swiftCode = SwiftGenerator.generate(spec);
-      cCode = CppBridgeGenerator.generate(spec);
+  group('Dart FFI', () {
+    test('record batch: list of per-item decodes, each freed, acked', () {
+      final dart = DartFfiGenerator.generate(record);
+      expect(dart, contains('openStream<List<LogEntry>>('));
+      expect(dart, contains('unpack: (message) => [for (final m in message as List<dynamic>) unpackItem(m)],'));
+      expect(dart, contains('_nitroFree(rawPtr)'));
+      expect(dart, contains('ack: _nitroAckPtr,'));
+      expect(dart, isNot(contains('openStream<Uint8List>')));
+      expect(dart, isNot(contains('RecordReader.decodeList')));
     });
 
-    test('Spec validates without E005', () {
-      expect(SpecValidator.validate(_recordBatchSpec()).where((i) => i.code == 'E005'), isEmpty);
+    test('variant batch: same shape with the variant decoder', () {
+      final dart = DartFfiGenerator.generate(variant);
+      expect(dart, contains('openStream<List<NetEvent>>('));
+      expect(dart, contains('NetEventVariantExt.fromNative(rawPtr)'));
+      expect(dart, contains('ack: _nitroAckPtr,'));
     });
 
-    test('Spec validates without any errors', () {
-      expect(SpecValidator.validate(_recordBatchSpec()).where((i) => i.isError), isEmpty);
-    });
-
-    group('Dart FFI', () {
-      test('stream is typed as Uint8List batch', () {
-        expect(dartCode, contains('NitroRuntime.openStream<Uint8List>'));
-      });
-
-      test('unpack casts message as Uint8List', () {
-        expect(dartCode, contains('unpack: (message) => message as Uint8List'));
-      });
-
-      test('asyncExpand copies batch to malloc ptr', () {
-        expect(dartCode, contains('final ptr = malloc<Uint8>(batch.length)'));
-        expect(dartCode, contains('ptr.asTypedList(batch.length).setAll(0, batch)'));
-      });
-
-      test('decode uses RecordReader.decodeList with fromReader', () {
-        expect(dartCode, contains('RecordReader.decodeList(ptr, (r) => LogEntryExt.fromReader(r))'));
-      });
-
-      test('malloc.free is called in finally block', () {
-        expect(dartCode, contains('malloc.free(ptr)'));
-      });
-
-      test('stream return type is Stream<LogEntry>', () {
-        expect(dartCode, contains('Stream<LogEntry> get logStream'));
-      });
-    });
-
-    group('Kotlin', () {
-      test('external emit uses ByteArray (not LongArray)', () {
-        expect(kotlinCode, contains('emit_logStream_bytes_batch(dartPort: Long, batch: ByteArray): Boolean'));
-        expect(kotlinCode, isNot(contains('emit_logStream_batch(dartPort: Long, batch: LongArray)')));
-      });
-
-      test('batch collect accumulates ArrayList<ByteArray>', () {
-        expect(kotlinCode, contains('ArrayList<ByteArray>(32)'));
-      });
-
-      test('batch collect calls item.writeFields(_iw)', () {
-        expect(kotlinCode, contains('item.writeFields(_iw)'));
-        expect(kotlinCode, contains('_buf.add(_iw.toByteArray())'));
-      });
-
-      test('flush writes 4B outer_len then 4B count', () {
-        expect(kotlinCode, contains('_tmp.putInt(4 + totalBytes)'));
-        expect(kotlinCode, contains('_tmp.putInt(_buf.size)'));
-      });
-
-      test('flush calls emit_logStream_bytes_batch', () {
-        expect(kotlinCode, contains('emit_logStream_bytes_batch(dartPort, _out.toByteArray())'));
-      });
-
-      test('batch max size is respected', () {
-        expect(kotlinCode, contains('_buf.size >= 32'));
-      });
-    });
-
-    group('Swift', () {
-      test('register function uses UInt8 emit callback type', () {
-        expect(swiftCode, contains('@convention(c) (Int64, UnsafeMutablePointer<UInt8>?, Int32) -> Bool'));
-      });
-
-      test('accumulates item bytes in [[UInt8]]', () {
-        expect(swiftCode, contains('var _itemBytes = [[UInt8]]()'));
-      });
-
-      test('writes item fields to NitroRecordWriter', () {
-        expect(swiftCode, contains('let _iw = NitroRecordWriter()'));
-        expect(swiftCode, contains('item.writeFields(_iw)'));
-        expect(swiftCode, contains('_itemBytes.append(_iw.bytes)'));
-      });
-
-      test('flush builds LE32 prefixed batch', () {
-        expect(swiftCode, contains('appendLE32(Int32(4 + totalItemBytes))'));
-        expect(swiftCode, contains('appendLE32(Int32(items.count))'));
-      });
-
-      test('flush allocates and emits ptr', () {
-        expect(swiftCode, contains('UnsafeMutablePointer<UInt8>.allocate(capacity: batch.count)'));
-        expect(swiftCode, contains('emitBatch(dartPort, ptr, Int32(batch.count))'));
-        expect(swiftCode, contains('ptr.deallocate()'));
-      });
-    });
-
-    group('C bridge', () {
-      test('JNI emit function takes jbyteArray batch', () {
-        expect(cCode, contains('jbyteArray batch'));
-      });
-
-      test('JNI emit function posts kTypedData/kUint8', () {
-        expect(cCode, contains('Dart_TypedData_kUint8'));
-        expect(cCode, contains('GetByteArrayElements(batch, nullptr)'));
-        expect(cCode, contains('ReleaseByteArrayElements(batch, bytes, JNI_ABORT)'));
-      });
-
-      test('Swift shim emit function takes uint8_t* bytes', () {
-        expect(cCode, contains('const uint8_t* bytes, int32_t len'));
-        expect(cCode, contains('_emit_logStream_bytes_batch_to_dart'));
-      });
-
-      test('Swift shim register extern has uint8_t* callback signature', () {
-        expect(cCode, contains('bool (*emitBatch)(int64_t, const uint8_t*, int32_t)'));
-      });
+    test('numeric batch: List<double>, no [count, items...] unpack', () {
+      final dart = DartFfiGenerator.generate(numeric);
+      expect(dart, contains('openStream<List<double>>('));
+      expect(dart, isNot(contains('final count = batch[0];')));
     });
   });
 
-  // ── §29: L3 edge — Backpressure.batch for @NitroVariant ──────────────────
-
-  group('§29: L3 edge — Backpressure.batch for @NitroVariant streams', () {
-    late String dartCode;
-    late String kotlinCode;
-    late String swiftCode;
-
-    setUpAll(() {
-      final spec = _variantBatchSpec();
-      dartCode = DartFfiGenerator.generate(spec);
-      kotlinCode = KotlinGenerator.generate(spec);
-      swiftCode = SwiftGenerator.generate(spec);
+  group('Kotlin', () {
+    test('record and variant items are encoded and emitted one at a time', () {
+      final kt = KotlinGenerator.generate(record);
+      expect(kt, contains('external fun emit_logStream(dartPort: Long, item: ByteArray): Boolean'));
+      expect(kt, contains('.encode()'));
+      expect(kt, isNot(contains('_bytes_batch')));
+      expect(kt, isNot(contains('_flushJob')));
+      final ktv = KotlinGenerator.generate(variant);
+      expect(ktv, contains('external fun emit_events(dartPort: Long, item: ByteArray): Boolean'));
     });
 
-    test('Spec validates without E005', () {
-      expect(SpecValidator.validate(_variantBatchSpec()).where((i) => i.code == 'E005'), isEmpty);
-    });
-
-    group('Dart FFI', () {
-      test('decode uses decodeList with VariantExt.fromReader', () {
-        expect(dartCode, contains('RecordReader.decodeList(ptr, (r) => NetEventVariantExt.fromReader(r))'));
-      });
-
-      test('stream typed as Uint8List batch', () {
-        expect(dartCode, contains('NitroRuntime.openStream<Uint8List>'));
-      });
-    });
-
-    group('Kotlin', () {
-      test('external emit uses ByteArray for variant batch', () {
-        expect(kotlinCode, contains('emit_events_bytes_batch(dartPort: Long, batch: ByteArray): Boolean'));
-      });
-
-      test('variant batch collect uses item.writeFields(_iw)', () {
-        expect(kotlinCode, contains('item.writeFields(_iw)'));
-      });
-    });
-
-    group('Swift', () {
-      test('variant batch uses writeFields(to:) for @NitroVariant', () {
-        expect(swiftCode, contains('item.writeFields(to: _iw)'));
-      });
-
-      test('variant batch uses [[UInt8]] buffer', () {
-        expect(swiftCode, contains('var _itemBytes = [[UInt8]]()'));
-      });
+    test('numeric items keep their scalar JNI signature', () {
+      final kt = KotlinGenerator.generate(numeric);
+      expect(kt, contains('external fun emit_readings(dartPort: Long, item: Double): Boolean'));
+      expect(kt, isNot(contains('LongArray')));
+      expect(kt, isNot(contains('ArrayList<Long>')));
     });
   });
 
-  // ── §30: L3 contrast — numeric batch unchanged ───────────────────────────
+  group('Swift', () {
+    test('no batch accumulator; the per-item sink registers the stream', () {
+      for (final (spec, name) in [(record, 'logStream'), (variant, 'events'), (numeric, 'readings')]) {
+        final swift = SwiftGenerator.generate(spec);
+        expect(swift, isNot(contains('emitBatch')), reason: name);
+        expect(swift, contains('_${spec.namespace}_register_${name}_stream'), reason: name);
+      }
+    });
+  });
 
-  group('§30: L3 contrast — numeric batch streams unchanged', () {
-    late String dartCode;
-    late String kotlinCode;
-
-    setUpAll(() {
-      final spec = BridgeSpec(
-        dartClassName: 'Sensor',
-        lib: 'sensor',
-        namespace: 'sensor',
-        iosImpl: NativeImpl.swift,
-        androidImpl: NativeImpl.kotlin,
-        sourceUri: 'sensor.native.dart',
-        streams: [
-          BridgeStream(
-            dartName: 'readings',
-            registerSymbol: 'sensor_register_readings_stream',
-            releaseSymbol: 'sensor_release_readings_stream',
-            isMethodStyle: false,
-            isAnnotated: true,
-            backpressure: Backpressure.batch,
-            batchMaxSize: 128,
-            itemType: BridgeType(name: 'double'),
-          ),
-        ],
-      );
-      dartCode = DartFfiGenerator.generate(spec);
-      kotlinCode = KotlinGenerator.generate(spec);
+  group('C bridge', () {
+    test('register binds the port to the batcher, release unbinds it', () {
+      for (final spec in [record, variant, numeric]) {
+        final cpp = CppBridgeGenerator.generate(spec);
+        expect(cpp, contains('g_nitro_batch_${spec.lib}.coalesce(dart_port);'));
+        expect(cpp, contains('g_nitro_batch_${spec.lib}.uncoalesce(dart_port);'));
+        expect(cpp, isNot(contains('_batch_to_dart')));
+        expect(cpp, isNot(contains('_1batch(')));
+      }
     });
 
-    test('numeric batch still uses List<int> not Uint8List', () {
-      expect(dartCode, contains('NitroRuntime.openStream<List<int>>'));
-      expect(dartCode, isNot(contains('NitroRuntime.openStream<Uint8List>')));
-    });
-
-    test('numeric batch decode does not use RecordReader', () {
-      expect(dartCode, isNot(contains('RecordReader.decodeList')));
-    });
-
-    test('numeric batch Kotlin uses LongArray', () {
-      expect(kotlinCode, contains('emit_readings_batch(dartPort: Long, batch: LongArray): Boolean'));
-      expect(kotlinCode, isNot(contains('emit_readings_bytes_batch')));
-    });
-
-    test('numeric batch Kotlin uses ArrayList<Long>', () {
-      expect(kotlinCode, contains('ArrayList<Long>(128)'));
+    test('JNI emit for record items takes one jbyteArray', () {
+      final cpp = CppBridgeGenerator.generate(record);
+      expect(cpp, contains('jbyteArray item)'));
+      expect(cpp, isNot(contains('jbyteArray batch)')));
     });
   });
 }

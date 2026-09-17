@@ -335,9 +335,10 @@ void main() {
         expect(code, contains('nativeValue'));
       });
 
-      test('batch enum uses LongArray wire format', () {
+      test('batch enum posts one item per emit (no LongArray accumulator)', () {
         final code = KotlinGenerator.generate(_enumBatchStreamSpec());
-        expect(code, contains('LongArray'));
+        expect(code, isNot(contains('LongArray')));
+        expect(code, contains('external fun emit_'));
       });
     });
 

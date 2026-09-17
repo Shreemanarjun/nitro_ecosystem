@@ -78,7 +78,7 @@ BridgeSpec singleRecordSpec() => BridgeSpec(
     BridgeFunction(
       dartName: 'getDevice',
       cSymbol: 'camera_module_get_device',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'CameraDevice', isRecord: true),
       params: [],
     ),
@@ -142,7 +142,7 @@ BridgeSpec recordListSpec() => BridgeSpec(
     BridgeFunction(
       dartName: 'getAvailableDevices',
       cSymbol: 'camera_module_get_available_devices',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(
         name: 'List<CameraDevice>',
         isRecord: true,
@@ -177,7 +177,7 @@ BridgeSpec _arenaRecordSpec() => BridgeSpec(
     BridgeFunction(
       dartName: 'findDevice',
       cSymbol: 'camera_module_find_device',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'CameraDevice', isRecord: true),
       params: [
         BridgeParam(
@@ -248,7 +248,7 @@ BridgeSpec _asyncStructSpec() => BridgeSpec(
     BridgeFunction(
       dartName: 'fetchReading',
       cSymbol: 'sensor_fetch_reading',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'Reading'),
       params: [],
     ),
@@ -279,7 +279,7 @@ BridgeSpec _arenaStructSpec() => BridgeSpec(
     BridgeFunction(
       dartName: 'fetchByName',
       cSymbol: 'sensor_fetch_by_name',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'Reading'),
       params: [
         BridgeParam(
@@ -324,6 +324,8 @@ BridgeSpec _syncStructSpec() => BridgeSpec(
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+// @nitroAsync fixtures here carry a timeout so they exercise the isolate-pool
+// path; bridge dispatch (the default now) is covered in async_dispatch_test.dart.
 void main() {
   // ── 1. RecordGenerator.generateKotlin ─────────────────────────────────────
 

@@ -219,7 +219,7 @@ void main() {
       expect(issues.any((i) => i.code == 'E005'), isFalse, reason: 'Backpressure.batch on @HybridRecord streams is now supported (L3)');
     });
 
-    test('batch @HybridStruct stream still emits E005 error', () {
+    test('batch @HybridStruct stream is valid too (no E005)', () {
       final spec = BridgeSpec(
         dartClassName: 'Mod',
         lib: 'mod',
@@ -242,7 +242,7 @@ void main() {
         ],
       );
       final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'E005' && i.isError), isTrue, reason: 'Backpressure.batch on @HybridStruct streams is still unsupported');
+      expect(issues.any((i) => i.code == 'E005'), isFalse, reason: 'every item kind coalesces through the bridge batcher');
     });
 
     test('batch enum stream is now valid (no E005)', () {
@@ -271,34 +271,6 @@ void main() {
       );
       final issues = SpecValidator.validate(spec);
       expect(issues.any((i) => i.code == 'E005'), isFalse, reason: 'Backpressure.batch on @HybridEnum streams is now supported via rawValue Int64 packing');
-    });
-
-    test('E005 hint mentions dropLatest / dropOldest as alternatives', () {
-      // Use @HybridStruct which still emits E005 (structs have no encode()).
-      final spec = BridgeSpec(
-        dartClassName: 'Mod',
-        lib: 'mod',
-        namespace: 'mod',
-        iosImpl: NativeImpl.swift,
-        androidImpl: NativeImpl.kotlin,
-        sourceUri: 'mod.native.dart',
-        structs: [BridgeStruct(name: 'Point', packed: false, fields: [])],
-        streams: [
-          BridgeStream(
-            dartName: 'points',
-            registerSymbol: 'mod_register_points_stream',
-            releaseSymbol: 'mod_release_points_stream',
-            isMethodStyle: false,
-            isAnnotated: true,
-            backpressure: Backpressure.batch,
-            batchMaxSize: 64,
-            itemType: BridgeType(name: 'Point'),
-          ),
-        ],
-      );
-      final issues = SpecValidator.validate(spec);
-      final e5 = issues.firstWhere((i) => i.code == 'E005');
-      expect(e5.hint, contains('dropLatest'));
     });
 
     test('dropLatest String stream is valid (no E005)', () {
@@ -464,82 +436,35 @@ void main() {
 
   // ── Swift batch item → no force-cast ─────────────────────────────────────────
 
-  group('Swift generator batch stream — no force-cast for int', () {
-    test('int batch stream does not emit "item as! Int64" force-cast', () {
-      final spec = BridgeSpec(
-        dartClassName: 'Mod',
-        lib: 'mod',
-        namespace: 'mod',
-        iosImpl: NativeImpl.swift,
-        androidImpl: NativeImpl.kotlin,
-        sourceUri: 'mod.native.dart',
-        streams: [
-          BridgeStream(
-            dartName: 'values',
-            registerSymbol: 'mod_register_values_stream',
-            releaseSymbol: 'mod_release_values_stream',
-            isMethodStyle: false,
-            isAnnotated: true,
-            backpressure: Backpressure.batch,
-            batchMaxSize: 16,
-            itemType: BridgeType(name: 'int'),
-          ),
-        ],
-      );
-      final out = SwiftGenerator.generate(spec);
-      // item is already Int64 from AnyPublisher<Int64, Never>; no force-cast needed.
-      expect(out, isNot(contains('item as! Int64')), reason: 'Force-cast "as! Int64" generates a Swift compiler warning; use direct append instead');
-      expect(out, contains('_buf.append(item)'));
-    });
-
-    test('double batch stream still uses bitPattern conversion', () {
-      final spec = BridgeSpec(
-        dartClassName: 'Mod',
-        lib: 'mod',
-        namespace: 'mod',
-        iosImpl: NativeImpl.swift,
-        androidImpl: NativeImpl.kotlin,
-        sourceUri: 'mod.native.dart',
-        streams: [
-          BridgeStream(
-            dartName: 'values',
-            registerSymbol: 'mod_register_values_stream',
-            releaseSymbol: 'mod_release_values_stream',
-            isMethodStyle: false,
-            isAnnotated: true,
-            backpressure: Backpressure.batch,
-            batchMaxSize: 16,
-            itemType: BridgeType(name: 'double'),
-          ),
-        ],
-      );
-      final out = SwiftGenerator.generate(spec);
-      expect(out, contains('Int64(bitPattern: item.bitPattern)'));
-    });
-
-    test('bool batch stream uses ternary encoding', () {
-      final spec = BridgeSpec(
-        dartClassName: 'Mod',
-        lib: 'mod',
-        namespace: 'mod',
-        iosImpl: NativeImpl.swift,
-        androidImpl: NativeImpl.kotlin,
-        sourceUri: 'mod.native.dart',
-        streams: [
-          BridgeStream(
-            dartName: 'flags',
-            registerSymbol: 'mod_register_flags_stream',
-            releaseSymbol: 'mod_release_flags_stream',
-            isMethodStyle: false,
-            isAnnotated: true,
-            backpressure: Backpressure.batch,
-            batchMaxSize: 16,
-            itemType: BridgeType(name: 'bool'),
-          ),
-        ],
-      );
-      final out = SwiftGenerator.generate(spec);
-      expect(out, contains('item ? 1 : 0'));
+  group('Swift generator batch stream — per-item sink', () {
+    test('batch streams register the plain per-item sink; no Swift-side buffer', () {
+      for (final itemType in ['int', 'double']) {
+        final spec = BridgeSpec(
+          dartClassName: 'Mod',
+          lib: 'mod',
+          namespace: 'mod',
+          iosImpl: NativeImpl.swift,
+          androidImpl: NativeImpl.kotlin,
+          sourceUri: 'mod.native.dart',
+          streams: [
+            BridgeStream(
+              dartName: 'values',
+              registerSymbol: 'mod_register_values_stream',
+              releaseSymbol: 'mod_release_values_stream',
+              isMethodStyle: false,
+              isAnnotated: true,
+              backpressure: Backpressure.batch,
+              batchMaxSize: 16,
+              itemType: BridgeType(name: itemType),
+            ),
+          ],
+        );
+        final out = SwiftGenerator.generate(spec);
+        expect(out, contains('_mod_register_values_stream'), reason: itemType);
+        expect(out, isNot(contains('emitBatch')), reason: itemType);
+        expect(out, isNot(contains('_buf.append')), reason: itemType);
+        expect(out, isNot(contains('item as! Int64')), reason: itemType);
+      }
     });
   });
 

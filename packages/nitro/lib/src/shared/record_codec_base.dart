@@ -91,6 +91,26 @@ class RecordWriterBase {
   }
 
   void writeString(String s) {
+    // ASCII fast path: the code units go straight into the buffer — no
+    // utf8.encode allocation and no second copy. Falls back to UTF-8 on the
+    // first non-ASCII unit (nothing was committed yet).
+    final n = s.length;
+    _ensureCapacity(4 + n);
+    final base = _length + 4;
+    var ascii = true;
+    for (var i = 0; i < n; i++) {
+      final c = s.codeUnitAt(i);
+      if (c >= 0x80) {
+        ascii = false;
+        break;
+      }
+      _buffer[base + i] = c;
+    }
+    if (ascii) {
+      _data.setInt32(_length, n, Endian.little);
+      _length = base + n;
+      return;
+    }
     final encoded = utf8.encode(s);
     writeInt32(encoded.length);
     _writeBytes(encoded);
@@ -109,6 +129,12 @@ class RecordWriterBase {
 
   /// Number of payload bytes written so far.
   int get payloadLength => _length;
+
+  /// Copies the payload into [dst] at [dstOffset] without allocating a view.
+  void copyPayloadTo(Uint8List dst, int dstOffset) => dst.setRange(dstOffset, dstOffset + _length, _buffer);
+
+  /// Rewinds the writer so its buffer can be reused for the next payload.
+  void reset() => _length = 0;
 
   /// A view of the payload written so far. Valid only until the next write —
   /// a capacity grow replaces the backing buffer.

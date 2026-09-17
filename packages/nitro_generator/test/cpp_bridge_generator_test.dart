@@ -398,8 +398,10 @@ void main() {
       expect(out, contains('alignas(8) static thread_local uint8_t _g_opt_ret[16];'));
       // Sync borrows it; async still allocates. Take the DEFINITION (the last
       // occurrence — declarations come first) and read to the closing brace.
+      // Anchor on the definition signature: the worker-dispatch twin also
+      // mentions the symbol (it calls it) further down.
       String bodyOf(String sym) {
-        final open = out.indexOf('{', out.lastIndexOf(sym));
+        final open = out.indexOf('{', out.lastIndexOf('uint8_t* $sym('));
         return out.substring(open, out.indexOf('\n}', open));
       }
       final syncBody = bodyOf('opt_sync_opt_int');

@@ -122,7 +122,7 @@ class SpecFromSource {
 
     for (final member in (moduleClass.body as BlockClassBody).members) {
       if (member is! MethodDeclaration) continue;
-      if (member.isComplete) continue;  // analyzer 13: isAbstract → !isComplete
+      if (member.isComplete) continue; // analyzer 13: isAbstract → !isComplete
       _processMember(member, ns, enumNames, structNames, recordNames, functions, propMap, streams);
     }
 
@@ -194,6 +194,24 @@ class SpecFromSource {
     final name = m.name.lexeme;
     final retSrc = m.returnType?.toSource() ?? 'void';
 
+    // ── Stream return (getter or method style) ──────────────────────────────────────────────────────
+    final baseRetSrc = retSrc.replaceAll('?', '').trim();
+    if (baseRetSrc.startsWith('Stream<') || baseRetSrc == 'Stream') {
+      final itemType = _genericArg(retSrc) ?? 'dynamic';
+      final itemBase = itemType.replaceAll('?', '');
+      streams.add(
+        BridgeStream(
+          dartName: name,
+          registerSymbol: '${ns}_register_${_toSnakeCase(name)}_stream',
+          releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
+          itemType: _makeType(itemType, itemBase, enumNames, structNames, recordNames),
+          backpressure: _backpressureOf(m.metadata),
+          batchMaxSize: _namedIntArg(m.metadata, 'NitroStream', 'batchMaxSize') ?? 64,
+        ),
+      );
+      return;
+    }
+
     // ── Getter / setter → property ─────────────────────────────────────────
     if (m.isGetter) {
       final e = propMap.putIfAbsent(name, () => _PropEntry(name, retSrc));
@@ -208,31 +226,15 @@ class SpecFromSource {
       return;
     }
 
-    // ── Stream return ──────────────────────────────────────────────────────
-    final baseRetSrc = retSrc.replaceAll('?', '').trim();
-    if (baseRetSrc.startsWith('Stream<') || baseRetSrc == 'Stream') {
-      final itemType = _genericArg(retSrc) ?? 'dynamic';
-      final itemBase = itemType.replaceAll('?', '');
-      streams.add(
-        BridgeStream(
-          dartName: name,
-          registerSymbol: '${ns}_register_${_toSnakeCase(name)}_stream',
-          releaseSymbol: '${ns}_release_${_toSnakeCase(name)}_stream',
-          itemType: _makeType(itemType, itemBase, enumNames, structNames, recordNames),
-          backpressure: Backpressure.dropLatest,
-        ),
-      );
-      return;
-    }
-
     // ── Function ───────────────────────────────────────────────────────────
     bool hasAnn(String name) => m.metadata.any((a) => _annName(a) == name || _annName(a) == name[0].toLowerCase() + name.substring(1));
     final isAsync = hasAnn('NitroAsync') || (!hasAnn('NitroNativeAsync') && retSrc.startsWith('Future<'));
+    final asyncTimeout = _namedIntArg(m.metadata, 'NitroAsync', 'timeout');
     final isNativeAsync = hasAnn('NitroNativeAsync');
-    final isOwnedFn = m.metadata.any((a) => _annName(a) == 'NitroOwned');
-    final isFastFn = m.metadata.any((a) => _annName(a) == 'NitroFast' || _annName(a) == 'nitroFast');
+    final isOwnedFn = hasAnn('NitroOwned');
+    final isFastFn = hasAnn('NitroFast');
     // Accept both the const shorthand (@mainThread) and class form (@MainThread()).
-    final isMainThread = m.metadata.any((a) => _annName(a) == 'mainThread' || _annName(a) == 'MainThread');
+    final isMainThread = hasAnn('MainThread');
 
     final isFuture = retSrc.startsWith('Future<') || isAsync || isNativeAsync;
     final effectiveReturn = isFuture ? (_genericArg(retSrc) ?? 'void') : retSrc;
@@ -245,10 +247,11 @@ class SpecFromSource {
         dartName: name,
         cSymbol: '${ns}_${_toSnakeCase(name)}',
         isAsync: isAsync,
+        asyncTimeout: asyncTimeout,
         isNativeAsync: isNativeAsync && !(isFastFn || name.endsWith('Fast')),
         inlineFuture: isNativeAsync && (isFastFn || name.endsWith('Fast')),
-      isOwned: isOwnedFn,
-      isFast: isFastFn || name.endsWith('Fast'),
+        isOwned: isOwnedFn,
+        isFast: isFastFn || name.endsWith('Fast'),
         mainThread: isMainThread,
         returnType: _makeType(effectiveReturn, effectiveBase, enumNames, structNames, recordNames, isFuture: isFuture),
         params: params,
@@ -278,7 +281,7 @@ class SpecFromSource {
       final open = typeSrc.indexOf(' Function(');
       final inner = typeSrc.substring(open + ' Function('.length, typeSrc.lastIndexOf(')'));
       final params = <BridgeType>[];
-      for (final seg in _splitTopLevel(inner)) {
+      for (final seg in splitTopLevelTypeArgs(inner)) {
         final named = RegExp(r'^(.*\S)\s+(\w+)$').firstMatch(seg);
         final t = named != null ? named.group(1)! : seg;
         params.add(_makeType(t, t.replaceAll('?', ''), enumNames, structNames, recordNames));
@@ -291,23 +294,6 @@ class SpecFromSource {
       return BridgeType(name: typeSrc, isNativeHandle: true, nativeHandleTypeParam: inner, isNullable: isNullable, isFuture: isFuture);
     }
     return BridgeType(name: typeSrc, isNullable: isNullable, isFuture: isFuture);
-  }
-
-  static List<String> _splitTopLevel(String s) {
-    final out = <String>[];
-    var depth = 0, start = 0;
-    for (var i = 0; i < s.length; i++) {
-      final c = s[i];
-      if (c == '<' || c == '(') depth++;
-      if (c == '>' || c == ')') depth--;
-      if (c == ',' && depth == 0) {
-        out.add(s.substring(start, i).trim());
-        start = i + 1;
-      }
-    }
-    final last = s.substring(start).trim();
-    if (last.isNotEmpty) out.add(last);
-    return out;
   }
 
   // ─── Parameter extraction ─────────────────────────────────────────────────
@@ -424,8 +410,7 @@ class SpecFromSource {
       if (rec is! RecordTypeAnnotation) continue;
       var i = 0;
       final fields = [
-        for (final f in rec.positionalFields)
-          BridgeRecordField(name: '\$${++i}', dartType: f.type.toSource(), kind: RecordFieldKind.primitive),
+        for (final f in rec.positionalFields) BridgeRecordField(name: '\$${++i}', dartType: f.type.toSource(), kind: RecordFieldKind.primitive),
       ];
       result.add(BridgeRecordType(name: decl.name.lexeme, fields: fields, isTuple: true));
     }
@@ -493,6 +478,20 @@ class SpecFromSource {
   }
 
   static String _typeSrc(FormalParameter p) => p.type?.toSource() ?? 'dynamic';
+
+  /// `@NitroStream(backpressure: Backpressure.x)`; dropLatest when absent.
+  static Backpressure _backpressureOf(NodeList<Annotation> meta) {
+    for (final ann in meta) {
+      if (_annName(ann) != 'NitroStream') continue;
+      for (final arg in ann.arguments?.arguments ?? []) {
+        if (arg is NamedArgument && arg.name.lexeme == 'backpressure') {
+          final src = arg.argumentExpression.toSource();
+          return Backpressure.values.firstWhere((b) => src == 'Backpressure.${b.name}', orElse: () => Backpressure.dropLatest);
+        }
+      }
+    }
+    return Backpressure.dropLatest;
+  }
 
   static int? _namedIntArg(NodeList<Annotation> meta, String annName, String argName) {
     for (final ann in meta) {

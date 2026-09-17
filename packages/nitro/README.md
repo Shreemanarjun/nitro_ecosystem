@@ -85,8 +85,8 @@ abstract class Math extends HybridObject {
 | `@HybridRecord()` | class | Binary-encoded type; supports strings, lists, nullables, nested records |
 | `@NitroVariant()` | sealed class | Discriminated union (tagged union); each subclass is one variant case |
 | `@NitroTuple()` | typedef | Named positional record; fields accessed via `$1`, `$2`, … |
-| `@nitroAsync` | method | Offloads call to a background isolate; overhead ~28 µs on macOS |
-| `@nitroNativeAsync` | method | Native side posts result via `Dart_PostCObject_DL`; overhead ~27 µs on macOS (no isolate hop) |
+| `@nitroAsync` | method | Runs the sync native call on the bridge's worker pool, ~24 µs on macOS; a `timeout:` (and a few return kinds) fall back to a background isolate, ~28 µs |
+| `@nitroNativeAsync` | method | Native side posts the result to the library's shared completion port (`NitroCompletionBatch`); ~12 µs on macOS, bursts coalesce into one message |
 | `@NitroStream(backpressure:)` | getter | Streams native events to Dart via `Dart_PostCObject_DL` |
 | `@NitroResult()` | method | Return type becomes `NitroResultValue<T>` (`NitroOk<T>` or `NitroErr`) |
 | `@zeroCopy` | parameter | Marks a `TypedData` param as a raw native pointer (callee must not retain) |
@@ -150,7 +150,7 @@ abstract class Camera extends HybridObject {
 | `Backpressure.dropLatest` | Drop new item if Dart hasn't consumed yet — best for sensors/camera |
 | `Backpressure.block` | Block the native thread until Dart consumes |
 | `Backpressure.bufferDrop` | Ring buffer — oldest item dropped when full |
-| `Backpressure.batch` | Accumulate items before one bridge crossing |
+| `Backpressure.batch` | Everything native emits while Dart is busy rides the next message (any item type, every backend) |
 
 ### 5. Zero-copy proxy streaming for `@HybridStruct`
 

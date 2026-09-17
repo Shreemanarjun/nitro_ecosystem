@@ -137,7 +137,7 @@ Stream<SensorData> get sensorStream;
 - `Backpressure.dropLatest` — drop the newest item if the consumer is behind
 - `Backpressure.bufferDrop` — ring buffer; oldest item dropped
 - `Backpressure.block` — block the emitter until the consumer catches up
-- `Backpressure.batch` — accumulate items before a single bridge crossing
+- `Backpressure.batch` — whatever native emits while Dart is busy travels in the next message (any item type, every backend; `batchMaxSize` is ignored)
 
 ### Tuple Types
 

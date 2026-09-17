@@ -83,6 +83,7 @@ String _generateCppDirect(BridgeSpec spec) {
     writer.line('#include "dart_api_dl.h"');
   }
   writer.line('#include "$headerName"');
+  CppBridgeGenerator._emitCompletionBatch(writer, spec);
   emitBackgroundTable(writer, spec, libStem);
   writer.line('#include "$ifaceHeader"');
   writer.blankLine();
@@ -134,6 +135,7 @@ String _generateCppDirect(BridgeSpec spec) {
   // where thread-local storage is a different slot, so those keep malloc.
   writer.line('alignas(8) static thread_local uint8_t _g_opt_ret[16];');
   writer.line('static thread_local std::string _g_str_ret;');
+  CppBridgeGenerator._emitStructCloneHelpers(writer, spec);
   writer.blankLine();
   writer.line('extern "C" {');
   writer.line('NitroError* ${libStem}_get_error() { return &g_nitro_error; }');
@@ -535,7 +537,7 @@ String _generateCppDirect(BridgeSpec spec) {
           writer.line('        static thread_local $stName _g_ret_st;');
           writer.line('        $stName* _ptr = &_g_ret_st;');
         }
-        writer.line('        *_ptr = _res;');
+        writer.line('        *_ptr = _nitro_clone_$stName(_res);');
         writer.line('        return _ptr;');
       case _ when isRecordRet || isVariantRet:
         writer.line('        NitroCppBuffer _res = _impl->${func.dartName}($callArgStr);');
@@ -575,6 +577,7 @@ String _generateCppDirect(BridgeSpec spec) {
   }
 
   // ── Properties ───────────────────────────────────────────────────────────
+  CppBridgeGenerator.emitCppWorkerDispatch(writer, spec, libStem);
   _emitCppDirectProperties(writer, spec, enumNames, structNames, recordNames, notInit);
 
   // ── Streams ──────────────────────────────────────────────────────────────
@@ -583,10 +586,12 @@ String _generateCppDirect(BridgeSpec spec) {
   // overwrite the first.
   for (final stream in spec.streams) {
     writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
+    if (stream.isBatch) CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'coalesce');
     writer.line('    g_ports_${stream.dartName}.add(_nitro_get_instance(instanceId), dart_port);');
     writer.line('}');
     writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
     writer.line('    g_ports_${stream.dartName}.remove(dart_port);');
+    if (stream.isBatch) CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'uncoalesce');
     writer.line('}');
     writer.blankLine();
   }
@@ -676,7 +681,7 @@ void _emitCppDirectProperties(
         writer.line('        $stName _res = _impl->get_${prop.dartName}();');
         writer.line('        static thread_local $stName _g_ret_st;');
         writer.line('        $stName* _ptr = &_g_ret_st;');
-        writer.line('        *_ptr = _res;');
+        writer.line('        *_ptr = _nitro_clone_$stName(_res);');
         writer.line('        return _ptr;');
       } else {
         writer.line('        return _impl->get_${prop.dartName}();');

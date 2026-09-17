@@ -828,28 +828,9 @@ class SpecValidator {
         );
       }
 
-      // E005: Backpressure.batch supports int, double, bool, String, @HybridEnum,
-      // @HybridRecord, and @NitroVariant. @HybridStruct cannot be batched (no encode()).
+      // Backpressure.batch: every item kind coalesces through the bridge batcher
+      // (E005 used to restrict the item type; it no longer applies).
       if (stream.isBatch) {
-        final enumNames = spec.enums.map((e) => e.name).toSet();
-        final recordNames = spec.recordTypes.map((r) => r.name).toSet();
-        final variantNames = spec.variants.map((v) => v.name).toSet();
-        final isBatchSupported = const {'int', 'double', 'bool', 'String', 'uint64'}.contains(iName) || enumNames.contains(iName) || recordNames.contains(iName) || variantNames.contains(iName);
-        if (!isBatchSupported) {
-          issues.add(
-            ValidationIssue(
-              severity: ValidationSeverity.error,
-              code: 'E005',
-              message:
-                  '${spec.dartClassName}.${stream.dartName} — Backpressure.batch is not supported for stream item type "$iName". '
-                  'Batch mode supports: int, double, bool, String, @HybridEnum, @HybridRecord, and @NitroVariant.',
-              hint:
-                  'Change the stream item type to int, double, bool, String, @HybridEnum, @HybridRecord, or @NitroVariant, '
-                  'or switch to Backpressure.dropLatest / Backpressure.dropOldest.',
-            ),
-          );
-        }
-
         // E006: batchMaxSize must be a positive integer.
         if (stream.batchMaxSize <= 0) {
           issues.add(

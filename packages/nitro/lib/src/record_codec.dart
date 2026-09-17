@@ -15,20 +15,29 @@ export 'shared/record_codec_base.dart' show RecordReaderBase, RecordWriterBase;
 class RecordWriter extends RecordWriterBase {
   RecordWriter([super.initialCapacity]);
 
-  /// Copies the accumulated payload to an allocator-owned native buffer.
-  ///
-  /// Layout: `[4-byte payload length][payload bytes]`
-  ///
-  /// The caller / arena is responsible for freeing the pointer.
+  // One shared scratch writer per isolate: sync encodes never interleave, so
+  // acquire/release hands out the same buffer without a per-call allocation.
+  // If it is ever busy (re-entrant encode), callers get a fresh writer.
+  static final RecordWriter _scratch = RecordWriter(1024);
+  static bool _scratchBusy = false;
+
+  static RecordWriter acquire() {
+    if (_scratchBusy) return RecordWriter();
+    _scratchBusy = true;
+    _scratch.reset();
+    return _scratch;
+  }
+
+  static void release(RecordWriter w) {
+    if (identical(w, _scratch)) _scratchBusy = false;
+  }
+
+  /// `[int32 len][payload]` in [alloc]'d memory — one copy, no views.
   Pointer<Uint8> toNative(Allocator alloc) {
-    // Copy the accumulated buffer once, straight into native memory, over a
-    // single typed-list view.
-    final payload = payloadView();
-    final total = 4 + payload.length;
-    final ptr = alloc<Uint8>(total);
-    final typed = ptr.asTypedList(total);
-    ByteData.sublistView(typed).setInt32(0, payload.length, Endian.little);
-    typed.setRange(4, total, payload);
+    final len = payloadLength;
+    final ptr = alloc<Uint8>(4 + len);
+    ptr.cast<Int32>().value = len; // every supported target is little-endian
+    copyPayloadTo(ptr.asTypedList(4 + len), 4);
     return ptr;
   }
 
@@ -40,9 +49,11 @@ class RecordWriter extends RecordWriterBase {
     void Function(RecordWriter w, T item) writeItem,
     Allocator alloc,
   ) {
-    final w = RecordWriter();
+    final w = RecordWriter.acquire();
     RecordWriterBase.writeListPayload(w, items, writeItem);
-    return w.toNative(alloc);
+    final ptr = w.toNative(alloc);
+    RecordWriter.release(w);
+    return ptr;
   }
 
   /// Encodes a list of primitive values (int / double / bool / String).
@@ -65,9 +76,11 @@ class RecordWriter extends RecordWriterBase {
     void Function(RecordWriter w, T item) writeItem,
     Allocator alloc,
   ) {
-    final w = RecordWriter();
+    final w = RecordWriter.acquire();
     RecordWriterBase.writeNullableListPayload(w, items, writeItem);
-    return w.toNative(alloc);
+    final ptr = w.toNative(alloc);
+    RecordWriter.release(w);
+    return ptr;
   }
 
   /// Encodes a list of @HybridRecord objects with an O(1) offset index table.
@@ -81,9 +94,11 @@ class RecordWriter extends RecordWriterBase {
     void Function(RecordWriter w, T item) writeItem,
     Allocator alloc,
   ) {
-    final w = RecordWriter();
+    final w = RecordWriter.acquire();
     RecordWriterBase.writeIndexedListPayload(w, items, writeItem);
-    return w.toNative(alloc);
+    final ptr = w.toNative(alloc);
+    RecordWriter.release(w);
+    return ptr;
   }
 
   /// Encodes a list of primitive values with an O(1) offset index table.
@@ -123,10 +138,7 @@ class RecordReader extends RecordReaderBase {
 
   static Uint8List _payloadOf(Pointer<Uint8> ptr, String caller) {
     if (ptr.address == 0) throw StateError('$caller: null pointer');
-    final len = ByteData.view(ptr.asTypedList(4).buffer).getInt32(
-      0,
-      Endian.little,
-    );
+    final len = ptr.cast<Int32>().value; // little-endian on every supported target
     checkPayloadLength(len, caller);
     return (ptr + 4).asTypedList(len);
   }

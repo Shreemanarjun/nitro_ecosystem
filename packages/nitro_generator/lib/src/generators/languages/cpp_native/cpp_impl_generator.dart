@@ -54,6 +54,10 @@ class CppImplGenerator {
     w.writeln('//     Dart would decode-and-free a live local buffer.');
     w.writeln('//   • Record/variant PARAMS are non-owning payload views (no length prefix)');
     w.writeln('//     — copy if you need them after the call.');
+    w.writeln('//   • @HybridStruct RETURNS: the bridge deep-copies every pointer field');
+    w.writeln('//     (String, typed data, nested struct) before Dart sees it, so return');
+    w.writeln('//     views of your own storage (or the argument) and keep ownership of');
+    w.writeln('//     what you return; do not malloc fields for Dart to free.');
     w.writeln('//   • TypedData RETURNS use NitroCppBuffer{ data, size } where size is in');
     w.writeln('//     BYTES, not elements (Float32List: count * sizeof(float)). A wrong');
     w.writeln('//     unit silently truncates the list Dart sees (bytes / elemSize).');

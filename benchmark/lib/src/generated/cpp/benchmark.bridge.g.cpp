@@ -15,6 +15,14 @@
 #endif
 #include "dart_api_dl.h"
 #include "benchmark.bridge.g.h"
+#include "nitro_completion_batch.h"
+static NitroCompletionBatch g_nitro_batch_benchmark;
+extern "C" {
+NITRO_EXPORT bool benchmark_nitro_post(int64_t port, struct _Dart_CObject* obj) { return g_nitro_batch_benchmark.post(port, obj); }
+NITRO_EXPORT int64_t benchmark_nitro_bind(int64_t batchPort) { return g_nitro_batch_benchmark.bind(batchPort); }
+NITRO_EXPORT void benchmark_nitro_ack(int64_t batchPort) { g_nitro_batch_benchmark.ack(batchPort); }
+}
+
 
 #if defined(_MSC_VER) && !defined(strdup)
 #define strdup _strdup

@@ -394,7 +394,9 @@ class MainThread {
 class NitroStream {
   final Backpressure backpressure;
 
-  /// Max items per batch when [backpressure] == [Backpressure.batch].
+  /// Kept for source compatibility; ignored since 0.7.6. [Backpressure.batch]
+  /// coalesces whatever native emits while Dart is busy into one message —
+  /// no size, no timer — on every backend.
   final int batchMaxSize;
   const NitroStream({
     this.backpressure = Backpressure.dropLatest,

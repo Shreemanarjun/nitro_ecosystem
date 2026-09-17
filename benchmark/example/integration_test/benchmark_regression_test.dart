@@ -18,7 +18,7 @@
 
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -65,13 +65,16 @@ const _maxLeafOverRawFfi = 2.5; //   ratio term
 // is isLeaf, so it gets the same allowance as the scalar leaf tier.
 const _maxFastHandleOverRawFfi = 2.5;
 const _maxLeafHandleOverRawFfi = 2.5;
-const _handleOverheadBudgetUs = 1.0;
+const _handleOverheadBudgetUs = 0.05; // checked calls no longer time themselves: ~25 ns
 // @nitroFast @nitroNativeAsync completes inline (no port, no wake): the port
 // post path must stay several times slower, or the fast tier stopped working.
 const _minPostOverFastInline = 4.0;
+
+/// Coalesced batch stream ÷ per-item stream on a 256-item burst (native only).
+const _maxStreamBatchedOverPerItem = 0.5;
 const _leafOverheadBudgetUs = 1.0; // absolute per-call overhead budget
-const _maxCppOverRawFfi = 4.0;
-const _cppOverheadBudgetUs = 1.5;
+const _maxCppOverRawFfi = 3.0;
+const _cppOverheadBudgetUs = 0.05; // checked C++ call ≈ 30 ns after 0.7.6 (was 270 ns)
 const _minChannelOverCpp = 5.0; //   typical 50–100×
 
 // @nitroAsync / @nitroNativeAsync vs MethodChannel. Generous on purpose —
@@ -137,12 +140,26 @@ void main() {
       final leafHandle = optionalMin('nitro_leaf_handle');
       final asyncPost = optionalMin('nitro_native_async_scalar');
       final asyncInline = optionalMin('nitro_native_async_inline');
-      if (asyncPost != null && asyncInline != null) {
+      // Web has no ports: native-async completes on the same thread there, so
+      // there is no isolate wake for inline completion to remove.
+      if (!kIsWeb && asyncPost != null && asyncInline != null) {
         expect(
           asyncPost / asyncInline,
           greaterThanOrEqualTo(_minPostOverFastInline),
           reason: '@nitroFast @nitroNativeAsync should complete inline, well under the port post '
               '(inline=${asyncInline.toStringAsFixed(3)}µs, post=${asyncPost.toStringAsFixed(3)}µs).',
+        );
+      }
+      // Coalesced batch streams: a 256-item burst must cost well under the
+      // per-item post path (one message per Dart wake instead of one per item).
+      final streamPerItem = optionalMin('nitro_stream_struct_burst256_percall');
+      final streamBatched = optionalMin('nitro_stream_struct_burst256_batched');
+      if (!kIsWeb && streamPerItem != null && streamBatched != null) {
+        expect(
+          streamBatched / streamPerItem,
+          lessThanOrEqualTo(_maxStreamBatchedOverPerItem),
+          reason: 'Backpressure.batch on an all-C++ spec should coalesce a burst '
+              '(batched=${streamBatched.toStringAsFixed(1)}µs, per-item=${streamPerItem.toStringAsFixed(1)}µs per 256 items).',
         );
       }
       final fastHandle = optionalMin('nitro_fast_handle');

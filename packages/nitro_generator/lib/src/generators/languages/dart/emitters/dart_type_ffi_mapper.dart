@@ -24,7 +24,7 @@ String _toNativeType(BridgeFunction func, BridgeSpec spec) {
   // NativeAsync: C function returns void and takes an extra Int64 dart_port.
   // @NitroResult: C function always returns Pointer<Uint8> (tagged buffer).
   // Nullable prims: C returns uint8_t* pointer (malloc'd); Dart receives Pointer<NitroOptXxx>.
-  final ret = func.isNativeAsync
+  final ret = spec.bridgeAsync(func)
       ? 'Void'
       : func.isResult
       ? 'Pointer<Uint8>'
@@ -41,8 +41,8 @@ String _toNativeType(BridgeFunction func, BridgeSpec spec) {
     // keeps using its own TLS get_error/clear_error mechanism, untouched).
     // Native-async gets a FRESH struct per call, unlike sync's one
     // instance-owned slot — see NitroRuntime.throwIfOutParamErrorAndFree.
-    if (!func.isAsync) 'Pointer<NitroErrorFfi>',
-    if (func.isNativeAsync) 'Int64', // dart_port
+    if (!func.isAsync || spec.bridgeAsync(func)) 'Pointer<NitroErrorFfi>',
+    if (spec.bridgeAsync(func)) 'Int64', // dart_port
   ].join(', ');
   return '$effectiveRet Function($params)';
 }
@@ -51,7 +51,7 @@ String _toDartType(BridgeFunction func, BridgeSpec spec) {
   // NativeAsync: Dart callable returns void and takes an extra int dart_port.
   // @NitroResult: Dart callable returns Pointer<Uint8> (tagged result buffer).
   // Nullable prims: C returns uint8_t* pointer; Dart receives Pointer<NitroOptXxx>.
-  final ret = func.isNativeAsync
+  final ret = spec.bridgeAsync(func)
       ? 'void'
       : func.isResult
       ? 'Pointer<Uint8>'
@@ -66,8 +66,8 @@ String _toDartType(BridgeFunction func, BridgeSpec spec) {
     // S8: sync AND native-async functions receive a Pointer<NitroErrorFfi>
     // out-param (native-async: a fresh struct per call, see
     // NitroRuntime.throwIfOutParamErrorAndFree).
-    if (!func.isAsync) 'Pointer<NitroErrorFfi>',
-    if (func.isNativeAsync) 'int', // dart_port
+    if (!func.isAsync || spec.bridgeAsync(func)) 'Pointer<NitroErrorFfi>',
+    if (spec.bridgeAsync(func)) 'int', // dart_port
   ].join(', ');
   return '$effectiveRet Function($params)';
 }

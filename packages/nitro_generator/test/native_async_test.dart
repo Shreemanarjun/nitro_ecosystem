@@ -174,7 +174,7 @@ BridgeSpec _mixedSpec() => BridgeSpec(
     BridgeFunction(
       dartName: 'asyncFetch',
       cSymbol: 'mixed_async_fetch',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'String'),
       params: [],
     ),
@@ -665,6 +665,8 @@ BridgeSpec _cppOnlyNativeAsyncSpec() => BridgeSpec(
 
 // ── DartFfiGenerator tests ────────────────────────────────────────────────────
 
+// @nitroAsync fixtures here carry a timeout so they exercise the isolate-pool
+// path; bridge dispatch (the default now) is covered in async_dispatch_test.dart.
 void main() {
   group('DartFfiGenerator — @NitroNativeAsync', () {
     // ── Function pointer ──────────────────────────────────────────────────────
@@ -698,7 +700,10 @@ void main() {
     test('isNativeAsync methods are NOT bound with isLeaf:true', () {
       final out = DartFfiGenerator.generate(_nativeAsyncIntSpec());
       // The compute pointer must use lookupFunction, not .asFunction(isLeaf:true).
-      expect(out, isNot(contains('isLeaf: true')));
+      // Method bindings must not be leaf (the native side posts back into the
+      // VM); the free/alloc helper bindings are leaf on purpose.
+      final leafBindings = RegExp(r"'(\w+)'\)\s*\.asFunction<[^;]*?isLeaf: true").allMatches(out).map((m) => m.group(1)!).where((sym) => !sym.endsWith('_nitro_free') && !sym.endsWith('_nitro_alloc'));
+      expect(leafBindings, isEmpty, reason: 'native-async method bound as leaf');
     });
 
     // ── Method return type ────────────────────────────────────────────────────
@@ -1212,9 +1217,9 @@ void main() {
       expect(out, contains('Task.detached'));
     });
 
-    test('stub calls Dart_PostCObject_DL(dartPort, &_obj)', () {
+    test('stub posts through <lib>_nitro_post(dartPort, &_obj)', () {
       final out = SwiftGenerator.generate(_nativeAsyncIntSpec());
-      expect(out, contains('Dart_PostCObject_DL(dartPort'));
+      expect(out, contains('_nitro_post(dartPort'));
     });
 
     test('int return: posts via kInt64', () {
@@ -1666,7 +1671,7 @@ void main() {
     test('void return: calls impl.doWork() before posting null', () {
       final out = SwiftGenerator.generate(_nativeAsyncVoidSpec());
       expect(out, contains('impl.doWork()'));
-      expect(out, contains('Dart_PostCObject_DL(dartPort, &_null)'));
+      expect(out, contains('_nitro_post(dartPort, &_null)'));
     });
 
     test('String return: uses kString type', () {
@@ -1704,7 +1709,7 @@ void main() {
       final guardIdx = out.indexOf('guard let impl = ComputeRegistry.impl else {');
       expect(guardIdx, isNot(-1), reason: 'null guard must be present');
       final guardBlock = out.substring(guardIdx, out.indexOf('\n    }', guardIdx) + 6);
-      expect(guardBlock, contains('Dart_PostCObject_DL(dartPort, &_null)'));
+      expect(guardBlock, contains('_nitro_post(dartPort, &_null)'));
     });
 
     test('enum return: posts via kInt64 using .rawValue', () {
@@ -2490,7 +2495,7 @@ void main() {
       expect(body, contains('_errPtr.pointee.name = UnsafePointer(strdup(_nsErr.domain))'));
       expect(body, contains('_errPtr.pointee.message = UnsafePointer(strdup(_nsErr.localizedDescription))'));
       expect(body, contains('_null.type = Dart_CObject_kNull'));
-      expect(body, contains('Dart_PostCObject_DL(dartPort, &_null)'));
+      expect(body, contains('_nitro_post(dartPort, &_null)'));
     });
 
     test('ObjC++ wrapper (emitted by CppBridgeGenerator) passes err_ptr through with no @try/@catch (returns before Task.detached runs)', () {

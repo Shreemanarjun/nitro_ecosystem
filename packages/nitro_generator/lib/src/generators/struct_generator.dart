@@ -14,7 +14,7 @@ const _kLengthFieldNames = {
 /// Returns the companion element-count field name for a zero-copy field, or
 /// null when no explicit companion is declared (caller should use the synthetic
 /// '${fieldName}Length' name injected by [generateCStructs]).
-String? _zeroCopyCompanionField(BridgeStruct st, String zeroCopyFieldName) {
+String? zeroCopyCompanionField(BridgeStruct st, String zeroCopyFieldName) {
   // Field-specific names take priority (pcmLength, pcmSize).
   for (final c in ['${zeroCopyFieldName}Length', '${zeroCopyFieldName}Size']) {
     if (st.fields.any((f) => f.name == c && f.type.name == 'int')) return c;
@@ -27,7 +27,7 @@ String? _zeroCopyCompanionField(BridgeStruct st, String zeroCopyFieldName) {
 }
 
 /// True when [zeroCopyFieldName] needs a synthetic '${name}Length' companion.
-bool _needsSyntheticLen(BridgeStruct st, String zeroCopyFieldName) => _zeroCopyCompanionField(st, zeroCopyFieldName) == null;
+bool _needsSyntheticLen(BridgeStruct st, String zeroCopyFieldName) => zeroCopyCompanionField(st, zeroCopyFieldName) == null;
 
 /// Generates Dart extension helpers for HybridStructs.
 /// The struct class itself MUST already be declared in the .native.dart spec file.
@@ -262,7 +262,7 @@ class StructGenerator {
         }
         switch (f.type.name) {
           case _ when f.type.isTypedData:
-            final companion = _zeroCopyCompanionField(st, f.name);
+            final companion = zeroCopyCompanionField(st, f.name);
             // Prefer explicit companion field; fall back to synthesized ${fieldName}Length.
             final lenRef = '_native.ref.${companion ?? '${f.name}Length'}';
             readExpr = '_native.ref.${f.name}.asTypedList($lenRef)';
@@ -334,7 +334,7 @@ class StructGenerator {
     }
     switch (typeName) {
       case _ when f.type.isTypedData:
-        final companion = _zeroCopyCompanionField(st, f.name);
+        final companion = zeroCopyCompanionField(st, f.name);
         // Prefer explicit companion field; fall back to synthesized ${fieldName}Length.
         final lenExpr = companion ?? '${f.name}Length';
         return orNull('$typeName.fromList(${f.name}.asTypedList($lenExpr))');

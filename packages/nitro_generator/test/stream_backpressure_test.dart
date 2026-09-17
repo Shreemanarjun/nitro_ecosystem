@@ -155,7 +155,7 @@ void main() {
 
   // ── Point 5: String batch stream ──────────────────────────────────────────
 
-  group('String batch stream — Point 5 fix', () {
+  group('Backpressure.batch — per-item posts coalesced by the bridge', () {
     BridgeSpec stringBatchSpec() => BridgeSpec(
       dartClassName: 'Logger',
       lib: 'logger',
@@ -175,85 +175,36 @@ void main() {
       ],
     );
 
-    test('Kotlin: String batch uses Array<String> external (not LongArray)', () {
+    test('Kotlin: String batch emits one String per item, no accumulator', () {
       final out = KotlinGenerator.generate(stringBatchSpec());
-      expect(out, contains('emit_logs_string_batch(dartPort: Long, batch: Array<String>): Boolean'));
-      expect(out, isNot(contains('emit_logs_batch(dartPort: Long, batch: LongArray)')));
+      expect(out, contains('external fun emit_logs(dartPort: Long, item: String): Boolean'));
+      expect(out, isNot(contains('_string_batch')));
+      expect(out, isNot(contains('_flushJob')));
     });
 
-    test('Kotlin: String batch buffer is ArrayList<String> (not ArrayList<Long>)', () {
-      final out = KotlinGenerator.generate(stringBatchSpec());
-      expect(out, contains('ArrayList<String>('));
-      expect(out, isNot(contains('ArrayList<Long>(')));
+    test('Kotlin: numeric batch emits one scalar per item', () {
+      final out = KotlinGenerator.generate(_streamSpec(Backpressure.batch));
+      expect(out, contains('external fun emit_ticks(dartPort: Long, item: Double): Boolean'));
+      expect(out, isNot(contains('LongArray')));
     });
 
-    test('Kotlin: String batch _flush uses toTypedArray()', () {
-      final out = KotlinGenerator.generate(stringBatchSpec());
-      expect(out, contains('_buf.toTypedArray()'));
-    });
-
-    test('Kotlin: String batch collect adds item (no toLong/doubleToRawLongBits)', () {
-      final out = KotlinGenerator.generate(stringBatchSpec());
-      expect(out, contains('_buf.add(item)'));
-      expect(out, isNot(contains('toLong()')));
-      expect(out, isNot(contains('doubleToRawLongBits')));
-    });
-
-    test('Kotlin: String batch uses Mutex guard same as numeric batch', () {
-      final out = KotlinGenerator.generate(stringBatchSpec());
-      expect(out, contains('Mutex()'));
-      expect(out, contains('_lock.withLock'));
-    });
-
-    test('Dart FFI: String batch uses asyncExpand with batch.cast<String>()', () {
+    test('Dart FFI: batch stream receives List<String> and acks each message', () {
       final out = DartFfiGenerator.generate(stringBatchSpec());
-      expect(out, contains('batch.cast<String>()'));
-      expect(out, contains('Backpressure.batch'));
+      expect(out, contains('NitroRuntime.openStream<List<String>>('));
+      expect(out, contains('unpack: (message) => [for (final m in message as List<dynamic>) unpackItem(m)],'));
+      expect(out, contains('ack: _nitroAckPtr,'));
+      expect(out, isNot(contains('batch.cast<String>()')));
     });
 
-    test('Dart FFI: String batch openStream type is List<dynamic>', () {
-      final out = DartFfiGenerator.generate(stringBatchSpec());
-      expect(out, contains('openStream<List<dynamic>>'));
-    });
-
-    test('C bridge: String batch emits jobjectArray JNI handler (not jlongArray)', () {
+    test('C bridge: register binds the port to the batcher; JNI emit takes one jstring', () {
       final out = CppBridgeGenerator.generate(stringBatchSpec());
-      expect(out, contains('jobjectArray batch'));
-      expect(out, contains('Dart_CObject_kArray'));
-      expect(out, contains('Dart_CObject_kString'));
-      expect(out, isNot(contains('jlongArray batch')));
-    });
-
-    test('C bridge: String batch handler converts jstring to UTF-8 and posts array', () {
-      final out = CppBridgeGenerator.generate(stringBatchSpec());
-      expect(out, contains('GetStringUTFChars'));
-      expect(out, contains('ReleaseStringUTFChars'));
-      expect(out, contains('GetObjectArrayElement'));
-    });
-
-    test('numeric batch: still emits LongArray (not regressed)', () {
-      final numericBatchSpec = BridgeSpec(
-        dartClassName: 'Sensor',
-        lib: 'sensor',
-        namespace: 'sensor',
-        iosImpl: NativeImpl.swift,
-        androidImpl: NativeImpl.kotlin,
-        sourceUri: 'sensor.native.dart',
-        streams: [
-          BridgeStream(
-            dartName: 'values',
-            registerSymbol: 'sensor_register_values_stream',
-            releaseSymbol: 'sensor_release_values_stream',
-            itemType: BridgeType(name: 'int'),
-            backpressure: Backpressure.batch,
-          ),
-        ],
-      );
-      final out = KotlinGenerator.generate(numericBatchSpec);
-      expect(out, contains('emit_values_batch(dartPort: Long, batch: LongArray): Boolean'));
-      expect(out, contains('ArrayList<Long>('));
+      expect(out, contains('g_nitro_batch_logger.coalesce(dart_port);'));
+      expect(out, contains('g_nitro_batch_logger.uncoalesce(dart_port);'));
+      expect(out, contains('jstring item)'));
+      expect(out, isNot(contains('jobjectArray batch')));
     });
   });
+
 
   group('Backpressure — all three values exist', () {
     test('Backpressure enum has dropLatest', () {

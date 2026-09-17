@@ -15,6 +15,28 @@
 #endif
 #include "dart_api_dl.h"
 #include "nitro_ar.bridge.g.h"
+#include "nitro_completion_batch.h"
+static NitroCompletionBatch g_nitro_batch_nitro_ar;
+extern "C" {
+NITRO_EXPORT bool nitro_ar_nitro_post(int64_t port, struct _Dart_CObject* obj) { return g_nitro_batch_nitro_ar.post(port, obj); }
+NITRO_EXPORT int64_t nitro_ar_nitro_bind(int64_t batchPort) { return g_nitro_batch_nitro_ar.bind(batchPort); }
+NITRO_EXPORT void nitro_ar_nitro_ack(int64_t batchPort) { g_nitro_batch_nitro_ar.ack(batchPort); }
+}
+#include "nitro_worker_pool.h"
+static NitroWorkerPool g_nitro_pool_nitro_ar;
+[[maybe_unused]] static void _nitro_post_null(int64_t port) { Dart_CObject o; o.type = Dart_CObject_kNull; Dart_PostCObject_DL(port, &o); }
+[[maybe_unused]] static void _nitro_post_i64(int64_t port, int64_t v) { Dart_CObject o; o.type = Dart_CObject_kInt64; o.value.as_int64 = v; Dart_PostCObject_DL(port, &o); }
+[[maybe_unused]] static void _nitro_post_f64(int64_t port, double v) { Dart_CObject o; o.type = Dart_CObject_kDouble; o.value.as_double = v; Dart_PostCObject_DL(port, &o); }
+[[maybe_unused]] static void _nitro_post_bool(int64_t port, int8_t v) { Dart_CObject o; o.type = Dart_CObject_kBool; o.value.as_bool = v != 0; Dart_PostCObject_DL(port, &o); }
+[[maybe_unused]] static void _nitro_post_ptr(int64_t port, const void* p) { _nitro_post_i64(port, (int64_t)(intptr_t)p); }
+// Owned C string (strdup'd by the async sync export): posted as kString, then freed.
+[[maybe_unused]] static void _nitro_post_str_owned(int64_t port, char* s) { if (!s) { _nitro_post_null(port); return; } Dart_CObject o; o.type = Dart_CObject_kString; o.value.as_string = s; Dart_PostCObject_DL(port, &o); free(s); }
+// [int32 len][payload] blob → owned copy (empty for null).
+[[maybe_unused]] static std::vector<uint8_t> _nitro_copy_framed(const void* p) { if (!p) return {}; int32_t n = 0; memcpy(&n, p, 4); const uint8_t* b = (const uint8_t*)p; return std::vector<uint8_t>(b, b + 4 + (n < 0 ? 0 : n)); }
+[[maybe_unused]] static std::vector<uint8_t> _nitro_copy_bytes(const void* p, size_t n) { if (!p) return {}; const uint8_t* b = (const uint8_t*)p; return std::vector<uint8_t>(b, b + n); }
+// Moves the thread-local error of the worker into the per-call slot Dart reads.
+[[maybe_unused]] static void _nitro_move_err(NitroError* dst, NitroError* src) { if (!dst || !src) return; dst->hasError = 1; dst->name = src->name; dst->message = src->message; dst->code = src->code; dst->stackTrace = src->stackTrace; src->hasError = 0; src->name = src->message = src->code = src->stackTrace = nullptr; }
+
 
 #if defined(_MSC_VER) && !defined(strdup)
 #define strdup _strdup
@@ -34,6 +56,41 @@ NITRO_EXPORT intptr_t nitro_ar_init_dart_api_dl(void* data) {
 static thread_local NitroError g_nitro_error = { 0, nullptr, nullptr, nullptr, nullptr };
 alignas(8) static thread_local uint8_t _g_opt_ret[16];
 static thread_local std::string _g_str_ret;
+// Deep copies of returned structs: Dart frees every pointer field.
+[[maybe_unused]] static Vector3 _nitro_clone_Vector3(const Vector3& _s);
+[[maybe_unused]] static Quaternion _nitro_clone_Quaternion(const Quaternion& _s);
+[[maybe_unused]] static BoundingBox _nitro_clone_BoundingBox(const BoundingBox& _s);
+[[maybe_unused]] static PackageDimensions _nitro_clone_PackageDimensions(const PackageDimensions& _s);
+[[maybe_unused]] static RawDepthMap _nitro_clone_RawDepthMap(const RawDepthMap& _s);
+[[maybe_unused]] static Vector3 _nitro_clone_Vector3(const Vector3& _s) {
+    Vector3 _c = _s;
+    return _c;
+}
+[[maybe_unused]] static Quaternion _nitro_clone_Quaternion(const Quaternion& _s) {
+    Quaternion _c = _s;
+    return _c;
+}
+[[maybe_unused]] static BoundingBox _nitro_clone_BoundingBox(const BoundingBox& _s) {
+    BoundingBox _c = _s;
+    return _c;
+}
+[[maybe_unused]] static PackageDimensions _nitro_clone_PackageDimensions(const PackageDimensions& _s) {
+    PackageDimensions _c = _s;
+    if (_s.vector3) {
+        _c.vector3 = (Vector3*)malloc(sizeof(Vector3));
+        *_c.vector3 = _nitro_clone_Vector3(*_s.vector3);
+    }
+    if (_s.quaternion) {
+        _c.quaternion = (Quaternion*)malloc(sizeof(Quaternion));
+        *_c.quaternion = _nitro_clone_Quaternion(*_s.quaternion);
+    }
+    return _c;
+}
+[[maybe_unused]] static RawDepthMap _nitro_clone_RawDepthMap(const RawDepthMap& _s) {
+    RawDepthMap _c = _s;
+    return _c;
+}
+
 
 extern "C" {
 NitroError* nitro_ar_get_error() { return &g_nitro_error; }
@@ -1267,3 +1324,86 @@ NITRO_EXPORT void* nitro_ar_nitro_alloc(size_t size) { return malloc(size); }
 
 } // extern "C"
 #endif
+void nitro_ar_release_Vector3(void* ptr);
+void nitro_ar_release_Quaternion(void* ptr);
+void nitro_ar_release_BoundingBox(void* ptr);
+void nitro_ar_release_PackageDimensions(void* ptr);
+void nitro_ar_release_RawDepthMap(void* ptr);
+NITRO_EXPORT void nitro_ar_get_greeting_dispatch(int64_t instanceId, const char* name, NitroError* _nitro_err, int64_t dart_port) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }
+    std::string _c_name(name ? name : ""); const bool _n_name = name == nullptr;
+    g_nitro_pool_nitro_ar.enqueue([=]() mutable {
+        nitro_ar_clear_error();
+        const char* _r = nitro_ar_get_greeting(instanceId, _n_name ? nullptr : _c_name.c_str());
+        NitroError* _e = nitro_ar_get_error();
+        if (_e->hasError) { _nitro_move_err(_nitro_err, _e); _nitro_post_null(dart_port); return; }
+        _nitro_post_str_owned(dart_port, (char*)_r);
+    });
+}
+
+NITRO_EXPORT void nitro_ar_check_camera_permission_dispatch(int64_t instanceId, NitroError* _nitro_err, int64_t dart_port) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }
+    g_nitro_pool_nitro_ar.enqueue([=]() mutable {
+        nitro_ar_clear_error();
+        int8_t _r = nitro_ar_check_camera_permission(instanceId);
+        NitroError* _e = nitro_ar_get_error();
+        if (_e->hasError) { _nitro_move_err(_nitro_err, _e); _nitro_post_null(dart_port); return; }
+        _nitro_post_bool(dart_port, _r);
+    });
+}
+
+NITRO_EXPORT void nitro_ar_request_camera_permission_dispatch(int64_t instanceId, NitroError* _nitro_err, int64_t dart_port) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }
+    g_nitro_pool_nitro_ar.enqueue([=]() mutable {
+        nitro_ar_clear_error();
+        int8_t _r = nitro_ar_request_camera_permission(instanceId);
+        NitroError* _e = nitro_ar_get_error();
+        if (_e->hasError) { _nitro_move_err(_nitro_err, _e); _nitro_post_null(dart_port); return; }
+        _nitro_post_bool(dart_port, _r);
+    });
+}
+
+NITRO_EXPORT void nitro_ar_start_session_dispatch(int64_t instanceId, NitroError* _nitro_err, int64_t dart_port) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }
+    g_nitro_pool_nitro_ar.enqueue([=]() mutable {
+        nitro_ar_clear_error();
+        nitro_ar_start_session(instanceId);
+        NitroError* _e = nitro_ar_get_error();
+        if (_e->hasError) { _nitro_move_err(_nitro_err, _e); _nitro_post_null(dart_port); return; }
+        _nitro_post_null(dart_port);
+    });
+}
+
+NITRO_EXPORT void nitro_ar_stop_session_dispatch(int64_t instanceId, NitroError* _nitro_err, int64_t dart_port) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }
+    g_nitro_pool_nitro_ar.enqueue([=]() mutable {
+        nitro_ar_clear_error();
+        nitro_ar_stop_session(instanceId);
+        NitroError* _e = nitro_ar_get_error();
+        if (_e->hasError) { _nitro_move_err(_nitro_err, _e); _nitro_post_null(dart_port); return; }
+        _nitro_post_null(dart_port);
+    });
+}
+
+NITRO_EXPORT void nitro_ar_pause_session_dispatch(int64_t instanceId, NitroError* _nitro_err, int64_t dart_port) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }
+    g_nitro_pool_nitro_ar.enqueue([=]() mutable {
+        nitro_ar_clear_error();
+        nitro_ar_pause_session(instanceId);
+        NitroError* _e = nitro_ar_get_error();
+        if (_e->hasError) { _nitro_move_err(_nitro_err, _e); _nitro_post_null(dart_port); return; }
+        _nitro_post_null(dart_port);
+    });
+}
+
+NITRO_EXPORT void nitro_ar_resume_session_dispatch(int64_t instanceId, NitroError* _nitro_err, int64_t dart_port) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }
+    g_nitro_pool_nitro_ar.enqueue([=]() mutable {
+        nitro_ar_clear_error();
+        nitro_ar_resume_session(instanceId);
+        NitroError* _e = nitro_ar_get_error();
+        if (_e->hasError) { _nitro_move_err(_nitro_err, _e); _nitro_post_null(dart_port); return; }
+        _nitro_post_null(dart_port);
+    });
+}
+

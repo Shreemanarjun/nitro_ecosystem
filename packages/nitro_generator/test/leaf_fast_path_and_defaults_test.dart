@@ -67,9 +67,9 @@ void main() {
       expect(body, isNot(contains('callSync')));
     });
 
-    test('Fast method that needs an arena keeps the callSync + withArena path', () {
+    test('Fast method that needs an arena keeps the instrumented withArena path', () {
       final body = out.substring(out.indexOf('int lengthFast('), out.indexOf('int write('));
-      expect(body, contains('callSync'));
+      expect(body, contains("NitroRuntime.syncStart('lengthFast')"));
       expect(body, contains('withArena'));
       expect(body, isNot(contains('checkError')), reason: 'Fast still skips the error check');
     });
@@ -120,10 +120,12 @@ void main() {
       expect(okCodes, isNot(contains('FAST_NOT_SYNC')));
     });
 
-    test('non-Fast methods are untouched: callSync closure + error check', () {
+    test('non-Fast methods: inline body between syncStart/syncEnd, error check names the method, no closure', () {
       final body = out.substring(out.indexOf('double add(double a, double b)'), out.indexOf('Future<int> slowAdd('));
-      expect(body, contains('NitroRuntime.callSync('));
-      expect(body, contains("methodName: 'add'"));
+      expect(body, contains("final t0 = NitroRuntime.syncStart('add');"));
+      expect(body, contains("NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree, methodName: 'add');"));
+      expect(body, contains("NitroRuntime.syncEnd(t0, 'add');"));
+      expect(body, isNot(contains('callSync')));
     });
   });
 

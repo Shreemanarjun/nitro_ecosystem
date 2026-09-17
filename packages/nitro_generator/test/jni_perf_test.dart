@@ -25,7 +25,9 @@ import 'package:test/test.dart';
 
 // ── Shared spec builders ─────────────────────────────────────────────────────
 
-BridgeSpec _specWithFunctions() {
+// [asyncTimeout] keeps a fixture on the isolate-pool path (Kotlin output is
+// timeout-sensitive, so the Kotlin tests pass none).
+BridgeSpec _specWithFunctions({int? asyncTimeout}) {
   return BridgeSpec(
     dartClassName: 'PerfMod',
     lib: 'perf_mod',
@@ -54,6 +56,7 @@ BridgeSpec _specWithFunctions() {
         dartName: 'fetchData',
         cSymbol: 'perf_mod_fetch_data',
         isAsync: true,
+        asyncTimeout: asyncTimeout,
         returnType: BridgeType(name: 'String'),
         params: [],
       ),
@@ -217,7 +220,7 @@ BridgeSpec _specWithNumericRecord() {
   );
 }
 
-BridgeSpec _specWithEnum() {
+BridgeSpec _specWithEnum({int? asyncTimeout}) {
   return BridgeSpec(
     dartClassName: 'EnumMod',
     lib: 'enum_mod',
@@ -240,6 +243,7 @@ BridgeSpec _specWithEnum() {
         dartName: 'fetchColor',
         cSymbol: 'enum_mod_fetch_color',
         isAsync: true,
+        asyncTimeout: asyncTimeout,
         returnType: BridgeType(name: 'Color'),
         params: [],
       ),
@@ -247,6 +251,8 @@ BridgeSpec _specWithEnum() {
   );
 }
 
+// @nitroAsync fixtures here carry a timeout so they exercise the isolate-pool
+// path; bridge dispatch (the default now) is covered in async_dispatch_test.dart.
 void main() {
   // ── Fix 3: Exception method ID caching ─────────────────────────────────────
 
@@ -938,7 +944,7 @@ void main() {
       BridgeFunction(
         dartName: 'getPointAsync',
         cSymbol: 'struct_async_mod_get_point_async',
-        isAsync: true,
+        isAsync: true, asyncTimeout: 1000,
         returnType: BridgeType(name: 'Point'),
         params: [],
       ),
@@ -963,7 +969,7 @@ void main() {
       BridgeFunction(
         dartName: 'getItemAsync',
         cSymbol: 'record_async_mod_get_item_async',
-        isAsync: true,
+        isAsync: true, asyncTimeout: 1000,
         returnType: BridgeType(name: 'Item', isRecord: true),
         params: [],
       ),
@@ -982,7 +988,7 @@ void main() {
       BridgeFunction(
         dartName: 'findItem',
         cSymbol: 'search_mod_find_item',
-        isAsync: true,
+        isAsync: true, asyncTimeout: 1000,
         returnType: BridgeType(name: 'String'),
         params: [
           BridgeParam(
@@ -1012,7 +1018,7 @@ void main() {
       BridgeFunction(
         dartName: 'lookup',
         cSymbol: 'lookup_mod_lookup',
-        isAsync: true,
+        isAsync: true, asyncTimeout: 1000,
         returnType: BridgeType(name: 'Result', isRecord: true),
         params: [
           BridgeParam(
@@ -1138,12 +1144,12 @@ void main() {
     });
 
     test('async enum return uses callAsync<int>', () {
-      final out = DartFfiGenerator.generate(_specWithEnum());
+      final out = DartFfiGenerator.generate(_specWithEnum(asyncTimeout: 1000));
       expect(out, contains('callAsync<int>'));
     });
 
     test('async enum return has no untyped int cast', () {
-      final out = DartFfiGenerator.generate(_specWithEnum());
+      final out = DartFfiGenerator.generate(_specWithEnum(asyncTimeout: 1000));
       // Old: (await callAsync(...)) as int — new: callAsync<int>(...)
       expect(out, isNot(contains(') as int')));
     });
@@ -1160,7 +1166,7 @@ void main() {
           BridgeFunction(
             dartName: 'computeAsync',
             cSymbol: 'math_mod_compute_async',
-            isAsync: true,
+            isAsync: true, asyncTimeout: 1000,
             returnType: BridgeType(name: 'double'),
             params: [],
           ),
@@ -1183,7 +1189,7 @@ void main() {
           BridgeFunction(
             dartName: 'countAsync',
             cSymbol: 'count_mod_count_async',
-            isAsync: true,
+            isAsync: true, asyncTimeout: 1000,
             returnType: BridgeType(name: 'int'),
             params: [],
           ),
@@ -1213,7 +1219,7 @@ void main() {
           BridgeFunction(
             dartName: 'getJson',
             cSymbol: 'json_mod_get_json',
-            isAsync: true,
+            isAsync: true, asyncTimeout: 1000,
             returnType: BridgeType(name: 'String'),
             params: [],
           ),
@@ -1247,7 +1253,7 @@ void main() {
           BridgeFunction(
             dartName: 'fetchUserProfile',
             cSymbol: 'diag_mod_fetch_user_profile_c',
-            isAsync: true,
+            isAsync: true, asyncTimeout: 1000,
             returnType: BridgeType(name: 'String'),
             params: [],
           ),
@@ -1271,14 +1277,14 @@ void main() {
           BridgeFunction(
             dartName: 'loadA',
             cSymbol: 'multi_mod_load_a',
-            isAsync: true,
+            isAsync: true, asyncTimeout: 1000,
             returnType: BridgeType(name: 'double'),
             params: [],
           ),
           BridgeFunction(
             dartName: 'loadB',
             cSymbol: 'multi_mod_load_b',
-            isAsync: true,
+            isAsync: true, asyncTimeout: 1000,
             returnType: BridgeType(name: 'int'),
             params: [],
           ),
@@ -1318,9 +1324,9 @@ void main() {
       );
       final out = DartFfiGenerator.generate(spec);
       expect(out, isNot(contains('callAsync')));
-      // callSync also now passes methodName for logging — verify it's the right method
-      expect(out, contains("methodName: 'add'"));
-      expect(out, contains('NitroRuntime.callSync'));
+      // The inline sync body is bracketed by syncStart/syncEnd with the method name.
+      expect(out, contains("NitroRuntime.syncStart('add')"));
+      expect(out, contains("NitroRuntime.syncEnd(t0, 'add')"));
     });
 
     test('record async return still carries methodName', () {
@@ -1331,7 +1337,7 @@ void main() {
     });
 
     test('methodName is adjacent to getError / clearError args', () {
-      final out = DartFfiGenerator.generate(_specWithFunctions());
+      final out = DartFfiGenerator.generate(_specWithFunctions(asyncTimeout: 1000));
       // All three named args should appear together on the same callAsync call
       expect(out, contains('getError: _getErrorNativePtr, clearError: _clearErrorNativePtr, methodName:'));
     });
@@ -1749,7 +1755,7 @@ void main() {
 
       expect(
         body,
-        contains('NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);'),
+        contains('NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree'),
       );
       expect(
         body,

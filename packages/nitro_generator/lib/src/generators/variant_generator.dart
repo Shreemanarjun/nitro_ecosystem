@@ -173,9 +173,11 @@ class VariantGenerator {
     // ── toNative ──────────────────────────────────────────────────────────────
     if (slice == DartCodecSlice.all) {
       s.line('  Pointer<Uint8> toNative(Allocator alloc) {');
-      s.line('    final writer = RecordWriter();');
+      s.line('    final writer = RecordWriter.acquire();');
       s.line('    writeFields(writer);');
-      s.line('    return writer.toNative(alloc);');
+      s.line('    final ptr = writer.toNative(alloc);');
+    s.line('    RecordWriter.release(writer);');
+    s.line('    return ptr;');
       s.line('  }');
     }
 
@@ -185,13 +187,15 @@ class VariantGenerator {
     if (hasNull && slice == DartCodecSlice.all) {
       s.blank();
       s.line('  static Pointer<Uint8> encodeNullable($name? value, Allocator alloc) {');
-      s.line('    final writer = RecordWriter();');
+      s.line('    final writer = RecordWriter.acquire();');
       s.line('    if (value == null) {');
       s.line('      writer.writeInt8($nullTag);');
       s.line('    } else {');
       s.line('      value.writeFields(writer);');
       s.line('    }');
-      s.line('    return writer.toNative(alloc);');
+      s.line('    final ptr = writer.toNative(alloc);');
+    s.line('    RecordWriter.release(writer);');
+    s.line('    return ptr;');
       s.line('  }');
     }
 
@@ -212,20 +216,24 @@ class VariantGenerator {
     s.line('      ${name}VariantExt.fromReader(RecordReader.fromNative(ptr));');
     s.blank();
     s.line('  Pointer<Uint8> toNative(Allocator alloc) {');
-    s.line('    final writer = RecordWriter();');
+    s.line('    final writer = RecordWriter.acquire();');
     s.line('    writeFields(writer);');
-    s.line('    return writer.toNative(alloc);');
+    s.line('    final ptr = writer.toNative(alloc);');
+    s.line('    RecordWriter.release(writer);');
+    s.line('    return ptr;');
     s.line('  }');
     if (hasNull) {
       s.blank();
       s.line('  static Pointer<Uint8> encodeNullable($name? value, Allocator alloc) {');
-      s.line('    final writer = RecordWriter();');
+      s.line('    final writer = RecordWriter.acquire();');
       s.line('    if (value == null) {');
       s.line('      writer.writeInt8($nullTag);');
       s.line('    } else {');
       s.line('      value.writeFields(writer);');
       s.line('    }');
-      s.line('    return writer.toNative(alloc);');
+      s.line('    final ptr = writer.toNative(alloc);');
+    s.line('    RecordWriter.release(writer);');
+    s.line('    return ptr;');
       s.line('  }');
     }
     s.line('}');

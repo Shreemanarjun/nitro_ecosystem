@@ -645,7 +645,7 @@ void main() {
       final out = CppBridgeGenerator.generate(cppSpec);
       // Sync struct returns copy into a per-thread slot.
       expect(out, contains('static thread_local Printer _g_ret_st;'));
-      expect(out, contains('*_ptr = _res;'));
+      expect(out, contains(RegExp(r'\*_ptr = _nitro_clone_\w+\(_res\);')));
       expect(out, isNot(contains('NitroCppBuffer')));
     });
 
@@ -1288,112 +1288,39 @@ void main() {
     });
   });
 
-  // ── §12: Batch stream — Kotlin mutex-guarded _buf ────────────────────────────
+  // ── §12: Batch stream — per-item posts, coalesced by the C bridge ─────────
   //
-  // Backpressure.batch uses a periodic _flushJob coroutine alongside the main
-  // collect coroutine, both running on Dispatchers.Default (multi-threaded).
-  // All accesses to _buf must be guarded by a kotlinx.coroutines.sync.Mutex.
+  // Backpressure.batch no longer accumulates on the Kotlin side: every item is
+  // emitted at once and the bridge batcher groups whatever arrives while Dart
+  // is busy. No Mutex, no _flushJob, no [count, items...] wire.
 
-  group('Batch stream — Kotlin mutex-guarded _buf (all numeric item types)', () {
-    for (final itemType in ['int', 'double', 'bool']) {
+  group('Batch stream — per-item posts (all numeric item types)', () {
+    for (final (itemType, kt) in [('int', 'Long'), ('double', 'Double'), ('bool', 'Boolean')]) {
       final spec = _batchStreamSpec(itemType);
 
-      test('Kotlin ($itemType): emits Mutex guard for _buf', () {
+      test('Kotlin ($itemType): plain per-item emit, no accumulator', () {
         final out = KotlinGenerator.generate(spec);
-        expect(out, contains('val _lock = kotlinx.coroutines.sync.Mutex()'), reason: '_buf must be protected by a Mutex for $itemType batch stream');
-        expect(out, contains('import kotlinx.coroutines.sync.withLock'), reason: 'Mutex.withLock is an extension function and must be imported');
+        expect(out, contains('external fun emit_samples(dartPort: Long, item: $kt): Boolean'));
+        expect(out, isNot(contains('_flushJob')));
+        expect(out, isNot(contains('suspend fun _flush()')));
+        expect(out, isNot(contains('ArrayList<Long>')));
       });
 
-      test('Kotlin ($itemType): _flush is a suspend fun', () {
-        final out = KotlinGenerator.generate(spec);
-        expect(out, contains('suspend fun _flush()'), reason: '_flush must be suspend so it can call _lock.withLock{}');
+      test('C bridge ($itemType): register binds the port to the batcher', () {
+        final out = CppBridgeGenerator.generate(spec);
+        expect(out, contains('g_nitro_batch_sensor.coalesce(dart_port);'));
+        expect(out, contains('g_nitro_batch_sensor.uncoalesce(dart_port);'));
       });
 
-      test('Kotlin ($itemType): _flush body is inside _lock.withLock', () {
-        final out = KotlinGenerator.generate(spec);
-        expect(out, contains('_lock.withLock {'), reason: 'Mutex.withLock must wrap _buf read/write in _flush');
-        expect(out, contains('if (_buf.isEmpty()) return@withLock'), reason: 'return inside withLock must be labeled to compile');
-        expect(out, isNot(contains('if (_buf.isEmpty()) return\n')), reason: 'unlabeled return is prohibited inside withLock');
-      });
-
-      test('Kotlin ($itemType): collect lambda stores size-check result in _full', () {
-        final out = KotlinGenerator.generate(spec);
-        expect(out, contains('val _full = _lock.withLock {'), reason: '_buf.add and size check must both happen inside the lock');
-        expect(out, contains('if (_full) _flush()'), reason: 'flush is triggered outside the lock using the captured _full flag');
-      });
-
-      test('Kotlin ($itemType): _buf.size check is inside withLock (no bare _buf.size)', () {
-        final out = KotlinGenerator.generate(spec);
-        // The size check `_buf.size >= N` must be INSIDE the lock.
-        // Any occurrence of `_buf.size` must be preceded (in the same withLock block)
-        // by the lock acquisition — so `_buf.size` must NOT appear outside a withLock.
-        final withoutLockSection = out.replaceAll(RegExp(r'_lock\.withLock \{[^}]*\}', dotAll: true), '');
-        expect(withoutLockSection, isNot(contains('_buf.size')), reason: '_buf.size must only appear inside _lock.withLock{}');
-      });
-
-      test('Kotlin ($itemType): periodic _flushJob launches as child coroutine', () {
-        final out = KotlinGenerator.generate(spec);
-        expect(out, contains('val _flushJob = launch { while (true) { kotlinx.coroutines.delay(10); _flush() } }'));
-      });
-
-      test('Kotlin ($itemType): batch size limit comes from spec (32)', () {
-        final out = KotlinGenerator.generate(spec);
-        expect(out, contains('ArrayList<Long>(32)'), reason: 'batchMaxSize: 32 must flow through to the generated capacity');
-        expect(out, contains('_buf.size >= 32'));
+      test('Dart ($itemType): list unpack + ack', () {
+        final out = DartFfiGenerator.generate(spec);
+        expect(out, contains('openStream<List<$itemType>>('));
+        expect(out, contains('ack: _nitroAckPtr,'));
+        expect(out, isNot(contains('final count = batch[0];')));
       });
     }
-
-    test('Kotlin (int): _buf.add uses item.toLong()', () {
-      final out = KotlinGenerator.generate(_batchStreamSpec('int'));
-      expect(out, contains('_buf.add(item.toLong())'));
-    });
-
-    test('Kotlin (double): _buf.add uses doubleToRawLongBits', () {
-      final out = KotlinGenerator.generate(_batchStreamSpec('double'));
-      expect(out, contains('_buf.add(java.lang.Double.doubleToRawLongBits(item))'));
-    });
-
-    test('Kotlin (bool): _buf.add uses 1L/0L ternary', () {
-      final out = KotlinGenerator.generate(_batchStreamSpec('bool'));
-      expect(out, contains('_buf.add(if (item) 1L else 0L)'));
-    });
-
-    test('Kotlin: non-batch (dropLatest) stream does NOT emit Mutex', () {
-      final spec = BridgeSpec(
-        dartClassName: 'Sensor',
-        lib: 'sensor',
-        namespace: 'sensor',
-        iosImpl: NativeImpl.swift,
-        androidImpl: NativeImpl.kotlin,
-        sourceUri: 'sensor.native.dart',
-        streams: [
-          BridgeStream(
-            dartName: 'ticks',
-            registerSymbol: 'sensor_register_ticks_stream',
-            releaseSymbol: 'sensor_release_ticks_stream',
-            itemType: BridgeType(name: 'int'),
-            backpressure: Backpressure.dropLatest,
-          ),
-        ],
-      );
-      final out = KotlinGenerator.generate(spec);
-      expect(out, isNot(contains('Mutex()')), reason: 'dropLatest streams are single-coroutine — no Mutex needed');
-      expect(out, isNot(contains('import kotlinx.coroutines.sync.withLock')), reason: 'withLock import is only needed for batch streams');
-      expect(out, isNot(contains('_flushJob')));
-    });
-
-    test('Swift: batch stream emits correct collect closure (not affected by Mutex change)', () {
-      final out = SwiftGenerator.generate(_batchStreamSpec('int'));
-      // Swift uses its own concurrency model — no Mutex emitted.
-      expect(out, isNot(contains('Mutex')));
-      expect(out, contains('_sensor_register_samples_stream'));
-    });
-
-    test('Dart FFI: batch stream emits Backpressure.batch', () {
-      final out = DartFfiGenerator.generate(_batchStreamSpec('int'));
-      expect(out, contains('Backpressure.batch'));
-    });
   });
+
 
   // ── §13: String-returning callbacks — no exceptionalReturn for Pointer returns
   //
@@ -1721,9 +1648,10 @@ void main() {
       expect(out, contains('nativeValue'));
     });
 
-    test('Kotlin: batch enum stream uses ArrayList<Long> (rawValue encoding)', () {
+    test('Kotlin: batch enum stream posts each item, no rawValue buffer', () {
       final out = KotlinGenerator.generate(_enumBatchCoverageSpec());
-      expect(out, contains('ArrayList<Long>'));
+      expect(out, isNot(contains('ArrayList<Long>')));
+      expect(out, contains('external fun emit_'));
     });
 
     test('Swift: batch enum stream appends item.rawValue to buffer', () {
@@ -1731,10 +1659,9 @@ void main() {
       expect(out, contains('item.rawValue'));
     });
 
-    test('Kotlin: enum batch shares Mutex+flush pattern from numeric batch', () {
+    test('Kotlin: enum batch has no accumulator either', () {
       final out = KotlinGenerator.generate(_enumBatchCoverageSpec());
-      expect(out, contains('val _lock = kotlinx.coroutines.sync.Mutex()'));
-      expect(out, contains('suspend fun _flush()'));
+      expect(out, isNot(contains('suspend fun _flush()')));
     });
   });
 

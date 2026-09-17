@@ -6,8 +6,60 @@ import 'package:ffi/ffi.dart';
 /// A function that releases native memory.
 typedef NativeRelease<T extends NativeType> = void Function(Pointer<T> pointer);
 
+/// Bump allocator over one reusable native block: the arguments of a
+/// synchronous call cost no malloc/free. Oversized requests fall back to
+/// malloc and are released on [reset].
+class _ScratchAllocator implements Allocator {
+  static const _size = 64 * 1024;
+  final Pointer<Uint8> _block = malloc<Uint8>(_size);
+  int _top = 0;
+  final List<Pointer<NativeType>> _fallback = [];
+
+  @override
+  Pointer<T> allocate<T extends NativeType>(int byteCount, {int? alignment}) {
+    final align = alignment ?? 8;
+    final start = (_top + align - 1) & -align;
+    if (start + byteCount <= _size) {
+      _top = start + byteCount;
+      return (_block + start).cast<T>();
+    }
+    final ptr = malloc.allocate<T>(byteCount, alignment: alignment);
+    _fallback.add(ptr);
+    return ptr;
+  }
+
+  @override
+  void free(Pointer<NativeType> pointer) {}
+
+  void reset() {
+    _top = 0;
+    for (final ptr in _fallback) {
+      malloc.free(ptr);
+    }
+    _fallback.clear();
+  }
+}
+
+final _scratch = _ScratchAllocator();
+final _scratchArena = Arena(_scratch);
+var _arenaDepth = 0;
+
+/// Runs [action] with an [Arena] whose allocations die when it returns.
+///
+/// The outermost sync call on an isolate gets a reusable scratch arena (bump
+/// allocation, no malloc/free); a nested call — a callback re-entering Nitro
+/// while the outer call is still running — gets an ordinary arena so the
+/// outer arguments stay valid.
 T withArena<T>(T Function(Arena arena) action) {
-  return using(action);
+  if (_arenaDepth > 0) return using(action);
+  _arenaDepth = 1;
+  try {
+    return action(_scratchArena);
+  } finally {
+    _scratchArena.releaseAll(reuse: true);
+    _scratch.reset();
+    _arenaDepth = 0;
+  }
 }
 
 extension NitroUint8ListExtension on Uint8List {

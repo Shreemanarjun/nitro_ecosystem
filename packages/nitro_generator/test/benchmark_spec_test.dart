@@ -134,7 +134,7 @@ BridgeSpec _benchmarkSpec() => BridgeSpec(
     BridgeFunction(
       dartName: 'computeStats',
       cSymbol: 'benchmark_compute_stats',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'BenchmarkStats', isRecord: true),
       params: [
         BridgeParam(
@@ -293,7 +293,7 @@ BridgeSpec _benchmarkCppSpec() => BridgeSpec(
     BridgeFunction(
       dartName: 'computeStats',
       cSymbol: 'benchmark_cpp_compute_stats',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'BenchmarkStats', isRecord: true),
       params: [
         BridgeParam(
@@ -363,6 +363,8 @@ BridgeSpec _benchmarkCppSpec() => BridgeSpec(
 
 // ── KotlinGenerator ───────────────────────────────────────────────────────────
 
+// @nitroAsync fixtures here carry a timeout so they exercise the isolate-pool
+// path; bridge dispatch (the default now) is covered in async_dispatch_test.dart.
 void main() {
   group('KotlinGenerator — benchmark spec', () {
     late String out;

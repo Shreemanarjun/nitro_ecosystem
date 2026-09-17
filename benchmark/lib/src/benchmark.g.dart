@@ -34,7 +34,7 @@ class _BenchmarkImpl extends Benchmark {
       .lookupFunction<
         Void Function(Pointer<Void>),
         void Function(Pointer<Void>)
-      >('benchmark_nitro_free');
+      >('benchmark_nitro_free', isLeaf: true);
   void _nitroFree(Pointer<NativeType> ptr) => _nitroFreePtr(ptr.cast());
   late final Pointer<NativeFinalizerFunction> _nitroFreeFinalizer = _dylib
       .lookup<NativeFinalizerFunction>('benchmark_nitro_free')
@@ -43,7 +43,7 @@ class _BenchmarkImpl extends Benchmark {
       .lookupFunction<
         Pointer<Void> Function(IntPtr),
         Pointer<Void> Function(int)
-      >('benchmark_nitro_alloc');
+      >('benchmark_nitro_alloc', isLeaf: true);
   late final NitroNativeAllocator _nitroNativeAllocator = NitroNativeAllocator(
     _nitroAllocPtr,
     _nitroFreePtr,
@@ -231,11 +231,18 @@ class _BenchmarkImpl extends Benchmark {
   @override
   double add(double a, double b) {
     checkDisposed();
-    return NitroRuntime.callSync(() {
+    final t0 = NitroRuntime.syncStart('add');
+    try {
       final res = _addPtr(_instanceId, a, b, _nitroErr);
-      NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+      NitroRuntime.throwIfOutParamError(
+        _nitroErr,
+        nativeFree: _nitroFree,
+        methodName: 'add',
+      );
       return res;
-    }, methodName: 'add');
+    } finally {
+      NitroRuntime.syncEnd(t0, 'add');
+    }
   }
 
   @override
@@ -248,25 +255,32 @@ class _BenchmarkImpl extends Benchmark {
   @override
   String getGreeting(String name) {
     checkDisposed();
-    return NitroRuntime.callSync(
-      () => withArena((arena) {
+    final t0 = NitroRuntime.syncStart('getGreeting');
+    try {
+      return withArena((arena) {
         final res = _getGreetingPtr(
           _instanceId,
           name.toNativeUtf8(allocator: arena),
           _nitroErr,
         );
-        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        NitroRuntime.throwIfOutParamError(
+          _nitroErr,
+          nativeFree: _nitroFree,
+          methodName: 'getGreeting',
+        );
         return res.toDartStringBorrowed();
-      }),
-      methodName: 'getGreeting',
-    );
+      });
+    } finally {
+      NitroRuntime.syncEnd(t0, 'getGreeting');
+    }
   }
 
   @override
   int hashBuffer(Uint8List data, int rounds) {
     checkDisposed();
-    return NitroRuntime.callSync(
-      () => withArena((arena) {
+    final t0 = NitroRuntime.syncStart('hashBuffer');
+    try {
+      return withArena((arena) {
         final res = _hashBufferPtr(
           _instanceId,
           data.toPointer(arena),
@@ -274,39 +288,57 @@ class _BenchmarkImpl extends Benchmark {
           rounds,
           _nitroErr,
         );
-        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        NitroRuntime.throwIfOutParamError(
+          _nitroErr,
+          nativeFree: _nitroFree,
+          methodName: 'hashBuffer',
+        );
         return res;
-      }),
-      methodName: 'hashBuffer',
-    );
+      });
+    } finally {
+      NitroRuntime.syncEnd(t0, 'hashBuffer');
+    }
   }
 
   @override
   int sievePrimes(int limit) {
     checkDisposed();
-    return NitroRuntime.callSync(() {
+    final t0 = NitroRuntime.syncStart('sievePrimes');
+    try {
       final res = _sievePrimesPtr(_instanceId, limit, _nitroErr);
-      NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+      NitroRuntime.throwIfOutParamError(
+        _nitroErr,
+        nativeFree: _nitroFree,
+        methodName: 'sievePrimes',
+      );
       return res;
-    }, methodName: 'sievePrimes');
+    } finally {
+      NitroRuntime.syncEnd(t0, 'sievePrimes');
+    }
   }
 
   @override
   int sendLargeBuffer(Uint8List buffer) {
     checkDisposed();
-    return NitroRuntime.callSync(
-      () => withArena((arena) {
+    final t0 = NitroRuntime.syncStart('sendLargeBuffer');
+    try {
+      return withArena((arena) {
         final res = _sendLargeBufferPtr(
           _instanceId,
           buffer.toPointer(arena),
           buffer.length,
           _nitroErr,
         );
-        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        NitroRuntime.throwIfOutParamError(
+          _nitroErr,
+          nativeFree: _nitroFree,
+          methodName: 'sendLargeBuffer',
+        );
         return res;
-      }),
-      methodName: 'sendLargeBuffer',
-    );
+      });
+    } finally {
+      NitroRuntime.syncEnd(t0, 'sendLargeBuffer');
+    }
   }
 }
 

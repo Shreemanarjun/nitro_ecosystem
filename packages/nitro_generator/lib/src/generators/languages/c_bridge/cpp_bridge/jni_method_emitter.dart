@@ -1122,6 +1122,7 @@ void _emitJniStreamBridges(
 
     writer.line('    jmethodID methodId = g_mid_${stream.registerSymbol}_call;');
     writer.line('    if (methodId == nullptr) { LOGE("Method not found: ${stream.registerSymbol}_call sig=(JJ)V"); return; }');
+    if (stream.isBatch) CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'coalesce');
     writer.line('    env->CallStaticVoidMethod(g_bridgeClass, methodId, (jlong)instanceId, dart_port);');
     writer.line('}');
     writer.blankLine();
@@ -1132,82 +1133,10 @@ void _emitJniStreamBridges(
     writer.line('    jmethodID methodId = g_mid_${stream.releaseSymbol}_call;');
     writer.line('    if (methodId == nullptr) { LOGE("Method not found: ${stream.releaseSymbol}_call sig=(J)V"); return; }');
     writer.line('    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);');
+    if (stream.isBatch) CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'uncoalesce');
     writer.line('}');
     writer.blankLine();
 
-    // For batch streams, emit using the appropriate wire format.
-    if (stream.isBatch) {
-      if (stream.itemType.name == 'String') {
-        // String batches use Dart_CObject_kArray of kString elements (jobjectArray).
-        final jniBatchEmit = _jniMethodName(spec.lib, spec.dartClassName, 'emit_${stream.dartName}_string_batch');
-        writer.line('JNIEXPORT jboolean JNICALL $jniBatchEmit(JNIEnv* env, jobject thiz, jlong dartPort, jobjectArray batch) {');
-        writer.line('    jsize n = env->GetArrayLength(batch);');
-        writer.line('    Dart_CObject** elems = (Dart_CObject**)malloc((size_t)n * sizeof(Dart_CObject*));');
-        writer.line('    Dart_CObject* cobjs = (Dart_CObject*)malloc((size_t)n * sizeof(Dart_CObject));');
-        writer.line('    for (jsize i = 0; i < n; i++) {');
-        writer.line('        jstring js = (jstring)env->GetObjectArrayElement(batch, i);');
-        writer.line('        const char* cs = env->GetStringUTFChars(js, nullptr);');
-        writer.line('        cobjs[i].type = Dart_CObject_kString;');
-        writer.line('        cobjs[i].value.as_string = (char*)cs;');
-        writer.line('        elems[i] = &cobjs[i];');
-        writer.line('        env->DeleteLocalRef(js);');
-        writer.line('    }');
-        writer.line('    Dart_CObject obj;');
-        writer.line('    obj.type = Dart_CObject_kArray;');
-        writer.line('    obj.value.as_array.length = (intptr_t)n;');
-        writer.line('    obj.value.as_array.values = elems;');
-        writer.line('    bool ok = Dart_PostCObject_DL(dartPort, &obj);');
-        // Release UTF chars after posting (Dart_PostCObject_DL copies the data).
-        writer.line('    for (jsize i = 0; i < n; i++) {');
-        writer.line('        jstring js = (jstring)env->GetObjectArrayElement(batch, i);');
-        writer.line('        env->ReleaseStringUTFChars(js, cobjs[i].value.as_string);');
-        writer.line('        env->DeleteLocalRef(js);');
-        writer.line('    }');
-        writer.line('    free(elems); free(cobjs);');
-        writer.line('    return ok ? JNI_TRUE : JNI_FALSE;');
-        writer.line('}');
-        writer.blankLine();
-      } else {
-        final batchItemBase = bareTypeName(stream.itemType.name);
-        final isBatchRecord = spec.recordTypes.any((r) => r.name == batchItemBase);
-        final isBatchVariant = spec.variants.any((v) => v.name == batchItemBase);
-        if (isBatchRecord || isBatchVariant) {
-          // Record/variant batches: Kotlin emits [4B outer_len][4B count][item bytes...]
-          // as a ByteArray. Post as kTypedData/kUint8 so Dart receives Uint8List.
-          final jniBatchEmit = _jniMethodName(spec.lib, spec.dartClassName, 'emit_${stream.dartName}_bytes_batch');
-          writer.line('JNIEXPORT jboolean JNICALL $jniBatchEmit(JNIEnv* env, jobject thiz, jlong dartPort, jbyteArray batch) {');
-          writer.line('    jsize len = env->GetArrayLength(batch);');
-          writer.line('    jbyte* bytes = env->GetByteArrayElements(batch, nullptr);');
-          writer.line('    Dart_CObject obj;');
-          writer.line('    obj.type = Dart_CObject_kTypedData;');
-          writer.line('    obj.value.as_typed_data.type = Dart_TypedData_kUint8;');
-          writer.line('    obj.value.as_typed_data.length = (intptr_t)len;');
-          writer.line('    obj.value.as_typed_data.values = (uint8_t*)bytes;');
-          writer.line('    bool ok = Dart_PostCObject_DL(dartPort, &obj);');
-          writer.line('    env->ReleaseByteArrayElements(batch, bytes, JNI_ABORT);');
-          writer.line('    return ok ? JNI_TRUE : JNI_FALSE;');
-          writer.line('}');
-          writer.blankLine();
-        } else {
-          // Numeric batches: raw int64 values [count, item0, item1, ...] as TypedData.
-          final jniBatchEmit = _jniMethodName(spec.lib, spec.dartClassName, 'emit_${stream.dartName}_batch');
-          writer.line('JNIEXPORT jboolean JNICALL $jniBatchEmit(JNIEnv* env, jobject thiz, jlong dartPort, jlongArray batch) {');
-          writer.line('    jsize n = env->GetArrayLength(batch);');
-          writer.line('    jlong* elems = env->GetLongArrayElements(batch, nullptr);');
-          writer.line('    Dart_CObject obj;');
-          writer.line('    obj.type = Dart_CObject_kTypedData;');
-          writer.line('    obj.value.as_typed_data.type = Dart_TypedData_kInt64;');
-          writer.line('    obj.value.as_typed_data.length = (intptr_t)n;');
-          writer.line('    obj.value.as_typed_data.values = (uint8_t*)elems;');
-          writer.line('    bool ok = Dart_PostCObject_DL(dartPort, &obj);');
-          writer.line('    env->ReleaseLongArrayElements(batch, elems, JNI_ABORT);');
-          writer.line('    return ok ? JNI_TRUE : JNI_FALSE;');
-          writer.line('}');
-          writer.blankLine();
-        }
-      }
-      continue; // Skip the normal single-item emit for batch streams
-    }
     final jniEmit = _jniMethodName(
       spec.lib,
       spec.dartClassName,

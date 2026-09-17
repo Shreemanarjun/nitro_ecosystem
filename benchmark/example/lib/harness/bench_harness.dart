@@ -249,6 +249,12 @@ class BenchReport {
       'nitro_native_async_burst64_coalesced',
       'nitro_native_async_burst64_percall',
     ),
+    // Coalesced batch stream ÷ per-item stream on a 256-item burst: <1 means
+    // the bridge batcher turned the burst into a couple of Dart wakes.
+    'nitro_stream_batched_over_percall': _ratio(
+      'nitro_stream_struct_burst256_batched',
+      'nitro_stream_struct_burst256_percall',
+    ),
     // Second algorithm (sieve): language-vs-language compute with near-zero
     // marshalling. dart_over_ffi ≈ Dart AOT vs C on identical work.
     'sieve_dart_over_raw_ffi': _ratio('dart_sieve', 'raw_ffi_sieve'),
@@ -650,6 +656,66 @@ class BenchHarness {
           'flushes=$flushes items=$items');
     }
     await coalescer.dispose();
+
+    // ── Stream burst: per-item post vs coalesced batch ───────────────────────
+    // Native emits 256 items while Dart is busy. Per-item = 256 embedder
+    // tasks; @NitroStream(backpressure: batch) on an all-C++ spec = the first
+    // item's message plus one for everything that queued behind it. Each
+    // burst also checks order and values, so a wrong item fails the case.
+    const streamBurst = 256;
+    final streamBurstIters = (config.asyncIters ~/ streamBurst).clamp(20, 2000);
+    Future<void> oneStreamBurst<T>(Stream<T> stream, void Function() fire, int Function(T) valueOf) async {
+      final done = Completer<void>();
+      var next = 0;
+      final sub = stream.listen((item) {
+        if (done.isCompleted) return;
+        final v = valueOf(item);
+        if (v != next) {
+          done.completeError(StateError('stream burst: expected $next, got $v'));
+          return;
+        }
+        if (++next == streamBurst) done.complete();
+      });
+      fire();
+      try {
+        await done.future.timeout(const Duration(seconds: 5));
+      } finally {
+        await sub.cancel();
+      }
+    }
+
+    for (final batched in const [false, true]) {
+      final tag = batched ? 'batched' : 'percall';
+      final how = batched ? 'coalesced batch' : 'per-item post';
+      await latencyCase(
+        'nitro_stream_struct_burst${streamBurst}_$tag',
+        'Nitro Stream<@HybridStruct> (burst×$streamBurst, $how)',
+        streamBurstIters,
+        (n) async {
+          for (var b = 0; b < n; b++) {
+            await oneStreamBurst(
+              batched ? cpp.pointBurstBatched : cpp.pointBurstPerItem,
+              () => cpp.burstPoints(streamBurst, batched),
+              (p) => p.x.toInt(),
+            );
+          }
+        },
+      );
+      await latencyCase(
+        'nitro_stream_int_burst${streamBurst}_$tag',
+        'Nitro Stream<int> (burst×$streamBurst, $how)',
+        streamBurstIters,
+        (n) async {
+          for (var b = 0; b < n; b++) {
+            await oneStreamBurst(
+              batched ? cpp.intBurstBatched : cpp.intBurstPerItem,
+              () => cpp.burstInts(streamBurst, batched),
+              (i) => i,
+            );
+          }
+        },
+      );
+    }
 
     // ── Map<String,int> codec round-trip ─────────────────────────────────────
     // Echoes a fixed map through the Nitro binary map codec (Dart encode →

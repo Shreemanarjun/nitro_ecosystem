@@ -56,6 +56,13 @@ NITRO_EXPORT int64_t web_echo_create_instance(const char* key);
 NITRO_EXPORT void web_echo_destroy_instance(int64_t instanceId);
 NITRO_EXPORT void web_echo_nitro_free(void* ptr);
 NITRO_EXPORT void* web_echo_nitro_alloc(size_t size);
+#ifndef __EMSCRIPTEN__
+struct _Dart_CObject;
+NITRO_EXPORT bool web_echo_nitro_post(int64_t port, struct _Dart_CObject* obj);
+NITRO_EXPORT int64_t web_echo_nitro_bind(int64_t batchPort);
+NITRO_EXPORT void web_echo_nitro_ack(int64_t batchPort);
+#define Dart_PostCObject_DL(port, obj) web_echo_nitro_post((port), (obj))
+#endif
 NITRO_EXPORT void web_echo_release_typed_data_return(void* ptr);
 
 
@@ -77,6 +84,7 @@ NITRO_EXPORT void* web_echo_echo_maybe_stats(int64_t instanceId, void* v, NitroE
 NITRO_EXPORT void* web_echo_echo_bag(int64_t instanceId, void* v, NitroError* _nitro_err);
 NITRO_EXPORT void web_echo_always_throws(int64_t instanceId, NitroError* _nitro_err);
 NITRO_EXPORT int64_t web_echo_sum_to(int64_t instanceId, int64_t n);
+NITRO_EXPORT void web_echo_sum_to_dispatch(int64_t instanceId, int64_t n, NitroError* _nitro_err, int64_t dart_port);
 NITRO_EXPORT void web_echo_native_async_echo(int64_t instanceId, int64_t value, NitroError* _nitro_err, int64_t dart_port);
 NITRO_EXPORT void web_echo_emit_ticks(int64_t instanceId, int64_t count, NitroError* _nitro_err);
 

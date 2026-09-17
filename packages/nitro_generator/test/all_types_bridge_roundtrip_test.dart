@@ -104,7 +104,7 @@ void main() {
       'void — Dart: no return value; Kotlin: Unit; Swift: Void stub',
       src,
       dart: BridgeChecks(
-        has: ['void ping()', 'callSync<void>'],
+        has: ['void ping()', "NitroRuntime.syncStart('ping')"],
         hasNot: ['int? ping', 'return null'],
       ),
       kotlin: BridgeChecks(

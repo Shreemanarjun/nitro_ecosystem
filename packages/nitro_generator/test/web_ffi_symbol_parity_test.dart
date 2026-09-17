@@ -94,7 +94,9 @@ BridgeSpec _maximalSpec() => BridgeSpec(
 /// through `_m.call('par_...')`).
 Set<String> _symbols(String src) {
   final re = RegExp("'(par_[a-z0-9_]+)'");
-  return re.allMatches(src).map((m) => m.group(1)!).toSet();
+  // `<sym>_dispatch` is the worker-dispatched twin of `<sym>` (native only);
+  // it binds the same entry point as far as symbol parity is concerned.
+  return re.allMatches(src).map((m) => m.group(1)!.replaceFirst(RegExp(r'_dispatch$'), '')).toSet();
 }
 
 void main() {
@@ -114,6 +116,8 @@ void main() {
     const ffiOnly = {
       // The VM handshake has no web meaning (compat shim returns 0).
       'par_init_dart_api_dl',
+      'par_nitro_bind', // completion batching: native ports only
+      'par_nitro_ack',
       // Bound by the web RUNTIME by convention — NitroWasmModule builds
       // '<lib>_nitro_free' / '<lib>_nitro_alloc' from the lib name, so the
       // literals never appear in the generated web file.

@@ -38,7 +38,7 @@ BridgeSpec _asyncVoidSpec() => BridgeSpec(
     BridgeFunction(
       dartName: 'flush',
       cSymbol: 'mod_flush',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'void', isFuture: false),
       params: [],
     ),
@@ -174,7 +174,7 @@ BridgeSpec _nonNullableBoolParamSpec() => BridgeSpec(
     BridgeFunction(
       dartName: 'setActive',
       cSymbol: 'mod_set_active',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'void', isFuture: false),
       params: [
         BridgeParam(
@@ -246,7 +246,7 @@ BridgeSpec _paramlessAsyncSpec() => BridgeSpec(
     BridgeFunction(
       dartName: 'ping',
       cSymbol: 'mod_ping',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'bool', isFuture: true),
       params: [],
     ),
@@ -300,6 +300,8 @@ BridgeSpec _iosNotTargetedSpec() => BridgeSpec(
 
 // ── §1 Future<void> async return — Dart FFI ──────────────────────────────────
 
+// @nitroAsync fixtures here carry a timeout so they exercise the isolate-pool
+// path; bridge dispatch (the default now) is covered in async_dispatch_test.dart.
 void main() {
   group('DartFfiGenerator — Future<void> async return (§1)', () {
     final code = DartFfiGenerator.generate(_asyncVoidSpec());
@@ -619,8 +621,8 @@ void main() {
       expect(code, isNot(contains('DispatchSemaphore')));
     });
 
-    test('NitroNativeAsync stub posts result via Dart_PostCObject', () {
-      expect(code, contains('Dart_PostCObject'));
+    test('NitroNativeAsync stub posts result through the library post export', () {
+      expect(code, contains('_nitro_post(dartPort'));
     });
 
     test('NitroNativeAsync void posts kNull after calling impl', () {
@@ -643,7 +645,7 @@ void main() {
         BridgeFunction(
           dartName: 'warmup',
           cSymbol: 'mod_warmup',
-          isAsync: true,
+          isAsync: true, asyncTimeout: 1000,
           returnType: BridgeType(name: 'void', isFuture: false),
           params: [],
         ),

@@ -18,9 +18,11 @@ extension EchoStatRecordFfiExt on EchoStat {
       EchoStatRecordExt.fromReader(RecordReader.fromNative(ptr));
 
   Pointer<Uint8> toNative(Allocator alloc) {
-    final writer = RecordWriter();
+    final writer = RecordWriter.acquire();
     writeFields(writer);
-    return writer.toNative(alloc);
+    final ptr = writer.toNative(alloc);
+    RecordWriter.release(writer);
+    return ptr;
   }
 }
 
@@ -29,9 +31,11 @@ extension EchoBagRecordFfiExt on EchoBag {
       EchoBagRecordExt.fromReader(RecordReader.fromNative(ptr));
 
   Pointer<Uint8> toNative(Allocator alloc) {
-    final writer = RecordWriter();
+    final writer = RecordWriter.acquire();
     writeFields(writer);
-    return writer.toNative(alloc);
+    final ptr = writer.toNative(alloc);
+    RecordWriter.release(writer);
+    return ptr;
   }
 }
 
@@ -67,7 +71,7 @@ class _WebEchoImpl extends WebEcho {
       .lookupFunction<
         Void Function(Pointer<Void>),
         void Function(Pointer<Void>)
-      >('web_echo_nitro_free');
+      >('web_echo_nitro_free', isLeaf: true);
   void _nitroFree(Pointer<NativeType> ptr) => _nitroFreePtr(ptr.cast());
   late final Pointer<NativeFinalizerFunction> _nitroFreeFinalizer = _dylib
       .lookup<NativeFinalizerFunction>('web_echo_nitro_free')
@@ -76,7 +80,21 @@ class _WebEchoImpl extends WebEcho {
       .lookupFunction<
         Pointer<Void> Function(IntPtr),
         Pointer<Void> Function(int)
-      >('web_echo_nitro_alloc');
+      >('web_echo_nitro_alloc', isLeaf: true);
+  late final void Function(int) _nitroAckPtr = _dylib
+      .lookupFunction<Void Function(Int64), void Function(int)>(
+        'web_echo_nitro_ack',
+        isLeaf: true,
+      );
+  late final int Function(int) _nitroBindPtr = _dylib
+      .lookupFunction<Int64 Function(Int64), int Function(int)>(
+        'web_echo_nitro_bind',
+        isLeaf: true,
+      );
+  late final NitroCompletionBatch _nitroBatch = NitroCompletionBatch(
+    bind: _nitroBindPtr,
+    ack: _nitroAckPtr,
+  );
   late final NitroNativeAllocator _nitroNativeAllocator = NitroNativeAllocator(
     _nitroAllocPtr,
     _nitroFreePtr,
@@ -368,10 +386,11 @@ class _WebEchoImpl extends WebEcho {
             'web_echo_always_throws',
           )
           .asFunction<void Function(int, Pointer<NitroErrorFfi>)>(isLeaf: true);
-  late final int Function(int, int) _sumToPtr = _dylib
-      .lookupFunction<Int64 Function(Int64, Int64), int Function(int, int)>(
-        'web_echo_sum_to',
-      );
+  late final void Function(int, int, Pointer<NitroErrorFfi>, int) _sumToPtr =
+      _dylib.lookupFunction<
+        Void Function(Int64, Int64, Pointer<NitroErrorFfi>, Int64),
+        void Function(int, int, Pointer<NitroErrorFfi>, int)
+      >('web_echo_sum_to_dispatch');
   late final void Function(int, int, Pointer<NitroErrorFfi>, int)
   _nativeAsyncEchoPtr = _dylib
       .lookupFunction<
@@ -416,12 +435,6 @@ class _WebEchoImpl extends WebEcho {
   // ignore: unused_field
   late final void Function() _clearErrorPtr = _dylib
       .lookupFunction<Void Function(), void Function()>('web_echo_clear_error');
-  // ignore: unused_field
-  late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>>
-  _getErrorNativePtr = _dylib.lookup('web_echo_get_error');
-  // ignore: unused_field
-  late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr =
-      _dylib.lookup('web_echo_clear_error');
 
   @override
   void dispose() {
@@ -446,91 +459,136 @@ class _WebEchoImpl extends WebEcho {
   @override
   double addDouble(double a, double b) {
     checkDisposed();
-    return NitroRuntime.callSync(() {
+    final t0 = NitroRuntime.syncStart('addDouble');
+    try {
       final res = _addDoublePtr(_instanceId, a, b, _nitroErr);
-      NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+      NitroRuntime.throwIfOutParamError(
+        _nitroErr,
+        nativeFree: _nitroFree,
+        methodName: 'addDouble',
+      );
       return res;
-    }, methodName: 'addDouble');
+    } finally {
+      NitroRuntime.syncEnd(t0, 'addDouble');
+    }
   }
 
   @override
   int addInt(int a, int b) {
     checkDisposed();
-    return NitroRuntime.callSync(() {
+    final t0 = NitroRuntime.syncStart('addInt');
+    try {
       final res = _addIntPtr(_instanceId, a, b, _nitroErr);
-      NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+      NitroRuntime.throwIfOutParamError(
+        _nitroErr,
+        nativeFree: _nitroFree,
+        methodName: 'addInt',
+      );
       return res;
-    }, methodName: 'addInt');
+    } finally {
+      NitroRuntime.syncEnd(t0, 'addInt');
+    }
   }
 
   @override
   bool negate(bool v) {
     checkDisposed();
-    return NitroRuntime.callSync(() {
+    final t0 = NitroRuntime.syncStart('negate');
+    try {
       final res = _negatePtr(_instanceId, v, _nitroErr);
-      NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+      NitroRuntime.throwIfOutParamError(
+        _nitroErr,
+        nativeFree: _nitroFree,
+        methodName: 'negate',
+      );
       return res;
-    }, methodName: 'negate');
+    } finally {
+      NitroRuntime.syncEnd(t0, 'negate');
+    }
   }
 
   @override
   String concat(String a, String b) {
     checkDisposed();
-    return NitroRuntime.callSync(
-      () => withArena((arena) {
+    final t0 = NitroRuntime.syncStart('concat');
+    try {
+      return withArena((arena) {
         final res = _concatPtr(
           _instanceId,
           a.toNativeUtf8(allocator: arena),
           b.toNativeUtf8(allocator: arena),
           _nitroErr,
         );
-        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        NitroRuntime.throwIfOutParamError(
+          _nitroErr,
+          nativeFree: _nitroFree,
+          methodName: 'concat',
+        );
         return res.toDartStringBorrowed();
-      }),
-      methodName: 'concat',
-    );
+      });
+    } finally {
+      NitroRuntime.syncEnd(t0, 'concat');
+    }
   }
 
   @override
   int? echoNullableInt(int? v) {
     checkDisposed();
-    return NitroRuntime.callSync(
-      () => withArena((arena) {
+    final t0 = NitroRuntime.syncStart('echoNullableInt');
+    try {
+      return withArena((arena) {
         final res = _echoNullableIntPtr(
           _instanceId,
           arena.packInt(v),
           _nitroErr,
         );
-        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        NitroRuntime.throwIfOutParamError(
+          _nitroErr,
+          nativeFree: _nitroFree,
+          methodName: 'echoNullableInt',
+        );
         final _intResult = res.decoded;
         return _intResult;
-      }),
-      methodName: 'echoNullableInt',
-    );
+      });
+    } finally {
+      NitroRuntime.syncEnd(t0, 'echoNullableInt');
+    }
   }
 
   @override
   EchoLevel echoEnum(EchoLevel v) {
     checkDisposed();
-    return NitroRuntime.callSync(() {
+    final t0 = NitroRuntime.syncStart('echoEnum');
+    try {
       final res = _echoEnumPtr(_instanceId, v.nativeValue, _nitroErr);
-      NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+      NitroRuntime.throwIfOutParamError(
+        _nitroErr,
+        nativeFree: _nitroFree,
+        methodName: 'echoEnum',
+      );
       return res.toEchoLevel();
-    }, methodName: 'echoEnum');
+    } finally {
+      NitroRuntime.syncEnd(t0, 'echoEnum');
+    }
   }
 
   @override
   Uint8List echoBytes(Uint8List data) {
     checkDisposed();
-    return NitroRuntime.callSync(
-      () => withArena((arena) {
+    final t0 = NitroRuntime.syncStart('echoBytes');
+    try {
+      return withArena((arena) {
         final res = _echoBytesPtr(
           _instanceId,
           data.toPointer(arena),
           data.length,
           _nitroErr,
         );
-        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        NitroRuntime.throwIfOutParamError(
+          _nitroErr,
+          nativeFree: _nitroFree,
+          methodName: 'echoBytes',
+        );
         if (res == nullptr) {
           throw StateError('Native Uint8List return was null');
         }
@@ -542,23 +600,29 @@ class _WebEchoImpl extends WebEcho {
           finalizer: _typedDataReturnFinalizer,
           token: res.cast<Void>(),
         );
-      }),
-      methodName: 'echoBytes',
-    );
+      });
+    } finally {
+      NitroRuntime.syncEnd(t0, 'echoBytes');
+    }
   }
 
   @override
   Int32List echoInt32s(Int32List data) {
     checkDisposed();
-    return NitroRuntime.callSync(
-      () => withArena((arena) {
+    final t0 = NitroRuntime.syncStart('echoInt32s');
+    try {
+      return withArena((arena) {
         final res = _echoInt32sPtr(
           _instanceId,
           data.toPointer(arena),
           data.length,
           _nitroErr,
         );
-        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        NitroRuntime.throwIfOutParamError(
+          _nitroErr,
+          nativeFree: _nitroFree,
+          methodName: 'echoInt32s',
+        );
         if (res == nullptr) {
           throw StateError('Native Int32List return was null');
         }
@@ -570,18 +634,24 @@ class _WebEchoImpl extends WebEcho {
           finalizer: _typedDataReturnFinalizer,
           token: res.cast<Void>(),
         );
-      }),
-      methodName: 'echoInt32s',
-    );
+      });
+    } finally {
+      NitroRuntime.syncEnd(t0, 'echoInt32s');
+    }
   }
 
   @override
   EchoStat echoStat(EchoStat v) {
     checkDisposed();
-    return NitroRuntime.callSync(
-      () => withArena((arena) {
+    final t0 = NitroRuntime.syncStart('echoStat');
+    try {
+      return withArena((arena) {
         final res = _echoStatPtr(_instanceId, v.toNative(arena), _nitroErr);
-        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        NitroRuntime.throwIfOutParamError(
+          _nitroErr,
+          nativeFree: _nitroFree,
+          methodName: 'echoStat',
+        );
         final EchoStat decoded;
         try {
           decoded = EchoStatRecordFfiExt.fromNative(res);
@@ -589,22 +659,28 @@ class _WebEchoImpl extends WebEcho {
           _nitroFree(res);
         }
         return decoded;
-      }),
-      methodName: 'echoStat',
-    );
+      });
+    } finally {
+      NitroRuntime.syncEnd(t0, 'echoStat');
+    }
   }
 
   @override
   Map<String, int> incrementValues(Map<String, int> m) {
     checkDisposed();
-    return NitroRuntime.callSync(
-      () => withArena((arena) {
+    final t0 = NitroRuntime.syncStart('incrementValues');
+    try {
+      return withArena((arena) {
         final res = _incrementValuesPtr(
           _instanceId,
           _nitroEncodeMapBinaryInt(m, arena),
           _nitroErr,
         );
-        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        NitroRuntime.throwIfOutParamError(
+          _nitroErr,
+          nativeFree: _nitroFree,
+          methodName: 'incrementValues',
+        );
         final Map<String, int> decoded;
         try {
           decoded = _nitroDecodeMapBinaryInt(res);
@@ -612,37 +688,45 @@ class _WebEchoImpl extends WebEcho {
           _nitroFree(res);
         }
         return decoded;
-      }),
-      methodName: 'incrementValues',
-    );
+      });
+    } finally {
+      NitroRuntime.syncEnd(t0, 'incrementValues');
+    }
   }
 
   @override
   List<EchoStat> echoStats(List<EchoStat> v) {
     checkDisposed();
-    return NitroRuntime.callSync(
-      () => withArena((arena) {
+    final t0 = NitroRuntime.syncStart('echoStats');
+    try {
+      return withArena((arena) {
         final res = _echoStatsPtr(
           _instanceId,
           RecordWriter.encodeIndexedList(v, (w, e) => e.writeFields(w), arena),
           _nitroErr,
         );
-        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        NitroRuntime.throwIfOutParamError(
+          _nitroErr,
+          nativeFree: _nitroFree,
+          methodName: 'echoStats',
+        );
         return LazyRecordList.decode(
           res,
           (r) => EchoStatRecordExt.fromReader(r),
           nativeFree: _nitroFreeFinalizer,
         );
-      }),
-      methodName: 'echoStats',
-    );
+      });
+    } finally {
+      NitroRuntime.syncEnd(t0, 'echoStats');
+    }
   }
 
   @override
   List<int> echoInts(List<int> v) {
     checkDisposed();
-    return NitroRuntime.callSync(
-      () => withArena((arena) {
+    final t0 = NitroRuntime.syncStart('echoInts');
+    try {
+      return withArena((arena) {
         final res = _echoIntsPtr(
           _instanceId,
           RecordWriter.encodeIndexedPrimitiveList(
@@ -652,7 +736,11 @@ class _WebEchoImpl extends WebEcho {
           ),
           _nitroErr,
         );
-        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        NitroRuntime.throwIfOutParamError(
+          _nitroErr,
+          nativeFree: _nitroFree,
+          methodName: 'echoInts',
+        );
         final List<int> decoded;
         try {
           decoded = RecordReader.decodePrimitiveList(res, (r) => r.readInt());
@@ -660,16 +748,18 @@ class _WebEchoImpl extends WebEcho {
           _nitroFree(res);
         }
         return decoded;
-      }),
-      methodName: 'echoInts',
-    );
+      });
+    } finally {
+      NitroRuntime.syncEnd(t0, 'echoInts');
+    }
   }
 
   @override
   List<EchoStat>? echoMaybeStats(List<EchoStat>? v) {
     checkDisposed();
-    return NitroRuntime.callSync(
-      () => withArena((arena) {
+    final t0 = NitroRuntime.syncStart('echoMaybeStats');
+    try {
+      return withArena((arena) {
         final res = _echoMaybeStatsPtr(
           _instanceId,
           v != null
@@ -681,7 +771,11 @@ class _WebEchoImpl extends WebEcho {
               : nullptr,
           _nitroErr,
         );
-        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        NitroRuntime.throwIfOutParamError(
+          _nitroErr,
+          nativeFree: _nitroFree,
+          methodName: 'echoMaybeStats',
+        );
         if (res == nullptr) return null;
         return res == nullptr
             ? null
@@ -690,18 +784,24 @@ class _WebEchoImpl extends WebEcho {
                 (r) => EchoStatRecordExt.fromReader(r),
                 nativeFree: _nitroFreeFinalizer,
               );
-      }),
-      methodName: 'echoMaybeStats',
-    );
+      });
+    } finally {
+      NitroRuntime.syncEnd(t0, 'echoMaybeStats');
+    }
   }
 
   @override
   EchoBag echoBag(EchoBag v) {
     checkDisposed();
-    return NitroRuntime.callSync(
-      () => withArena((arena) {
+    final t0 = NitroRuntime.syncStart('echoBag');
+    try {
+      return withArena((arena) {
         final res = _echoBagPtr(_instanceId, v.toNative(arena), _nitroErr);
-        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        NitroRuntime.throwIfOutParamError(
+          _nitroErr,
+          nativeFree: _nitroFree,
+          methodName: 'echoBag',
+        );
         final EchoBag decoded;
         try {
           decoded = EchoBagRecordFfiExt.fromNative(res);
@@ -709,31 +809,42 @@ class _WebEchoImpl extends WebEcho {
           _nitroFree(res);
         }
         return decoded;
-      }),
-      methodName: 'echoBag',
-    );
+      });
+    } finally {
+      NitroRuntime.syncEnd(t0, 'echoBag');
+    }
   }
 
   @override
   void alwaysThrows() {
     checkDisposed();
-    NitroRuntime.callSync<void>(() {
+    final t0 = NitroRuntime.syncStart('alwaysThrows');
+    try {
       _alwaysThrowsPtr(_instanceId, _nitroErr);
-      NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
-    }, methodName: 'alwaysThrows');
+      NitroRuntime.throwIfOutParamError(
+        _nitroErr,
+        nativeFree: _nitroFree,
+        methodName: 'alwaysThrows',
+      );
+    } finally {
+      NitroRuntime.syncEnd(t0, 'alwaysThrows');
+    }
   }
 
   @override
   Future<int> sumTo(int n) async {
     checkDisposed();
-    final res = await NitroRuntime.callAsync<int>(
-      _sumToPtr,
-      [_instanceId, n],
-      getError: _getErrorNativePtr,
-      clearError: _clearErrorNativePtr,
+    final _nitroErr = calloc<NitroErrorFfi>();
+    return NitroRuntime.openNativeAsync<int>(
+      call: (port) => _sumToPtr(_instanceId, n, _nitroErr, port),
+      unpack: (raw) {
+        NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
+        return ((raw) => raw as int)(raw);
+      },
+      cleanup: () => calloc.free(_nitroErr),
+      batch: _nitroBatch,
       methodName: 'sumTo',
     );
-    return res;
   }
 
   @override
@@ -747,6 +858,7 @@ class _WebEchoImpl extends WebEcho {
         return ((raw) => raw as int)(raw);
       },
       cleanup: () => calloc.free(_nitroErr),
+      batch: _nitroBatch,
       methodName: 'nativeAsyncEcho',
     );
   }
@@ -754,10 +866,17 @@ class _WebEchoImpl extends WebEcho {
   @override
   void emitTicks(int count) {
     checkDisposed();
-    NitroRuntime.callSync<void>(() {
+    final t0 = NitroRuntime.syncStart('emitTicks');
+    try {
       _emitTicksPtr(_instanceId, count, _nitroErr);
-      NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree);
-    }, methodName: 'emitTicks');
+      NitroRuntime.throwIfOutParamError(
+        _nitroErr,
+        nativeFree: _nitroFree,
+        methodName: 'emitTicks',
+      );
+    } finally {
+      NitroRuntime.syncEnd(t0, 'emitTicks');
+    }
   }
 
   @override

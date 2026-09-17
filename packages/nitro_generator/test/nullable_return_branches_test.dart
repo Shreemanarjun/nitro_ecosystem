@@ -27,28 +27,28 @@ BridgeSpec _asyncNullableSpec() => BridgeSpec(
     BridgeFunction(
       dartName: 'getNullableInt',
       cSymbol: 'async_get_nullable_int',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'int?'),
       params: [],
     ),
     BridgeFunction(
       dartName: 'getNullableDouble',
       cSymbol: 'async_get_nullable_double',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'double?'),
       params: [],
     ),
     BridgeFunction(
       dartName: 'getNullableBool',
       cSymbol: 'async_get_nullable_bool',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'bool?'),
       params: [],
     ),
     BridgeFunction(
       dartName: 'getNullableString',
       cSymbol: 'async_get_nullable_string',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'String?'),
       params: [],
     ),
@@ -56,21 +56,21 @@ BridgeSpec _asyncNullableSpec() => BridgeSpec(
     BridgeFunction(
       dartName: 'getInt',
       cSymbol: 'async_get_int',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'int'),
       params: [],
     ),
     BridgeFunction(
       dartName: 'getBool',
       cSymbol: 'async_get_bool',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'bool'),
       params: [],
     ),
     BridgeFunction(
       dartName: 'getString',
       cSymbol: 'async_get_string',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'String'),
       params: [],
     ),
@@ -164,7 +164,7 @@ BridgeSpec _asyncNullableWithEnumSpec() => BridgeSpec(
     BridgeFunction(
       dartName: 'asyncColor',
       cSymbol: 'nullable_enum_async_color',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'Color'),
       params: [],
     ),
@@ -201,7 +201,7 @@ BridgeSpec _asyncNullableWithStructSpec() => BridgeSpec(
     BridgeFunction(
       dartName: 'asyncVec',
       cSymbol: 'nullable_struct_async_vec',
-      isAsync: true,
+      isAsync: true, asyncTimeout: 1000,
       returnType: BridgeType(name: 'Vec3'),
       params: [],
     ),
@@ -218,6 +218,8 @@ BridgeSpec _asyncNullableWithStructSpec() => BridgeSpec(
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
+// @nitroAsync fixtures here carry a timeout so they exercise the isolate-pool
+// path; bridge dispatch (the default now) is covered in async_dispatch_test.dart.
 void main() {
   // ── @nitroAsync nullable return decoding ──────────────────────────────────
 

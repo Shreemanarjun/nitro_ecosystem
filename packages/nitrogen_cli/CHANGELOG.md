@@ -1,6 +1,12 @@
 ## 0.7.6
 
 Added
+- `link` also copies `nitro_completion_batch.h` and `nitro_worker_pool.h`.
+
+Fixed
+- `link` copies every module's `<lib>.bridge.g.h` into its SwiftPM include
+  dir, not only C++-implemented ones: the Swift bridge calls the exported
+  `<lib>_nitro_post` declared there.
 - `link` copies `nitro_background.h` (the `@NitroEntryPoint` job table)
   next to the other shared headers, including the SwiftPM include dir.
 

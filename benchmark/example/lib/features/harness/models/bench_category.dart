@@ -90,6 +90,12 @@ const List<BenchCategory> kBenchCategories = [
     caseIds: ['nitro_native_async_scalar', 'nitro_native_async_inline', 'nitro_async_scalar'],
   ),
   BenchCategory(
+    title: 'Stream burst · 256 items',
+    subtitle: 'Per-item post vs coalesced batch — lower is better',
+    baselineId: 'nitro_stream_struct_burst256_percall',
+    caseIds: ['nitro_stream_struct_burst256_percall', 'nitro_stream_struct_burst256_batched', 'nitro_stream_int_burst256_percall', 'nitro_stream_int_burst256_batched'],
+  ),
+  BenchCategory(
     title: 'Map<String,int> codec',
     subtitle: 'Binary map encode + decode round-trip',
     baselineId: 'nitro_cpp_map',

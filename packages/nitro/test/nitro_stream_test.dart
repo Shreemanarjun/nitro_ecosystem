@@ -6,6 +6,7 @@ import 'package:nitro/nitro.dart';
 void main() {
   setUpAll(() => NitroConfig.instance.disable());
   tearDownAll(() => NitroConfig.instance.reset());
+  _coalesced();
 
   // ── Lazy registration ─────────────────────────────────────────────────────
 
@@ -339,6 +340,35 @@ void main() {
       expect(received, [1, 2]);
       expect(errorCount, 1);
       await sub.cancel();
+    });
+  });
+}
+
+// ── Coalesced batch streams ────────────────────────────────────────────────
+
+void _coalesced() {
+  group('NitroRuntime.openStream — ack', () {
+    test('ack is called with the native port after every delivered message, not after release', () async {
+      final fakePort = ReceivePort();
+      final acks = <int>[];
+      final stream = NitroRuntime.openStream<List<int>>(
+        register: (_) {},
+        unpack: (m) => (m as List).cast<int>(),
+        release: (_) {},
+        backpressure: Backpressure.batch,
+        ack: acks.add,
+        testPort: fakePort,
+      ).asyncExpand(Stream.fromIterable);
+      final got = <int>[];
+      final sub = stream.listen(got.add);
+      fakePort.sendPort.send([1, 2, 3]);
+      fakePort.sendPort.send([4]);
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(got, [1, 2, 3, 4]);
+      expect(acks, [fakePort.sendPort.nativePort, fakePort.sendPort.nativePort]);
+      await sub.cancel();
+      expect(acks.length, 2);
     });
   });
 }

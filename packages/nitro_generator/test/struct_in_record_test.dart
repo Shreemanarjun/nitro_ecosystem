@@ -258,9 +258,9 @@ void main() {
 
     test('toNative allocates via RecordWriter', () {
       expect(dart, contains('Pointer<Uint8> toNative(Allocator alloc)'));
-      expect(dart, contains('final writer = RecordWriter()'));
+      expect(dart, contains('final writer = RecordWriter.acquire()'));
       expect(dart, contains('writeFields(writer)'));
-      expect(dart, contains('return writer.toNative(alloc)'));
+      expect(dart, contains('writer.toNative(alloc)'));
     });
 
     test('PackageBoxesRecordExt is also emitted (for the record type)', () {

@@ -254,6 +254,19 @@ public:
     // Dart future inline (no port).
     int64_t nativeAsyncEchoInline(int64_t value) override { return value; }
 
+    void burstPoints(int64_t count, bool batched) override {
+        for (int64_t i = 0; i < count; i++) {
+            const BenchmarkPoint p{static_cast<double>(i), -static_cast<double>(i)};
+            if (batched) emit_pointBurstBatched(p); else emit_pointBurstPerItem(p);
+        }
+    }
+
+    void burstInts(int64_t count, bool batched) override {
+        for (int64_t i = 0; i < count; i++) {
+            if (batched) emit_intBurstBatched(i); else emit_intBurstPerItem(i);
+        }
+    }
+
     void nativeAsyncEcho(int64_t value, NitroError* /*_nitro_err*/, int64_t dartPort) override {
         Dart_CObject obj;
         obj.type = Dart_CObject_kInt64;

@@ -472,7 +472,6 @@ class WebBridgeGenerator {
     final isRecord = stream.itemType.isRecord;
     final isStruct = spec.isStructName(baseItemType);
     final isVariant = spec.isVariantName(baseItemType);
-
     String streamItemType = baseItemType;
     if (baseItemType == 'uint64') streamItemType = 'int';
     if (stream.itemType.isAnyNativeObject) streamItemType = 'AnyNativeObject';
@@ -486,49 +485,8 @@ class WebBridgeGenerator {
     final register = "(port) => _m.call('${stream.registerSymbol}', [jsI64(_instanceId), jsI64(port)])";
     final release = "(port) => _m.call('${stream.releaseSymbol}', [jsI64(port)])";
 
-    if (stream.isBatch && baseItemType == 'String') {
-      // kArray of kString → post tag 5 → List<String>.
-      w.line('    return NitroRuntime.openStream<List<String>>(');
-      w.line('      register: $register,');
-      w.line('      unpack: (message) => (message as List).cast<String>(),');
-      w.line('      release: $release,');
-      w.line('      backpressure: Backpressure.batch,');
-      w.line("      debugLabel: '${stream.dartName}',");
-      w.line('    ).asyncExpand(Stream.fromIterable);');
-    } else if (stream.isBatch && (isRecord || isVariant)) {
-      // kTypedData framed batch → post tag 6 → Uint8List [4B len][4B count][items].
-      final decode = isRecord ? 'RecordReader.decodeListBytes(batch, (r) => ${baseItemType}RecordExt.fromReader(r))' : 'RecordReader.decodeListBytes(batch, (r) => ${baseItemType}VariantExt.fromReader(r))';
-      w.line('    return NitroRuntime.openStream<Uint8List>(');
-      w.line('      register: $register,');
-      w.line('      unpack: (message) => message as Uint8List,');
-      w.line('      release: $release,');
-      w.line('      backpressure: Backpressure.batch,');
-      w.line("      debugLabel: '${stream.dartName}',");
-      w.line('    ).asyncExpand((batch) => Stream.fromIterable($decode));');
-    } else if (stream.isBatch) {
-      // kArray of kInt64 → post tag 4 → List<int> [count, items...].
-      final String itemExpr;
-      switch (baseItemType) {
-        case 'double':
-          itemExpr = 'Int64List.fromList([batch[i]]).buffer.asFloat64List()[0]';
-        case 'bool':
-          itemExpr = 'batch[i] != 0';
-        case _ when spec.isEnumName(baseItemType):
-          itemExpr = 'batch[i].to$baseItemType()';
-        default:
-          itemExpr = 'batch[i]';
-      }
-      w.line('    return NitroRuntime.openStream<List<int>>(');
-      w.line('      register: $register,');
-      w.line('      unpack: (message) => (message as List).map((e) => (e as num).toInt()).toList(),');
-      w.line('      release: $release,');
-      w.line('      backpressure: Backpressure.batch,');
-      w.line("      debugLabel: '${stream.dartName}',");
-      w.line('    ).asyncExpand((batch) {');
-      w.line('      final count = batch[0];');
-      w.line('      return Stream.fromIterable([for (var i = 1; i <= count; i++) $itemExpr]);');
-      w.line('    });');
-    } else {
+    // Web has no batcher: a batch stream is posted per item, same as the rest.
+    {
       final String unpack;
       final nullAction = nullable ? 'return null;' : "throw StateError('Received null event on non-nullable stream ${stream.dartName}');";
       switch (baseItemType) {
