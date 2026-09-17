@@ -814,26 +814,28 @@ Use `NitroAnyMap` (a class wrapping a string-keyed map of `NitroAnyValue` entrie
 
 ## Performance
 
-### Call latency (OnePlus CPH2447, Android 16, profile build, best of run)
+### Call latency (OnePlus CPH2447, Android 16, profile build, medians, device cooled below 46 °C)
 
 | Bridge | Latency | vs Method Channel |
 |---|---|---|
-| Method Channel | 114.2 µs | 1.0× |
-| **Nitrogen `@nitroFast`** | 0.027 µs | 4,284× |
-| **Nitrogen (Direct C++, checked)** | 0.052 µs | 2,212× |
-| **Nitrogen (Kotlin/JNI, checked)** | 1.1 µs | 104.5× |
-| `@nitroAsync` (bridge dispatch) | 129.3 µs | 0.9× |
-| `@nitroAsync` (isolate pool) | 125.6 µs | 0.9× |
-| `@nitroNativeAsync`, same-thread post | 31.4 µs | 3.6× |
-| `@nitroNativeAsync`, cross-thread post | 365.6 µs | 0.3× |
+| Method Channel | 122.8 µs | 1.0× |
+| **Nitrogen `@nitroFast`** | 0.023 µs | 5,434× |
+| **Nitrogen (Direct C++, checked)** | 0.050 µs | 2,456× |
+| **Nitrogen (Kotlin/JNI, checked)** | 1.2 µs | 105.5× |
+| `@nitroAsync` (bridge dispatch) | 115.5 µs | 1.1× |
+| `@nitroAsync` (isolate pool) | 127.2 µs | 1.0× |
+| `@nitroNativeAsync`, same-thread post | 34.1 µs | 3.6× |
+| `@nitroNativeAsync`, cross-thread post | 122.1 µs | 1.0× |
+| `@nitroFast @nitroNativeAsync`, `FutureOr<int>` | 0.030 µs | 4,093× |
 
-Sync calls on the phone sit within 2–3× of the raw `dart:ffi` floor (0.017 µs).
-Anything that wakes a sleeping thread pays this phone's scheduler latency:
-~125 µs for a call that hops to another thread and back, ~370 µs when native
-posts from its own thread, and the medians swing 2× between runs as cores
-drop into idle. Bridge dispatch and the isolate pool land on the same floor.
-Batching is what moves the needle on a device: a 256-item `Stream<int>`
-burst is 5,994 µs per item-posted, 285 µs with `Backpressure.batch`.
+Sync calls on the phone sit within 1–2× of the raw `dart:ffi` floor (0.040 µs).
+Anything that wakes a sleeping thread pays this phone's scheduler latency,
+~115–125 µs per hop, the same order as a MethodChannel round-trip; bridge
+dispatch and the isolate pool land on the same floor. Measure with the phone
+cool: throttled (prime core at 0.86 GHz, thermal status 1) the cross-thread
+cases read 2–3× higher and swing between runs. Batching is what moves the
+needle on a device: a 256-item `Stream<int>` burst is 5,703 µs posted per item,
+368 µs with `Backpressure.batch`.
 
 ### Call latency (iPhone 12, iOS 26.6, profile build, medians)
 
