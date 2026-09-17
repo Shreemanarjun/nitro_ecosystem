@@ -27,7 +27,7 @@ void _emitNativeAsyncBody(
     // still fails its future, as on the pool); returning the future from
     // inside try/finally would trip unawaited_return_in_try_block, so await
     // it — the arena then outlives the call, which is harmless.
-    writer.line('      return ${func.isAsync ? 'await ' : ''}NitroRuntime.openNativeAsync<$openType>(');
+    writer.line('      return ${func.isAsync && !func.returnsFutureOr ? 'await ' : ''}NitroRuntime.openNativeAsync<$openType>(');
     writer.line('        call: (port) => _${func.dartName}Ptr($callArgs, _nitroErr, port),');
     writer.line('        unpack: $wrappedUnpack,');
     writer.line('        cleanup: () => calloc.free(_nitroErr),');

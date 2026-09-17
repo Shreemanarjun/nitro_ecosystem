@@ -133,6 +133,12 @@ Configures a native-to-Dart event stream with built-in backpressure.
 Stream<SensorData> get sensorStream;
 ```
 
+**`FutureOr<T>` returns:** any of the async annotations accepts `FutureOr<T>`
+in place of `Future<T>`. The generated method then has no `async` wrapper: an
+inline `@nitroFast @nitroNativeAsync` method returns the value itself, the
+others return the bridge future as is. A disposed instance throws
+synchronously. Use it on hot paths where the extra microtask shows up.
+
 **Backpressure strategies:**
 - `Backpressure.dropLatest` — drop the newest item if the consumer is behind
 - `Backpressure.bufferDrop` — ring buffer; oldest item dropped

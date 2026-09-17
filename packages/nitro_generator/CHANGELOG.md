@@ -1,6 +1,14 @@
 ## 0.7.6
 
 Added
+- `FutureOr<T>` return types on `@nitroAsync`, `@nitroNativeAsync` and
+  `@nitroFast @nitroNativeAsync` methods. The generated method drops the
+  `async` wrapper: an inline method returns the value itself (no Future, no
+  microtask), a dispatched or native-async method returns the bridge future
+  as is. A disposed call then throws synchronously instead of failing the
+  future. Native emitters see the inner type, as with `Future<T>`.
+  macOS: inline call 0.21 µs (`Future<int>`) → 0.018 µs (`FutureOr<int>`), the
+  `@nitroFast` leaf floor.
 - `@nitroAsync` dispatches on the bridge on every backend: a `<sym>_dispatch`
   twin runs the unchanged sync export (JNI, Swift shim or C++ virtual
   dispatch) on `NitroWorkerPool`, moves the thread-local error into the call
@@ -83,7 +91,8 @@ noise. Mobile uses the same code paths but was not benchmarked on a device.
 | `Map<String,int>` round-trip | 3.446 | 2.686 | 1.3× |
 | `@nitroAsync` scalar / record | 29.6 / 30.5 | 23.8 / 24.4 | 1.2× |
 | `@nitroNativeAsync` scalar / record | 13.3 / 29.3 | 11.7 / 23.8 | 1.1× / 1.2× |
-| `@nitroFast @nitroNativeAsync` inline | 16.2 | 0.20 | 81× |
+| `@nitroFast @nitroNativeAsync` inline (`Future<T>`) | 16.2 | 0.21 | 77× |
+| `@nitroFast @nitroNativeAsync` inline (`FutureOr<T>`) | 16.2 | 0.018 | 900× |
 | native-async burst, 16 in flight | 278 | 69 | 4.0× |
 | native-async burst, 64 in flight | 1,015 | 140 | 7.3× |
 | native-async burst, 256 in flight | 3,768 | 560 | 6.7× |

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:nitro/nitro.dart';
 
 import 'benchmark_cpp.platform.g.dart';
@@ -225,6 +227,14 @@ abstract class BenchmarkCpp extends HybridObject {
   @nitroFast
   @nitroNativeAsync
   Future<int> nativeAsyncEchoInline(int value);
+
+  /// Same inline path declared `FutureOr<int>`: the generated method returns
+  /// the value itself — no Future, no microtask. What `await` on a
+  /// `Future<int>` inline call still costs is the difference to
+  /// [nativeAsyncEchoInline].
+  @nitroFast
+  @nitroNativeAsync
+  FutureOr<int> nativeAsyncEchoInlineOr(int value);
 
   /// Cross-thread `@nitroNativeAsync` scalar round-trip: a worker thread does the
   /// post, so it pays the isolate wake that [nativeAsyncEcho]'s inline post

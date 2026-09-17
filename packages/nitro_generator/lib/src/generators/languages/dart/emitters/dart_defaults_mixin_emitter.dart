@@ -53,5 +53,6 @@ String _defaultsReturnType(BridgeFunction func) {
       : func.returnType.isNativeHandle
       ? 'NativeHandle<$handleParam>'
       : func.returnType.name;
-  return (func.isAsync || func.isNativeAsync || func.inlineFuture) ? 'Future<$inner>' : inner;
+  final wrapper = func.returnsFutureOr ? 'FutureOr' : 'Future';
+  return (func.isAsync || func.isNativeAsync || func.inlineFuture) ? '$wrapper<$inner>' : inner;
 }

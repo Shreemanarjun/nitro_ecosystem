@@ -808,7 +808,7 @@ class _NitroArImpl extends NitroAr {
     }
     NitroRuntime.checkLinkChecksum(
       'nitro_ar',
-      'c5da7dd7b60b1b73',
+      '8ae4448a868dfb2c',
       () => _dylib
           .lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>(
             'nitro_ar_nitro_bridge_checksum',

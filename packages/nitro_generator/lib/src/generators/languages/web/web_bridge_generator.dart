@@ -252,7 +252,7 @@ class WebBridgeGenerator {
       _emitOverride(w, func.returnType, params: func.params);
       // `async` so a checkDisposed() throw rejects the future instead of
       // blowing up at the call site (matches the FFI emitter).
-      w.line('  Future<$rt> ${func.dartName}($params) async {');
+      w.line('  ${func.returnsFutureOr ? 'FutureOr' : 'Future'}<$rt> ${func.dartName}($params) async {');
       w.line('    checkDisposed();');
       w.line('    return NitroRuntime.callAsync<$rt>(() {');
       _openArena(w, needsArena, '      ');
@@ -270,7 +270,8 @@ class WebBridgeGenerator {
     // Sync: NitroError* out-param; borrowed framed/string returns.
     _emitOverride(w, func.returnType, params: func.params);
     // inlineFuture: same sync body inside an `async` function (see BridgeFunction).
-    w.line(func.inlineFuture ? '  Future<$rt> ${func.dartName}($params) async {' : '  $rt ${func.dartName}($params) {');
+    // A FutureOr<T> inline method returns the value itself: no async, no Future.
+    w.line(func.inlineFuture ? (func.returnsFutureOr ? '  FutureOr<$rt> ${func.dartName}($params) {' : '  Future<$rt> ${func.dartName}($params) async {') : '  $rt ${func.dartName}($params) {');
     w.line('    checkDisposed();');
     w.line('    return NitroRuntime.callSync(() {');
     _openArena(w, needsArena, '      ');
@@ -289,7 +290,7 @@ class WebBridgeGenerator {
     // Native-async: per-call error slot + dart_port, posted result.
     final callArgs = _buildCallArgs(spec, func.params, includeErr: false, ownerFn: func.dartName);
     _emitOverride(w, func.returnType, params: func.params);
-    w.line('  Future<$rt> ${func.dartName}($params) {');
+    w.line('  ${func.returnsFutureOr ? 'FutureOr' : 'Future'}<$rt> ${func.dartName}($params) {');
     w.line('    checkDisposed();');
     w.line('    final _slot = WebNitroErrorSlot.alloc(_m);');
     // Named `arena`, not `_arena`: _buildCallArgs emits `arena.cString(...)`

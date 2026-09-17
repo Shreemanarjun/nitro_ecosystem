@@ -29,7 +29,7 @@ String bridgeSpecChecksum(BridgeSpec spec) {
     for (final e in spec.enums) 'enum:${e.name}:${e.startValue}:${e.isImported}:${e.values.join(',')}',
     for (final st in spec.structs) 'struct:${st.name}:${st.packed}:${st.isImported}:${st.fields.map(_fieldSig).join(',')}',
     for (final rt in spec.recordTypes) 'record:${rt.name}:${rt.isImported}:${rt.fields.map(_recordFieldSig).join(',')}',
-    for (final f in spec.functions) 'fn:${f.dartName}:${f.cSymbol}:${f.isAsync}:${f.isNativeAsync}:${f.zeroCopyReturn}:${_typeSig(f.returnType)}:${f.params.map(_paramSig).join(',')}',
+    for (final f in spec.functions) 'fn:${f.dartName}:${f.cSymbol}:${f.isAsync}:${f.isNativeAsync}:${f.returnsFutureOr}:${f.zeroCopyReturn}:${_typeSig(f.returnType)}:${f.params.map(_paramSig).join(',')}',
     for (final p in spec.properties) 'prop:${p.dartName}:${_typeSig(p.type)}:${p.getSymbol}:${p.setSymbol}:${p.hasGetter}:${p.hasSetter}',
     for (final e in spec.entryPoints) 'entry:${e.name}:${e.isAsync}',
     for (final s in spec.streams) 'stream:${s.dartName}:${s.registerSymbol}:${s.releaseSymbol}:${_typeSig(s.itemType)}:${s.backpressure.name}:${s.isMethodStyle}:${s.isAnnotated}',

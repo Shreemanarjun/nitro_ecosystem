@@ -243,6 +243,12 @@ class BenchReport {
       'nitro_native_async_scalar',
       'nitro_native_async_inline',
     ),
+    // Future<T> inline ÷ FutureOr<T> inline: the await/microtask a Future
+    // costs when the value was ready synchronously.
+    'nitro_inline_future_over_futureor': _ratio(
+      'nitro_native_async_inline',
+      'nitro_native_async_inline_futureor',
+    ),
     // Coalescing effect on a 64-in-flight burst: coalesced ÷ per-call post.
     // <1 means batching the drained burst into one wake helped (issue #39).
     'nitro_native_async_coalesced_over_burst': _ratio(
@@ -582,6 +588,20 @@ class BenchHarness {
       (n) async {
         for (var i = 0; i < n; i++) {
           sink += (await cpp.nativeAsyncEchoInline(i)).toDouble();
+        }
+      },
+    );
+
+    // Same call declared FutureOr<int>: the value comes back directly, so the
+    // loop never awaits — what remains is the bare checked call.
+    await latencyCase(
+      'nitro_native_async_inline_futureor',
+      'Nitro @nitroFast @nitroNativeAsync (FutureOr: value returned, no Future)',
+      config.asyncIters,
+      (n) async {
+        for (var i = 0; i < n; i++) {
+          final r = cpp.nativeAsyncEchoInlineOr(i);
+          sink += (r is int ? r : await r).toDouble();
         }
       },
     );

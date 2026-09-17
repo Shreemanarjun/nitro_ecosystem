@@ -102,7 +102,7 @@ class _BenchmarkImpl extends Benchmark {
     }
     NitroRuntime.checkLinkChecksum(
       'benchmark',
-      'c213be7150c3fc0c',
+      'f6ba86c9f096402a',
       () => _dylib
           .lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>(
             'benchmark_nitro_bridge_checksum',

@@ -253,6 +253,7 @@ public:
     // @nitroFast @nitroNativeAsync: plain sync method; the bridge completes the
     // Dart future inline (no port).
     int64_t nativeAsyncEchoInline(int64_t value) override { return value; }
+    int64_t nativeAsyncEchoInlineOr(int64_t value) override { return value; }
 
     void burstPoints(int64_t count, bool batched) override {
         for (int64_t i = 0; i < count; i++) {

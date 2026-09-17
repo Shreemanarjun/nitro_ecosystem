@@ -1,6 +1,10 @@
 ## 0.7.6
 
 Added
+- `FutureOr<T>` is accepted where `Future<T>` was: on `@nitroAsync`,
+  `@nitroNativeAsync` and `@nitroFast @nitroNativeAsync` methods. The generated
+  method returns the value (inline) or the bridge future directly, without an
+  `async` wrapper.
 - `NitroStream.batchMaxSize` is ignored: `Backpressure.batch` now coalesces
   whatever native emits while Dart is busy, on every backend. The field stays
   for source compatibility.

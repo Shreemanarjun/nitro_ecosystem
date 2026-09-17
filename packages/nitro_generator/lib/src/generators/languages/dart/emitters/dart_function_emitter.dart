@@ -96,12 +96,15 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
         : func.returnType.isNativeHandle
         ? 'NativeHandle<$nativeHandleTypeParam>'
         : func.returnType.name;
-    final returnType = (func.isAsync || func.isNativeAsync || func.inlineFuture) ? 'Future<$effectiveDartReturnName>' : effectiveDartReturnName;
+    final wrapper = func.returnsFutureOr ? 'FutureOr' : 'Future';
+    final returnType = (func.isAsync || func.isNativeAsync || func.inlineFuture) ? '$wrapper<$effectiveDartReturnName>' : effectiveDartReturnName;
     // inlineFuture: the sync body runs inside an `async` function; the future
     // completes inline (no port, no isolate wake). Measured: Future.sync,
     // Future.value and a sync Completer are no cheaper in a Flutter build —
-    // the await/microtask is the floor.
-    final asyncMod = (func.isAsync || func.inlineFuture) ? 'async ' : '';
+    // the await/microtask is the floor. A `FutureOr<T>` spec skips even that:
+    // the inline body returns the value, a dispatched @nitroAsync returns the
+    // bridge future as is. The isolate-pool path always awaits.
+    final asyncMod = ((func.isAsync && !spec.bridgeAsync(func)) || (!func.returnsFutureOr && (func.isAsync || func.inlineFuture))) ? 'async ' : '';
 
     writer.line('  @override');
     writer.line(

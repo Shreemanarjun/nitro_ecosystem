@@ -254,9 +254,9 @@ static void math_auto_register() { math_register_impl(&g_math); }
 | `@NitroVariant` | sealed class | Tagged union (one byte tag + fields) | Events/states with alternatives |
 | `@NitroTuple` | typedef record | `(int, String)`-style record crosses as a record | Positional pairs without a class |
 | `@NitroCustomType(codec:, encodedSize:)` | class | User codec (`NitroFfiCodec` / `NitroWireCodec`) | Types outside the built-in set |
-| `@nitroFast` | sync method, or `@nitroNativeAsync` method | `isLeaf` binding, bare body, no error-slot check, no diagnostics; ~13 ns/call; on a `@nitroNativeAsync` method: `Future<T>` completed inline from a sync native impl, no port (0.18 µs vs 16 µs) | Per-token/per-byte loops; native never throws, blocks or calls back |
+| `@nitroFast` | sync method, or `@nitroNativeAsync` method | `isLeaf` binding, bare body, no error-slot check, no diagnostics; ~13 ns/call; on a `@nitroNativeAsync` method: `Future<T>` completed inline from a sync native impl, no port (0.18 µs vs 16 µs); declare `FutureOr<T>` and the value comes back with no Future at all (0.018 µs) | Per-token/per-byte loops; native never throws, blocks or calls back |
 | `@nitroAsync` / `@NitroAsync(timeout:)` | method | The sync export (Kotlin, Swift or C++) runs on the bridge's worker pool and completes through the shared completion port (~24 µs). A `timeout:`, struct/nullable-primitive returns and callback parameters use the isolate pool instead (~28 µs) | Native work that blocks (>50 µs) and must stay off the UI isolate |
-| `@nitroNativeAsync` | method | Native runs on its own thread and posts the result to the library's shared completion port; no isolate; ~12 µs alone, ~2 µs per call in a burst | Native APIs that are already asynchronous (completion handlers); add `@nitroFast` when the answer is ready at call time |
+| `@nitroNativeAsync` | method | Native runs on its own thread and posts the result to the library's shared completion port; no isolate; ~12 µs alone, ~2 µs per call in a burst. `FutureOr<T>` returns the bridge future without an `async` wrapper | Native APIs that are already asynchronous (completion handlers); add `@nitroFast` when the answer is ready at call time |
 | `@mainThread` | method | Kotlin/Swift impl runs on the platform main thread; no effect on C++ | UIKit / Android View APIs; pair with an async annotation |
 | `@NitroStream(backpressure:)` | `Stream<T>` getter/method | Native → Dart events; `dropLatest`, `block`, `bufferDrop`, `batch`. `batch` coalesces whatever native emits while Dart is busy into one message (any item type, structs included, every backend; `batchMaxSize` is ignored) | Push data; `batch` for bursts and high-frequency items, `dropLatest` for frames |
 | `@zeroCopy` | typed-data param/return | Borrowed buffer, no copy | Large buffers (frames, audio, files) |
@@ -886,7 +886,8 @@ Source: `benchmark/example`, `flutter drive --profile`; same C function behind e
 | `@nitroAsync` record | bridge worker pool + shared completion port | 24.1 | — |
 | `@nitroNativeAsync` record | native thread + shared completion port | 23.9 | — |
 | `@nitroNativeAsync` scalar | same-thread post + isolate wake | 10.9 | — |
-| `@nitroFast @nitroNativeAsync` scalar — **inline completion** | sync bridge call, `Future` completed inline, no port | 0.18 | — |
+| `@nitroFast @nitroNativeAsync` scalar — **inline completion** | sync bridge call, `Future` completed inline, no port | 0.21 | — |
+| same, declared `FutureOr<int>` | value returned directly, no Future, no microtask | 0.018 | 1.5× |
 | `@nitroNativeAsync` ×64 in flight | one message per Dart wake (was one per call: 978 µs) | 126 | — |
 | `Stream<int>` burst ×256, `dropLatest` | one message per item | 1045 | — |
 | `Stream<int>` burst ×256, `batch` | coalesced by the bridge batcher | 105 | — |

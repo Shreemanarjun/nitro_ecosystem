@@ -999,7 +999,8 @@ class SpecExtractor {
 
       final isResult = resultChecker.hasAnnotationOf(m);
       DartType returnDartType = m.returnType;
-      if ((isAsync || isNativeAsync) && returnDartType.isDartAsyncFuture) {
+      final returnsFutureOr = (isAsync || isNativeAsync) && returnDartType.isDartAsyncFutureOr;
+      if ((isAsync || isNativeAsync) && (returnDartType.isDartAsyncFuture || returnsFutureOr)) {
         final it = returnDartType as InterfaceType;
         if (it.typeArguments.isNotEmpty) returnDartType = it.typeArguments.first;
       }
@@ -1016,6 +1017,7 @@ class SpecExtractor {
         isAsync: isAsync,
         isNativeAsync: isNativeAsync && !isFast,
         inlineFuture: isNativeAsync && isFast,
+        returnsFutureOr: returnsFutureOr,
         returnType: _makeBridgeType(
           returnDartType,
           recordTypeNames,

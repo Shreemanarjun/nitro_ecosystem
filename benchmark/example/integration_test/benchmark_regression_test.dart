@@ -70,6 +70,9 @@ const _handleOverheadBudgetUs = 0.05; // checked calls no longer time themselves
 // post path must stay several times slower, or the fast tier stopped working.
 const _minPostOverFastInline = 4.0;
 
+/// `Future<T>` inline ÷ `FutureOr<T>` inline (native only): the await a Future costs.
+const _minInlineFutureOverFutureOr = 2.0;
+
 /// Coalesced batch stream ÷ per-item stream on a 256-item burst (native only).
 const _maxStreamBatchedOverPerItem = 0.5;
 const _leafOverheadBudgetUs = 1.0; // absolute per-call overhead budget
@@ -160,6 +163,16 @@ void main() {
           lessThanOrEqualTo(_maxStreamBatchedOverPerItem),
           reason: 'Backpressure.batch on an all-C++ spec should coalesce a burst '
               '(batched=${streamBatched.toStringAsFixed(1)}µs, per-item=${streamPerItem.toStringAsFixed(1)}µs per 256 items).',
+        );
+      }
+      // FutureOr inline completion skips the Future and its microtask entirely,
+      // so it must sit well under the Future<T> inline call.
+      final inlineOr = optionalMin('nitro_native_async_inline_futureor');
+      if (!kIsWeb && asyncInline != null && inlineOr != null) {
+        expect(
+          inlineOr * _minInlineFutureOverFutureOr,
+          lessThanOrEqualTo(asyncInline),
+          reason: 'FutureOr<T> inline call should skip the await (futureOr=${inlineOr.toStringAsFixed(3)}µs, future=${asyncInline.toStringAsFixed(3)}µs).',
         );
       }
       final fastHandle = optionalMin('nitro_fast_handle');

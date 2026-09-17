@@ -562,6 +562,12 @@ class BridgeFunction {
   /// future is completed inline. Native emitters see an ordinary sync method.
   final bool inlineFuture;
 
+  /// The spec declares `FutureOr<T>` instead of `Future<T>`: an inline
+  /// ([inlineFuture]) method returns the value itself, a dispatched / native
+  /// async method returns the bridge future as is — no `async` wrapper, no
+  /// extra microtask. A disposed call then throws synchronously.
+  final bool returnsFutureOr;
+
   /// Custom C release symbol from `@NitroOwned(release: 'wgpuBufferRelease')`.
   /// The `${cSymbol}_release` thunk calls this instead of `free()` — for
   /// handles owned by a native library rather than malloc'd by the impl.
@@ -600,6 +606,7 @@ class BridgeFunction {
     this.isOwned = false,
     this.isFast = false,
     this.inlineFuture = false,
+    this.returnsFutureOr = false,
     this.releaseSymbol,
     this.mainThread = false,
     this.asyncTimeout,

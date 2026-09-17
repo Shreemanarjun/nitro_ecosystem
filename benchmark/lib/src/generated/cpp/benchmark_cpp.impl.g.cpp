@@ -143,6 +143,12 @@ public:
         // return 0;
     }
 
+    int64_t nativeAsyncEchoInlineOr(int64_t value) override {
+        // TODO: implement nativeAsyncEchoInlineOr
+        throw std::runtime_error("Not implemented: nativeAsyncEchoInlineOr");
+        // return 0;
+    }
+
     void nativeAsyncEchoFromThread(int64_t value, NitroError* _nitro_err, int64_t dartPort) override {
         // TODO: on error, populate _nitro_err (hasError/name/message via strdup) before posting.
         // TODO: post result via Dart_PostCObject_DL(dartPort, ...)

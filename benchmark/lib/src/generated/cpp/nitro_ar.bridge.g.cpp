@@ -47,7 +47,7 @@ NITRO_EXPORT uint32_t nitro_ar_nitro_abi_version(void) {
     return 1;
 }
 NITRO_EXPORT const char* nitro_ar_nitro_bridge_checksum(void) {
-    return "c5da7dd7b60b1b73";
+    return "8ae4448a868dfb2c";
 }
 NITRO_EXPORT intptr_t nitro_ar_init_dart_api_dl(void* data) {
     return Dart_InitializeApiDL(data);

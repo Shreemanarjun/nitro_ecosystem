@@ -87,7 +87,7 @@ const List<BenchCategory> kBenchCategories = [
     title: 'Async dispatch (scalar)',
     subtitle: 'Near-zero payload — isolates dispatch overhead',
     baselineId: 'nitro_native_async_scalar',
-    caseIds: ['nitro_native_async_scalar', 'nitro_native_async_inline', 'nitro_async_scalar'],
+    caseIds: ['nitro_native_async_scalar', 'nitro_native_async_inline', 'nitro_native_async_inline_futureor', 'nitro_async_scalar'],
   ),
   BenchCategory(
     title: 'Stream burst · 256 items',

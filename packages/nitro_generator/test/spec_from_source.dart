@@ -228,7 +228,8 @@ class SpecFromSource {
 
     // ── Function ───────────────────────────────────────────────────────────
     bool hasAnn(String name) => m.metadata.any((a) => _annName(a) == name || _annName(a) == name[0].toLowerCase() + name.substring(1));
-    final isAsync = hasAnn('NitroAsync') || (!hasAnn('NitroNativeAsync') && retSrc.startsWith('Future<'));
+    final returnsFutureOr = retSrc.startsWith('FutureOr<');
+    final isAsync = hasAnn('NitroAsync') || (!hasAnn('NitroNativeAsync') && (retSrc.startsWith('Future<') || returnsFutureOr));
     final asyncTimeout = _namedIntArg(m.metadata, 'NitroAsync', 'timeout');
     final isNativeAsync = hasAnn('NitroNativeAsync');
     final isOwnedFn = hasAnn('NitroOwned');
@@ -236,7 +237,7 @@ class SpecFromSource {
     // Accept both the const shorthand (@mainThread) and class form (@MainThread()).
     final isMainThread = hasAnn('MainThread');
 
-    final isFuture = retSrc.startsWith('Future<') || isAsync || isNativeAsync;
+    final isFuture = retSrc.startsWith('Future<') || returnsFutureOr || isAsync || isNativeAsync;
     final effectiveReturn = isFuture ? (_genericArg(retSrc) ?? 'void') : retSrc;
     final effectiveBase = effectiveReturn.replaceAll('?', '');
 
@@ -250,6 +251,7 @@ class SpecFromSource {
         asyncTimeout: asyncTimeout,
         isNativeAsync: isNativeAsync && !(isFastFn || name.endsWith('Fast')),
         inlineFuture: isNativeAsync && (isFastFn || name.endsWith('Fast')),
+        returnsFutureOr: returnsFutureOr,
         isOwned: isOwnedFn,
         isFast: isFastFn || name.endsWith('Fast'),
         mainThread: isMainThread,

@@ -161,6 +161,7 @@ class DartFfiGenerator {
     writer.line('/// compile this library — the platform shim resolves to the web bridge.');
     writer.line('library;');
     writer.blankLine();
+    if (spec.functions.any((f) => f.returnsFutureOr)) writer.line("import 'dart:async';");
     writer.line("import 'package:nitro/nitro.dart';");
     writer.blankLine();
     writer.line("import '../../$specFile';");
