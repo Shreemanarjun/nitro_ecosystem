@@ -1019,7 +1019,7 @@ class _NitroArImpl extends NitroAr {
     final arena = Arena();
     final _nitroErr = calloc<NitroErrorFfi>();
     try {
-      return NitroRuntime.openNativeAsync<String>(
+      return await NitroRuntime.openNativeAsync<String>(
         call: (port) => _getGreetingPtr(
           _instanceId,
           name.toNativeUtf8(allocator: arena),
