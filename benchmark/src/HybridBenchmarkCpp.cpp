@@ -245,6 +245,7 @@ public:
     // Minimal @nitroAsync scalar round-trip: returns its argument. The isolate
     // dispatch happens on the Dart side; here it is a plain return.
     int64_t asyncEcho(int64_t value) override { return value; }
+    int64_t asyncEchoPool(int64_t value) override { return value; }
 
     // Minimal @nitroNativeAsync scalar round-trip: post the value straight back
     // via Dart_PostCObject_DL (no thread hop) so the harness measures the

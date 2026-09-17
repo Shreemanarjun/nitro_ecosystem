@@ -814,13 +814,26 @@ Use `NitroAnyMap` (a class wrapping a string-keyed map of `NitroAnyValue` entrie
 
 ## Performance
 
-### Call latency (OnePlus 11, Android 14, release)
+### Call latency (OnePlus CPH2447, Android 16, profile build, best of run)
 
 | Bridge | Latency | vs Method Channel |
 |---|---|---|
-| Method Channel | 107.7 µs | 1× |
-| **Nitrogen (Swift/Kotlin)** | **2.1 µs** | **51×** |
-| **Nitrogen (Direct C++)** | **1.7 µs** | **64×** |
+| Method Channel | 114.2 µs | 1.0× |
+| **Nitrogen `@nitroFast`** | 0.027 µs | 4,284× |
+| **Nitrogen (Direct C++, checked)** | 0.052 µs | 2,212× |
+| **Nitrogen (Kotlin/JNI, checked)** | 1.1 µs | 104.5× |
+| `@nitroAsync` (bridge dispatch) | 129.3 µs | 0.9× |
+| `@nitroAsync` (isolate pool) | 125.6 µs | 0.9× |
+| `@nitroNativeAsync`, same-thread post | 31.4 µs | 3.6× |
+| `@nitroNativeAsync`, cross-thread post | 365.6 µs | 0.3× |
+
+Sync calls on the phone sit within 2–3× of the raw `dart:ffi` floor (0.017 µs).
+Anything that wakes a sleeping thread pays this phone's scheduler latency:
+~125 µs for a call that hops to another thread and back, ~370 µs when native
+posts from its own thread, and the medians swing 2× between runs as cores
+drop into idle. Bridge dispatch and the isolate pool land on the same floor.
+Batching is what moves the needle on a device: a 256-item `Stream<int>`
+burst is 5,994 µs per item-posted, 285 µs with `Backpressure.batch`.
 
 ### Call latency (macOS, Apple Silicon, profile build)
 

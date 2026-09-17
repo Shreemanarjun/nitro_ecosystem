@@ -243,6 +243,12 @@ class BenchReport {
       'nitro_native_async_scalar',
       'nitro_native_async_inline',
     ),
+    // Bridge dispatch ÷ isolate pool for the same @nitroAsync call: <1 means
+    // the worker-pool twin beat the pool on this device.
+    'nitro_async_dispatch_over_pool': _ratio(
+      'nitro_async_scalar',
+      'nitro_async_scalar_pool',
+    ),
     // Future<T> inline ÷ FutureOr<T> inline: the await/microtask a Future
     // costs when the value was ready synchronously.
     'nitro_inline_future_over_futureor': _ratio(
@@ -566,6 +572,18 @@ class BenchHarness {
       (n) async {
         for (var i = 0; i < n; i++) {
           sink += (await cpp.asyncEcho(i)).toDouble();
+        }
+      },
+    );
+
+    // Same call kept on the Dart isolate pool: dispatch vs pool on one device.
+    await latencyCase(
+      'nitro_async_scalar_pool',
+      'Nitro @NitroAsync(timeout:) (isolate pool, for comparison)',
+      config.asyncIters,
+      (n) async {
+        for (var i = 0; i < n; i++) {
+          sink += (await cpp.asyncEchoPool(i)).toDouble();
         }
       },
     );

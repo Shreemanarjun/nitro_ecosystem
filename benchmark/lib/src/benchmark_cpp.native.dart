@@ -214,6 +214,12 @@ abstract class BenchmarkCpp extends HybridObject {
   @nitroAsync
   Future<int> asyncEcho(int value);
 
+  /// Same call pinned to the Dart isolate pool (a per-method timeout keeps a
+  /// method off the bridge dispatch), so pool and dispatch can be compared on
+  /// the same device in the same run.
+  @NitroAsync(timeout: 600000)
+  Future<int> asyncEchoPool(int value);
+
   /// Minimal scalar `@nitroNativeAsync` round-trip (posts its argument back
   /// immediately via `Dart_PostCObject_DL`). Isolates the Dart-side per-call
   /// native-async dispatch cost (ReceivePort allocation, the fresh error slot,
