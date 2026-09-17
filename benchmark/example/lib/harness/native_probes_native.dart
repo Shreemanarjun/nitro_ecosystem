@@ -23,7 +23,9 @@ double Function(double, double)? rawAddProbe() => NitroRuntime.loadLib('benchmar
   final lib = NitroRuntime.loadLib('benchmark_cpp');
   final makePtr = lib.lookupFunction<Pointer<Void> Function(), Pointer<Void> Function()>('make_ptr');
   final touch = lib.lookupFunction<Int64 Function(Pointer<Void>), int Function(Pointer<Void>)>('touch_ptr', isLeaf: true);
-  final freeFn = lib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('free');
+  // The library's own free: the C runtime's `free` is not an export of the
+  // plugin DLL on Windows (and package:ffi's allocator is CoTaskMem there).
+  final freeFn = lib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('benchmark_cpp_nitro_free');
   final p = makePtr();
   return (touch: () => touch(p), free: () => freeFn(p));
 }
