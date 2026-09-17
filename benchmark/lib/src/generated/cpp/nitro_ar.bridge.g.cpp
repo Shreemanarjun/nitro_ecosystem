@@ -913,6 +913,89 @@ JNIEXPORT void JNICALL Java_nitro_nitro_1ar_1module_NitroArJniBridge_initialize(
 }
 
 } // extern "C"
+void nitro_ar_release_Vector3(void* ptr);
+void nitro_ar_release_Quaternion(void* ptr);
+void nitro_ar_release_BoundingBox(void* ptr);
+void nitro_ar_release_PackageDimensions(void* ptr);
+void nitro_ar_release_RawDepthMap(void* ptr);
+NITRO_EXPORT void nitro_ar_get_greeting_dispatch(int64_t instanceId, const char* name, NitroError* _nitro_err, int64_t dart_port) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }
+    std::string _c_name(name ? name : ""); const bool _n_name = name == nullptr;
+    g_nitro_pool_nitro_ar.enqueue([=]() mutable {
+        nitro_ar_clear_error();
+        const char* _r = nitro_ar_get_greeting(instanceId, _n_name ? nullptr : _c_name.c_str());
+        NitroError* _e = nitro_ar_get_error();
+        if (_e->hasError) { _nitro_move_err(_nitro_err, _e); _nitro_post_null(dart_port); return; }
+        _nitro_post_str_owned(dart_port, (char*)_r);
+    });
+}
+
+NITRO_EXPORT void nitro_ar_check_camera_permission_dispatch(int64_t instanceId, NitroError* _nitro_err, int64_t dart_port) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }
+    g_nitro_pool_nitro_ar.enqueue([=]() mutable {
+        nitro_ar_clear_error();
+        int8_t _r = nitro_ar_check_camera_permission(instanceId);
+        NitroError* _e = nitro_ar_get_error();
+        if (_e->hasError) { _nitro_move_err(_nitro_err, _e); _nitro_post_null(dart_port); return; }
+        _nitro_post_bool(dart_port, _r);
+    });
+}
+
+NITRO_EXPORT void nitro_ar_request_camera_permission_dispatch(int64_t instanceId, NitroError* _nitro_err, int64_t dart_port) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }
+    g_nitro_pool_nitro_ar.enqueue([=]() mutable {
+        nitro_ar_clear_error();
+        int8_t _r = nitro_ar_request_camera_permission(instanceId);
+        NitroError* _e = nitro_ar_get_error();
+        if (_e->hasError) { _nitro_move_err(_nitro_err, _e); _nitro_post_null(dart_port); return; }
+        _nitro_post_bool(dart_port, _r);
+    });
+}
+
+NITRO_EXPORT void nitro_ar_start_session_dispatch(int64_t instanceId, NitroError* _nitro_err, int64_t dart_port) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }
+    g_nitro_pool_nitro_ar.enqueue([=]() mutable {
+        nitro_ar_clear_error();
+        nitro_ar_start_session(instanceId);
+        NitroError* _e = nitro_ar_get_error();
+        if (_e->hasError) { _nitro_move_err(_nitro_err, _e); _nitro_post_null(dart_port); return; }
+        _nitro_post_null(dart_port);
+    });
+}
+
+NITRO_EXPORT void nitro_ar_stop_session_dispatch(int64_t instanceId, NitroError* _nitro_err, int64_t dart_port) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }
+    g_nitro_pool_nitro_ar.enqueue([=]() mutable {
+        nitro_ar_clear_error();
+        nitro_ar_stop_session(instanceId);
+        NitroError* _e = nitro_ar_get_error();
+        if (_e->hasError) { _nitro_move_err(_nitro_err, _e); _nitro_post_null(dart_port); return; }
+        _nitro_post_null(dart_port);
+    });
+}
+
+NITRO_EXPORT void nitro_ar_pause_session_dispatch(int64_t instanceId, NitroError* _nitro_err, int64_t dart_port) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }
+    g_nitro_pool_nitro_ar.enqueue([=]() mutable {
+        nitro_ar_clear_error();
+        nitro_ar_pause_session(instanceId);
+        NitroError* _e = nitro_ar_get_error();
+        if (_e->hasError) { _nitro_move_err(_nitro_err, _e); _nitro_post_null(dart_port); return; }
+        _nitro_post_null(dart_port);
+    });
+}
+
+NITRO_EXPORT void nitro_ar_resume_session_dispatch(int64_t instanceId, NitroError* _nitro_err, int64_t dart_port) {
+    if (_nitro_err) { _nitro_err->hasError = 0; }
+    g_nitro_pool_nitro_ar.enqueue([=]() mutable {
+        nitro_ar_clear_error();
+        nitro_ar_resume_session(instanceId);
+        NitroError* _e = nitro_ar_get_error();
+        if (_e->hasError) { _nitro_move_err(_nitro_err, _e); _nitro_post_null(dart_port); return; }
+        _nitro_post_null(dart_port);
+    });
+}
+
 #elif __APPLE__
 extern "C" {
 extern double _nitro_ar_call_add(double a, double b);
@@ -1323,7 +1406,6 @@ NITRO_EXPORT void nitro_ar_nitro_free(void* ptr) { if (ptr) { free(ptr); } }
 NITRO_EXPORT void* nitro_ar_nitro_alloc(size_t size) { return malloc(size); }
 
 } // extern "C"
-#endif
 void nitro_ar_release_Vector3(void* ptr);
 void nitro_ar_release_Quaternion(void* ptr);
 void nitro_ar_release_BoundingBox(void* ptr);
@@ -1407,3 +1489,4 @@ NITRO_EXPORT void nitro_ar_resume_session_dispatch(int64_t instanceId, NitroErro
     });
 }
 
+#endif

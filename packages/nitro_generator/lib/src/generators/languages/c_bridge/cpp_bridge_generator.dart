@@ -469,6 +469,10 @@ class CppBridgeGenerator {
       _emitJniSwiftPrologue(writer, spec, libStem, enumNames, structNames);
 
       _emitJniMethods(writer, spec, libStem, libPkg, enumNames, structNames);
+      // `<sym>_dispatch` twins live inside each platform section, next to the
+      // sync exports they call: a platform this module does not implement
+      // must not reference them (unresolved externals in a Windows DLL).
+      emitCppWorkerDispatch(writer, spec, libStem);
     } // end if (includeAndroid)
 
     // ── Apple section: NativeImpl.swift / NativeImpl.cpp / mixed ─────────────
@@ -493,6 +497,7 @@ class CppBridgeGenerator {
         if (includeIos) {
           writer.line('#else  // iOS: NativeImpl.swift — call through Swift bridge');
           _emitSwiftBridgeSection(writer, spec, libStem, enumNames, structNames);
+        emitCppWorkerDispatch(writer, spec, libStem);
         }
         writer.line('#endif  // TARGET_OS_OSX');
       } else if (appleMixedIosCpp) {
@@ -503,11 +508,13 @@ class CppBridgeGenerator {
         if (spec.targetsMacos) {
           writer.line('#else  // macOS: NativeImpl.swift — call through Swift bridge');
           _emitSwiftBridgeSection(writer, spec, libStem, enumNames, structNames);
+        emitCppWorkerDispatch(writer, spec, libStem);
         }
         writer.line('#endif  // TARGET_OS_IOS');
       } else if (includeIos) {
         // Pure Swift on all Apple platforms (legacy / default path).
         _emitSwiftBridgeSection(writer, spec, libStem, enumNames, structNames);
+        emitCppWorkerDispatch(writer, spec, libStem);
       }
     }
     // ── Desktop C++ section: Windows / Linux ────────────────────────────────
@@ -543,9 +550,6 @@ class CppBridgeGenerator {
     // Close the preprocessor ifdef chain when more than one platform section
     // was opened (android+apple or android+standalone-cpp).
     if (includeAndroid && (includeApple || hasStandaloneCpp)) writer.line('#endif');
-    // `<sym>_dispatch` twins: platform-independent, they call the sync exports
-    // above (JNI / Swift shim / C++) from the bridge worker pool.
-    emitCppWorkerDispatch(writer, spec, libStem);
     return writer.toString();
   }
 
@@ -1095,6 +1099,7 @@ class CppBridgeGenerator {
       writer.blankLine();
     }
 
+    emitCppWorkerDispatch(writer, spec, libStem);
     for (final prop in spec.properties) {
       final isEnum = enumNames.contains(bareTypeName(prop.type.name));
       final isVariantProp = variantNames.contains(bareTypeName(prop.type.name));

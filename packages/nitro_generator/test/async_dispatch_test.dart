@@ -48,6 +48,22 @@ void main() {
     expect(spec.nativeSymbol(spec.functions.firstWhere((f) => f.dartName == 'raw')), 'demo_raw');
   });
 
+  test('C++: on a mixed spec every twin sits inside the platform section that defines its sync export', () {
+    // nitro_ar-style module (Swift + Kotlin only): on Windows/Linux no section
+    // compiles, so a twin outside the #ifdef chain would be an unresolved
+    // external in the DLL link.
+    final swiftKotlin = SpecFromSource.parse(
+      _cpp.replaceFirst('ios: NativeImpl.cpp, android: NativeImpl.cpp, macos: NativeImpl.cpp, linux: NativeImpl.cpp, windows: NativeImpl.cpp', 'ios: NativeImpl.swift, android: NativeImpl.kotlin, macos: NativeImpl.swift'),
+      sourceUri: 'package:demo/src/demo.native.dart',
+    );
+    final cpp = CppBridgeGenerator.generate(swiftKotlin);
+    final lastEndif = cpp.lastIndexOf('\n#endif');
+    final lastTwin = cpp.lastIndexOf('_dispatch(int64_t instanceId');
+    expect(lastTwin, greaterThan(0));
+    expect(lastTwin, lessThan(lastEndif), reason: 'twins must be emitted inside the JNI / Apple sections, not after the chain');
+    expect('demo_echo_dispatch(int64_t instanceId'.allMatches(cpp).length, 2, reason: 'one per platform section (JNI + Apple)');
+  });
+
   test('Dart: dispatched methods bind <sym>_dispatch with the native-async signature and complete through the batch', () {
     final dart = DartFfiGenerator.generate(spec);
     expect(dart, contains("('demo_echo_dispatch')"));
