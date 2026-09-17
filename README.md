@@ -835,6 +835,23 @@ drop into idle. Bridge dispatch and the isolate pool land on the same floor.
 Batching is what moves the needle on a device: a 256-item `Stream<int>`
 burst is 5,994 µs per item-posted, 285 µs with `Backpressure.batch`.
 
+### Call latency (iPhone 12, iOS 26.6, profile build, medians)
+
+| Bridge | Latency | vs Method Channel |
+|---|---|---|
+| Method Channel | 24.6 µs | 1.0× |
+| **Nitrogen `@nitroFast`** | 0.044 µs | 564× |
+| **Nitrogen (Direct C++, checked)** | 0.052 µs | 473× |
+| **Nitrogen (Swift, checked)** | 0.052 µs | 473× |
+| `@nitroAsync` (bridge dispatch) | 29.2 µs | 0.8× |
+| `@nitroNativeAsync`, same-thread post | 12.4 µs | 2.0× |
+| `@nitroNativeAsync`, cross-thread post | 29.1 µs | 0.8× |
+| `@nitroFast @nitroNativeAsync`, `FutureOr<int>` | 0.014 µs | 1,759× |
+
+Cross-thread completions cost ~29 µs on the phone, the same as a MethodChannel
+hop; a 256-item `Stream<int>` burst is 1,328 µs posted per item, 122 µs with
+`Backpressure.batch`.
+
 ### Call latency (macOS, Apple Silicon, profile build)
 
 Measured against a raw `dart:ffi` leaf call as the theoretical floor — the entire delta is codegen safety (instance registry, error slot, typed marshalling), not JIT/AOT noise:
