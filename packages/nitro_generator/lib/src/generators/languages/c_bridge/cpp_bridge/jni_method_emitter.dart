@@ -1209,6 +1209,25 @@ void _emitJniStreamBridges(
       spec.dartClassName,
       'emit_${stream.dartName}',
     );
+    if (stream.itemType.isTypedData) {
+      // Kotlin passes a primitive array (null for a null item). The elements
+      // are read under a critical section and copied by the post itself.
+      writer.line('JNIEXPORT jboolean JNICALL $jniEmit(JNIEnv* env, jobject thiz, jlong dartPort, jobject item) {');
+      writer.line('    Dart_CObject obj;');
+      writer.line('    if (item == nullptr) {');
+      writer.line('        obj.type = Dart_CObject_kNull;');
+      writer.line('        return Dart_PostCObject_DL(dartPort, &obj) ? JNI_TRUE : JNI_FALSE;');
+      writer.line('    }');
+      writer.line('    const jsize _n = env->GetArrayLength((jarray)item);');
+      writer.line('    void* _elems = env->GetPrimitiveArrayCritical((jarray)item, nullptr);');
+      CppBridgeGenerator._emitTypedDataObj(writer, bareTypeName(stream.itemType.name), '_elems', '_n', '    ');
+      writer.line('    const bool _ok = Dart_PostCObject_DL(dartPort, &obj);');
+      writer.line('    env->ReleasePrimitiveArrayCritical((jarray)item, _elems, JNI_ABORT);');
+      writer.line('    return _ok ? JNI_TRUE : JNI_FALSE;');
+      writer.line('}');
+      writer.blankLine();
+      continue;
+    }
     // Classify the item type once — drives both the JNI signature and the
     // dispatch body. Using BridgeItemKind (not raw name comparisons) eliminates
     // silent fall-throughs: e.g. 'String?' previously missed the 'String'

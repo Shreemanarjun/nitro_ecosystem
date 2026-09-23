@@ -508,6 +508,11 @@ class WebBridgeGenerator {
           unpack = nullable ? '(message) => message == null ? null : (message as num).toInt()' : '(message) => (message as num).toInt()';
         case 'double':
           unpack = nullable ? '(message) => message == null ? null : (message as num).toDouble()' : '(message) => (message as num).toDouble()';
+        case _ when stream.itemType.isTypedData:
+          // The web shim delivers every typed-data post as raw bytes; copy to
+          // an aligned buffer and view it as the declared element type.
+          final view = baseItemType == 'Uint8List' ? 'message as Uint8List' : '$baseItemType.sublistView(Uint8List.fromList(message as Uint8List))';
+          unpack = '(message) { if (message == null) { $nullAction } return $view; }';
         default:
           unpack = '(message) => message as $baseItemType$q';
       }

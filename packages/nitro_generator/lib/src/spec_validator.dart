@@ -486,9 +486,9 @@ class SpecValidator {
             code: 'INVALID_ZERO_COPY_RETURN',
             message: '${spec.dartClassName}.${func.dartName}() — @zeroCopy return is not supported with @NitroNativeAsync.',
             hint:
-                'Workaround: make a synchronous @zeroCopy method that does the work, '
-                'then wrap it in a @nitroAsync method that calls it on a background isolate. '
-                'Or switch to @nitroAsync and return a regular Uint8List (one copy, safe).',
+                'Make the method synchronous and keep @zeroCopy (the Uint8List stays native-owned), '
+                'or return the bytes inside a @HybridStruct with a sibling length field. '
+                'Async methods cannot return typed data.',
           ),
         );
       }

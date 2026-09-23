@@ -197,9 +197,10 @@ void main() {
       expect(out, contains('data: [Int16]'));
     });
 
-    test('Uint16List param → [Int16]', () {
+    test('Uint16List param → [UInt16] (matches the [UInt16] the bridge builds)', () {
       final out = SwiftGenerator.generate(_typedDataParamSpec('Uint16List'));
-      expect(out, contains('data: [Int16]'));
+      expect(out, contains('data: [UInt16]'));
+      expect(out, isNot(contains('data: [Int16]')));
     });
 
     test('Int32List param → [Int32]', () {
@@ -207,9 +208,10 @@ void main() {
       expect(out, contains('data: [Int32]'));
     });
 
-    test('Uint32List param → [Int32]', () {
+    test('Uint32List param → [UInt32] (matches the [UInt32] the bridge builds)', () {
       final out = SwiftGenerator.generate(_typedDataParamSpec('Uint32List'));
-      expect(out, contains('data: [Int32]'));
+      expect(out, contains('data: [UInt32]'));
+      expect(out, isNot(contains('data: [Int32]')));
     });
 
     test('Float32List param → [Float]', () {

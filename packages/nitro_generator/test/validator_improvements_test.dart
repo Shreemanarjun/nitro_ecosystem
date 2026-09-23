@@ -405,7 +405,8 @@ void main() {
       );
       // The improved hint should mention the workaround pattern.
       expect(issue.hint, contains('synchronous'));
-      expect(issue.hint, contains('@nitroAsync'));
+      expect(issue.hint, contains('@HybridStruct'), reason: 'async methods cannot return typed data, so the hint must not suggest @nitroAsync');
+      expect(issue.hint, isNot(contains('@nitroAsync method')));
     });
 
     test('hint mentions one-copy safe alternative', () {

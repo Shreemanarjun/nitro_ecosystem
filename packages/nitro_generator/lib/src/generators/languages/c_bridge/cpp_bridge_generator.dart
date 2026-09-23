@@ -115,6 +115,31 @@ class CppBridgeGenerator {
     writer.blankLine();
   }
 
+  /// `Dart_TypedData_k*` element type for a typed-data Dart type name.
+  static String typedDataKind(String base) => switch (base) {
+        'Int8List' => 'Dart_TypedData_kInt8',
+        'Int16List' => 'Dart_TypedData_kInt16',
+        'Uint16List' => 'Dart_TypedData_kUint16',
+        'Int32List' => 'Dart_TypedData_kInt32',
+        'Uint32List' => 'Dart_TypedData_kUint32',
+        'Int64List' => 'Dart_TypedData_kInt64',
+        'Uint64List' => 'Dart_TypedData_kUint64',
+        'Float32List' => 'Dart_TypedData_kFloat32',
+        'Float64List' => 'Dart_TypedData_kFloat64',
+        _ => 'Dart_TypedData_kUint8',
+      };
+
+  /// Posts `count` elements at `data` as one Dart typed list of [base]'s
+  /// element type (the VM copies them during the post). `data` may be null
+  /// for an empty list.
+  static void _emitTypedDataObj(CodeWriter w, String base, String data, String count, String indent) {
+    w.line('${indent}static const uint8_t _nitro_empty[8] = {0};');
+    w.line('${indent}obj.type = Dart_CObject_kTypedData;');
+    w.line('${indent}obj.value.as_typed_data.type = ${typedDataKind(base)};');
+    w.line('${indent}obj.value.as_typed_data.length = (intptr_t)($count);');
+    w.line('${indent}obj.value.as_typed_data.values = $data ? (const uint8_t*)$data : _nitro_empty;');
+  }
+
   /// Every stream port is its own batch target in the per-library batcher
   /// while registered (see nitro_completion_batch.h): items that arrive while
   /// Dart is busy travel in one message. No item is dropped or reordered.
@@ -1775,6 +1800,26 @@ class CppBridgeGenerator {
         writer.line('        }');
         writer.line('    }');
         writer.line('    free((void*)item.data);');
+        writer.line('}');
+        writer.blankLine();
+        continue;
+      }
+
+      if (stream.itemType.isTypedData) {
+        // Typed-data items: NitroCppBuffer.size is in BYTES. The VM copies the
+        // elements during the post; the caller keeps ownership of item.data.
+        final esz = switch (base) { 'Int16List' || 'Uint16List' => 2, 'Int32List' || 'Uint32List' || 'Float32List' => 4, 'Int64List' || 'Uint64List' || 'Float64List' => 8, _ => 1 };
+        writer.line('    Dart_CObject obj;');
+        if (isNullable) {
+          writer.line('    if (item.data == nullptr) { obj.type = Dart_CObject_kNull; } else {');
+          _emitTypedDataObj(writer, base, 'item.data', 'item.size / $esz', '        ');
+          writer.line('    }');
+        } else {
+          _emitTypedDataObj(writer, base, 'item.data', 'item.size / $esz', '    ');
+        }
+        writer.line('    for (int64_t _port : _ports) {');
+        writer.line('        if (!Dart_PostCObject_DL(_port, &obj)) { $ports.remove(_port); }');
+        writer.line('    }');
         writer.line('}');
         writer.blankLine();
         continue;

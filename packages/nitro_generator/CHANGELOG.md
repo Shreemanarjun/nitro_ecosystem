@@ -5,6 +5,12 @@ Fixed
   arrive as `null` on every backend.
 - Stream items that are never delivered (cancel mid-burst) are freed instead
   of leaking.
+- Typed-data streams (`Stream<Uint8List>`, `Stream<Float32List>`, …) deliver
+  their bytes on every backend (they posted `null`, and did not compile on Swift).
+- `Stream<DateTime>` on Swift delivers the date instead of `null`.
+- Swift `Uint16List` / `Uint32List` parameters map to `[UInt16]` / `[UInt32]`
+  (the signed mapping did not compile).
+- The async `@zeroCopy` return error suggests a working fix.
 
 Changed
 - Every stream is batched by the bridge, whatever its backpressure mode; no

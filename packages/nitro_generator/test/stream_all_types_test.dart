@@ -121,9 +121,11 @@ void main() {
       expect(out, contains('emitCb: @convention(c) (Int64, UnsafeMutablePointer<Int8>?) -> Bool'));
     });
 
-    test('Stream<Uint8List> callback param is UnsafeMutablePointer<UInt8>?', () {
+    test('Stream<Uint8List> callback takes (pointer, element count)', () {
+      // Data cannot cross a C callback; the old UnsafeMutablePointer<UInt8>?
+      // signature did not compile with a Data item.
       final out = SwiftGenerator.generate(_streamSpec(itemType: 'Uint8List'));
-      expect(out, contains('emitCb: @convention(c) (Int64, UnsafeMutablePointer<UInt8>?) -> Bool'));
+      expect(out, contains('emitCb: @convention(c) (Int64, UnsafeRawPointer?, Int64) -> Bool'));
     });
 
     test('Stream<@HybridEnum> callback param is Int64', () {

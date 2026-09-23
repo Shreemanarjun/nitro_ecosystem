@@ -63,12 +63,19 @@ class SwiftTypeMapper implements TypeMapper {
         baseType = 'Data';
         break;
       case 'Int16List':
-      case 'Uint16List':
         baseType = '[Int16]';
         break;
+      // Unsigned 16/32-bit lists: the bridge already builds [UInt16]/[UInt32]
+      // from the C pointer; the signed spellings here never compiled.
+      // (Uint64List stays [Int64] — that pairing compiles and is in use.)
+      case 'Uint16List':
+        baseType = '[UInt16]';
+        break;
       case 'Int32List':
-      case 'Uint32List':
         baseType = '[Int32]';
+        break;
+      case 'Uint32List':
+        baseType = '[UInt32]';
         break;
       case 'Float32List':
         baseType = '[Float]';

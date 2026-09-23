@@ -240,7 +240,7 @@ void _emitSwiftBridgeSection(
     // Swift can pass nil for null items. The C emit function checks nullptr → kNull.
     // String? already uses const char* (nullable by design).
     final String itemCType;
-    if (isNullable && itemName == 'int') {
+    if (isNullable && (itemName == 'int' || itemName == 'DateTime')) {
       itemCType = 'const int64_t*';
     } else if (isNullable && itemName == 'uint64') {
       itemCType = 'const uint64_t*';
@@ -256,10 +256,35 @@ void _emitSwiftBridgeSection(
       itemCType = CppBridgeGenerator._typeToC(stream.itemType.name);
     }
 
+    if (stream.itemType.isTypedData) {
+      // Swift hands over (pointer, element count); count < 0 means null.
+      writer.line('bool _emit_${stream.dartName}_to_dart(int64_t dartPort, const void* item, int64_t count) {');
+      writer.line('    Dart_CObject obj;');
+      writer.line('    if (count < 0) {');
+      writer.line('        obj.type = Dart_CObject_kNull;');
+      writer.line('        return Dart_PostCObject_DL(dartPort, &obj);');
+      writer.line('    }');
+      CppBridgeGenerator._emitTypedDataObj(writer, bareTypeName(stream.itemType.name), 'item', 'count', '    ');
+      writer.line('    return Dart_PostCObject_DL(dartPort, &obj);');
+      writer.line('}');
+      writer.blankLine();
+      writer.line('extern void _${spec.namespace}_register_${stream.dartName}_stream(int64_t dartPort, bool (*emitCb)(int64_t, const void*, int64_t));');
+      writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
+      CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'coalesce', stream);
+      writer.line('    _${spec.namespace}_register_${stream.dartName}_stream(dart_port, _emit_${stream.dartName}_to_dart);');
+      writer.line('}');
+      writer.line('extern void _${spec.namespace}_release_${stream.dartName}_stream(int64_t dart_port);');
+      writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
+      writer.line('    _${spec.namespace}_release_${stream.dartName}_stream(dart_port);');
+      CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'uncoalesce');
+      writer.line('}');
+      writer.blankLine();
+      continue;
+    }
     writer.line('bool _emit_${stream.dartName}_to_dart(int64_t dartPort, $itemCType item) {');
     writer.line('    Dart_CObject obj;');
     switch (stream.itemType.name) {
-      case _ when isNullable && (itemName == 'int' || isEnum):
+      case _ when isNullable && (itemName == 'int' || itemName == 'DateTime' || isEnum):
         // Nullable int/enum: pointer to int64_t, nullptr = null.
         writer.line('    if (item == nullptr) { obj.type = Dart_CObject_kNull; }');
         writer.line('    else { obj.type = Dart_CObject_kInt64; obj.value.as_int64 = *item; }');
@@ -276,7 +301,8 @@ void _emitSwiftBridgeSection(
       case 'double':
         writer.line('    obj.type = Dart_CObject_kDouble;');
         writer.line('    obj.value.as_double = item;');
-      case 'int' || 'uint64':
+      // DateTime crosses as epoch milliseconds, the same int64 wire as int.
+      case 'int' || 'uint64' || 'DateTime':
         writer.line('    obj.type = Dart_CObject_kInt64;');
         writer.line('    obj.value.as_int64 = (int64_t)item;');
       case 'bool':

@@ -39,6 +39,9 @@ class SwiftStreamEmitter {
       cType = 'UnsafePointer<Int64>?';
     } else if (isVariantItem) {
       cType = 'UnsafeMutablePointer<UInt8>?';
+    } else if (stream.itemType.isTypedData) {
+      // (pointer, element count); a negative count means a null item.
+      cType = 'UnsafeRawPointer?, Int64';
     } else {
       cType = mapper.swiftCType(stream.itemType.name);
     }
@@ -176,6 +179,28 @@ class SwiftStreamEmitter {
   }) {
     final isNullable = stream.itemType.isNullable;
     final cancel = '${spec.dartClassName}Registry._${stream.dartName}Cancellables.removeValue(forKey: dartPort)?.cancel()';
+    if (stream.itemType.isTypedData) {
+      // Data (Uint8List / Int8List) or a Swift array: pass its storage and
+      // element count; the C shim posts it as a Dart typed list.
+      final isData = itemName == 'Uint8List' || itemName == 'Int8List';
+      final ind = indent;
+      if (isNullable) {
+        writer.line('${indent}guard let item = item else {');
+        writer.line('$indent    if !emitCb(dartPort, nil, -1) { $cancel }');
+        writer.line('$indent    return');
+        writer.line('$indent}');
+      }
+      if (isData) {
+        writer.line('${ind}item.withUnsafeBytes { buf in');
+        writer.line('$ind    if !emitCb(dartPort, buf.baseAddress, Int64(buf.count)) { $cancel }');
+        writer.line('$ind}');
+      } else {
+        writer.line('${ind}item.withUnsafeBufferPointer { buf in');
+        writer.line('$ind    if !emitCb(dartPort, UnsafeRawPointer(buf.baseAddress), Int64(buf.count)) { $cancel }');
+        writer.line('$ind}');
+      }
+      return;
+    }
     switch (itemName) {
       case _ when isVariantItem:
         // @NitroVariant stream: serialize variant to length-prefixed bytes via toNative(),

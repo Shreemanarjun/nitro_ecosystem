@@ -4,6 +4,7 @@
   on its own.
 - `NitroCompletionBatch::coalesce(port, freeItem)` frees stream items that are
   never delivered.
+- Web: typed-data posts send the byte length, not the element count.
 
 ## 0.7.6
 
