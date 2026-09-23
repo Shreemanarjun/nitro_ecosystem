@@ -87,7 +87,7 @@ void _emitBgJobHelpers(CodeWriter w, {required bool hasCallbacks}) {
   w.line('  return using((arena) {');
   w.line('    final idOut = arena<Int64>();');
   w.line('    final lenOut = arena<Int64>();');
-  w.line('    final ptr = _nitroBgTake(entry.toNativeUtf8(allocator: arena), jobId, idOut, lenOut);');
+  w.line('    final ptr = _nitroBgTake(entry.toNitroUtf8(allocator: arena), jobId, idOut, lenOut);');
   w.line('    if (ptr == nullptr) {');
   w.line('      return null;');
   w.line('    }');
@@ -102,7 +102,7 @@ void _emitBgJobHelpers(CodeWriter w, {required bool hasCallbacks}) {
   w.line('});');
   w.blankLine();
   w.line('void _nitroBgFailJob(int jobId, String error, String stackTrace) => using((arena) {');
-  w.line('  _nitroBgFail(jobId, error.toNativeUtf8(allocator: arena), stackTrace.toNativeUtf8(allocator: arena));');
+  w.line('  _nitroBgFail(jobId, error.toNitroUtf8(allocator: arena), stackTrace.toNitroUtf8(allocator: arena));');
   w.line('});');
   w.blankLine();
   if (hasCallbacks) {
@@ -120,7 +120,7 @@ void _emitBgJobHelpers(CodeWriter w, {required bool hasCallbacks}) {
   w.line('      buf.asTypedList(args.length).setAll(0, args);');
   w.line('    }');
   w.line('    final started = arena<Int8>();');
-  w.line('    final id = _nitroBgSubmit(entry.toNativeUtf8(allocator: arena), buf, args.length, port, started);');
+  w.line('    final id = _nitroBgSubmit(entry.toNitroUtf8(allocator: arena), buf, args.length, port, started);');
   w.line('    // No host engine registered: run the same wrapper on a fresh isolate.');
   w.line('    if (started.value == 0) {');
   w.line('      NitroBackground.spawnFallback(wrapper, id);');

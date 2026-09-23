@@ -546,7 +546,7 @@ void main() {
       'String? param — no sentinel; Kotlin stays String?; Swift is String?',
       _src('  void send(String? msg);'),
       dart: BridgeChecks(
-        has: ['msg != null', 'toNativeUtf8', 'nullptr'],
+        has: ['msg != null', 'toNitroUtf8', 'nullptr'],
         hasNot: ['msg ?? -9223372036854775808', 'msg ?? double'],
       ),
       kotlin: BridgeChecks(
@@ -749,7 +749,7 @@ void main() {
       mixedSrc,
       dart: BridgeChecks(
         has: [
-          'name.toNativeUtf8', // String → pointer
+          'name.toNitroUtf8', // String → pointer
           'arena.packInt(limit)', // int? → NitroOptInt64 packed struct (arena; fn is not leaf due to String)
           'arena.packDouble(threshold)', // double? → NitroOptFloat64 packed struct
           'arena.packBool(verbose)', // bool? → NitroOptBool packed struct

@@ -367,7 +367,7 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
     );
     BenchmarkPointProxy._init(_dylib);
     BenchmarkBoxProxy._init(_dylib);
-    final _keyPtr = _instanceKey.toNativeUtf8(allocator: calloc);
+    final _keyPtr = _instanceKey.toNitroUtf8(allocator: calloc);
     try {
       _instanceId = _createInstancePtr(_keyPtr);
       if (_instanceId < 0) {
@@ -826,7 +826,7 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
       return withArena((arena) {
         final res = _getGreetingPtr(
           _instanceId,
-          name.toNativeUtf8(allocator: arena),
+          name.toNitroUtf8(allocator: arena),
           _nitroErr,
         );
         NitroRuntime.throwIfOutParamError(

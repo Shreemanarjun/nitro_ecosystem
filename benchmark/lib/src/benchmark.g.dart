@@ -112,7 +112,7 @@ class _BenchmarkImpl extends Benchmark {
           )()
           .toDartString(),
     );
-    final _keyPtr = _instanceKey.toNativeUtf8(allocator: calloc);
+    final _keyPtr = _instanceKey.toNitroUtf8(allocator: calloc);
     try {
       _instanceId = _createInstancePtr(_keyPtr);
       if (_instanceId < 0) {
@@ -266,7 +266,7 @@ class _BenchmarkImpl extends Benchmark {
       return withArena((arena) {
         final res = _getGreetingPtr(
           _instanceId,
-          name.toNativeUtf8(allocator: arena),
+          name.toNitroUtf8(allocator: arena),
           _nitroErr,
         );
         NitroRuntime.throwIfOutParamError(

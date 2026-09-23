@@ -322,7 +322,7 @@ void main() {
 
     test('toNative(): each field type assigned correctly in same struct', () {
       final out = StructGenerator.generateDartExtensions(mixedSpec());
-      expect(out, contains('ptr.ref.label = label.toNativeUtf8(allocator: arena)'));
+      expect(out, contains('ptr.ref.label = label.toNitroUtf8(allocator: arena)'));
       expect(out, contains('ptr.ref.active = active ? 1 : 0'));
       expect(out, contains('ptr.ref.status = status.nativeValue'));
       expect(out, contains('ptr.ref.origin = origin.toNative(arena)'));

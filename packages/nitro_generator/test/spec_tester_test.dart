@@ -267,13 +267,13 @@ void main() {
     );
 
     specTest(
-      'String param uses toNativeUtf8, not sentinel',
+      'String param uses toNitroUtf8, not sentinel',
       _src('''
         abstract class Mod {
           void send(String msg);
         }
       '''),
-      dart: BridgeChecks(has: ['msg.toNativeUtf8'], hasNot: ['msg ?? ']),
+      dart: BridgeChecks(has: ['msg.toNitroUtf8'], hasNot: ['msg ?? ']),
       skip: {Lang.cpp},
     );
   });

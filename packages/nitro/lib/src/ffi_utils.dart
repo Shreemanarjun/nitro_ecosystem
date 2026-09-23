@@ -143,8 +143,26 @@ extension NitroUint64ListExtension on Uint64List {
 }
 
 extension NitroStringExtension on String {
-  Pointer<Utf8> toPointer(Arena arena) {
-    return toNativeUtf8(allocator: arena);
+  Pointer<Utf8> toPointer(Arena arena) => toNitroUtf8(allocator: arena);
+
+  /// [toNativeUtf8] with an ASCII fast path: ASCII text is written straight
+  /// into native memory, skipping the intermediate UTF-8 list (1.7× faster at
+  /// 5 chars, 2.9× at 256, AOT). The first non-ASCII unit falls back to
+  /// [toNativeUtf8], so the bytes are identical either way.
+  Pointer<Utf8> toNitroUtf8({required Allocator allocator}) {
+    final n = length;
+    final p = allocator<Uint8>(n + 1);
+    final out = p.asTypedList(n + 1);
+    for (var i = 0; i < n; i++) {
+      final c = codeUnitAt(i);
+      if (c >= 0x80) {
+        allocator.free(p); // a no-op on an Arena; the arena releases it.
+        return toNativeUtf8(allocator: allocator);
+      }
+      out[i] = c;
+    }
+    out[n] = 0;
+    return p.cast();
   }
 }
 
@@ -195,10 +213,7 @@ extension NitroPointerExtension on Pointer<Utf8> {
   String toDartStringBorrowed() {
     if (address == 0) return '';
     final p = cast<Uint8>();
-    int len = 0;
-    while (p[len] != 0) {
-      len++;
-    }
+    final len = _nitroStrlen(p);
     return _decodeUtf8NoBomStrip(p.asTypedList(len));
   }
 
@@ -213,10 +228,7 @@ extension NitroPointerExtension on Pointer<Utf8> {
     // cached base pointer; `p[len]` is an indexed load, while `(p + len).value`
     // would allocate a fresh Pointer per byte.
     final p = cast<Uint8>();
-    int len = 0;
-    while (p[len] != 0) {
-      len++;
-    }
+    final len = _nitroStrlen(p);
     final str = _decodeUtf8NoBomStrip(p.asTypedList(len));
     nativeFree(this);
     return str;
@@ -224,6 +236,31 @@ extension NitroPointerExtension on Pointer<Utf8> {
 }
 
 const _utf8DecoderAllowMalformed = Utf8Decoder(allowMalformed: true);
+
+// Length of a NUL-terminated string, 8 bytes per load once aligned (2–8×
+// the byte loop, AOT). An aligned 8-byte load never crosses a page, so
+// reading past the NUL inside the last word is safe. Pure Dart: libc strlen
+// is not a lookup-able symbol on every platform (Windows).
+int _nitroStrlen(Pointer<Uint8> p) {
+  var n = 0;
+  while ((p.address + n) & 7 != 0) {
+    if (p[n] == 0) return n;
+    n++;
+  }
+  final words = Pointer<Uint64>.fromAddress(p.address + n);
+  var i = 0;
+  // A word holds a zero byte iff (v - 0x01..01) & ~v & 0x80..80 != 0.
+  while (true) {
+    final v = words[i];
+    if (((v - 0x0101010101010101) & ~v & 0x8080808080808080) != 0) break;
+    i++;
+  }
+  n += i * 8;
+  while (p[n] != 0) {
+    n++;
+  }
+  return n;
+}
 
 // Decodes UTF-8 bytes to a Dart String without stripping leading U+FEFF.
 // dart:convert's Utf8Decoder treats a leading BOM (U+FEFF / 0xEF 0xBB 0xBF)

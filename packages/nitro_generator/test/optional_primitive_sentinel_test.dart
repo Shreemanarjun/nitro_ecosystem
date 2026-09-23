@@ -272,18 +272,18 @@ void main() {
   // §5  Dart FFI: String / String?
   // ══════════════════════════════════════════════════════════════════════════
   group('§5 Dart FFI — String / String?', () {
-    test('String uses toNativeUtf8', () {
+    test('String uses toNitroUtf8', () {
       _checkDartFfi(
         _asyncSpec(funcName: 'send', params: [_p('msg', 'String')]),
-        has: ['msg.toNativeUtf8'],
+        has: ['msg.toNitroUtf8'],
         hasNot: ['msg ?? '],
       );
     });
 
-    test('String? uses null-guarded toNativeUtf8', () {
+    test('String? uses null-guarded toNitroUtf8', () {
       _checkDartFfi(
         _asyncSpec(funcName: 'send', params: [_p('msg', 'String?')]),
-        has: ['msg != null', 'toNativeUtf8', 'nullptr'],
+        has: ['msg != null', 'toNitroUtf8', 'nullptr'],
         hasNot: ['msg ?? -9223372036854775808'],
       );
     });
@@ -360,7 +360,7 @@ void main() {
           ],
         ),
         has: [
-          'id.toNativeUtf8',
+          'id.toNitroUtf8',
           'arena.packInt(timeout)',
           'arena.packDouble(scale)',
           'arena.packBool(verbose)',

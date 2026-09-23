@@ -1649,9 +1649,9 @@ void main() {
       expect(out, contains('void Function(int, bool, Pointer<NitroErrorFfi>, int)'));
     });
 
-    test('String param: arena call arg uses toNativeUtf8(allocator: arena)', () {
+    test('String param: arena call arg uses toNitroUtf8(allocator: arena)', () {
       final out = DartFfiGenerator.generate(_nativeAsyncStringSpec());
-      expect(out, contains('query.toNativeUtf8(allocator: arena)'));
+      expect(out, contains('query.toNitroUtf8(allocator: arena)'));
     });
 
     test('no-params void: call lambda is _doWorkPtr(_instanceId, _nitroErr, port)', () {

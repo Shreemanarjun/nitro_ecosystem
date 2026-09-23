@@ -89,13 +89,13 @@ void main() {
       expect(out, contains('_nitroEncodeMapBinarySettings'));
     });
 
-    test('does NOT use toNativeUtf8 (binary uses alloc)', () {
+    test('does NOT use toNitroUtf8 (binary uses alloc)', () {
       final out = DartFfiGenerator.generate(_mapRecordParamSpec());
-      // toNativeUtf8 appears in the _init constructor for the instance key; check only the configure method body.
+      // toNitroUtf8 appears in the _init constructor for the instance key; check only the configure method body.
       final configIdx = out.indexOf('_configurePtr(');
       expect(configIdx, isNot(-1), reason: 'configure method call not found');
       final methodBody = out.substring(configIdx, configIdx + 300);
-      expect(methodBody, isNot(contains('toNativeUtf8')));
+      expect(methodBody, isNot(contains('toNitroUtf8')));
     });
 
     test('does NOT use binary RecordExt for the map param', () {

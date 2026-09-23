@@ -51,7 +51,7 @@ void main() {
       final out = StructGenerator.generateDartExtensions(
         _structSpec([BridgeField(name: 'label', type: BridgeType(name: 'String'))]),
       );
-      expect(out, contains('label.toNativeUtf8(allocator: arena)'));
+      expect(out, contains('label.toNitroUtf8(allocator: arena)'));
       expect(out, isNot(contains('label == null ?')));
       expect(out, contains('nativeFree(label)'));
     });

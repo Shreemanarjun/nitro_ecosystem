@@ -1069,7 +1069,7 @@ void main() {
     test('async+arena arena args are still passed to callAsync', () {
       final out = DartFfiGenerator.generate(asyncArenaStringSpec());
       // String param should still be arena-allocated and passed to callAsync
-      expect(out, contains('toNativeUtf8(allocator: arena)'));
+      expect(out, contains('toNitroUtf8(allocator: arena)'));
     });
 
     test('async+arena record return still frees rawPtr after decode', () {

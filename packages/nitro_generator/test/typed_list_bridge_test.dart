@@ -332,7 +332,7 @@ void main() {
       final out = DartFfiGenerator.generate(_mixedParamSpec());
       expect(
         out,
-        contains('_processPtr(_instanceId, label.toNativeUtf8(allocator: arena), data.toPointer(arena), data.length, scale, _nitroErr)'),
+        contains('_processPtr(_instanceId, label.toNitroUtf8(allocator: arena), data.toPointer(arena), data.length, scale, _nitroErr)'),
       );
     });
   });

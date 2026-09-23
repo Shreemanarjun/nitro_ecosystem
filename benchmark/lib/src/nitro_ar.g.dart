@@ -823,7 +823,7 @@ class _NitroArImpl extends NitroAr {
     BoundingBoxProxy._init(_dylib);
     PackageDimensionsProxy._init(_dylib);
     RawDepthMapProxy._init(_dylib);
-    final _keyPtr = _instanceKey.toNativeUtf8(allocator: calloc);
+    final _keyPtr = _instanceKey.toNitroUtf8(allocator: calloc);
     try {
       _instanceId = _createInstancePtr(_keyPtr);
       if (_instanceId < 0) {
@@ -1028,7 +1028,7 @@ class _NitroArImpl extends NitroAr {
       return await NitroRuntime.openNativeAsync<String>(
         call: (port) => _getGreetingPtr(
           _instanceId,
-          name.toNativeUtf8(allocator: arena),
+          name.toNitroUtf8(allocator: arena),
           _nitroErr,
           port,
         ),
@@ -1132,7 +1132,7 @@ class _NitroArImpl extends NitroAr {
       return withArena((arena) {
         final res = _estimateVolumePtr(
           _instanceId,
-          anchor.toNativeUtf8(allocator: arena),
+          anchor.toNitroUtf8(allocator: arena),
           _nitroErr,
         );
         NitroRuntime.throwIfOutParamError(

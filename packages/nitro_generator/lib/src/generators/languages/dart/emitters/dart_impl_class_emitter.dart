@@ -174,7 +174,7 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   // package:ffi's malloc.free/calloc.free both resolve to the same underlying
   // free (CoTaskMemFree on Windows, libc free() elsewhere) regardless of which
   // allocator produced the pointer, so this is a style choice, not a bug fix.
-  writer.line('    final _keyPtr = _instanceKey.toNativeUtf8(allocator: calloc);');
+  writer.line('    final _keyPtr = _instanceKey.toNitroUtf8(allocator: calloc);');
   writer.line('    try {');
   writer.line('      _instanceId = _createInstancePtr(_keyPtr);');
   writer.line('      if (_instanceId < 0) {');

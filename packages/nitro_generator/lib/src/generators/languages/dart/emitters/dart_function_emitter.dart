@@ -44,10 +44,10 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
             return ['${p.name}.toPointer(arena)', '${p.name}.length'];
           }
           if (t == 'String') {
-            return ['${p.name}.toNativeUtf8(allocator: arena)'];
+            return ['${p.name}.toNitroUtf8(allocator: arena)'];
           }
           if (t == 'String?') {
-            return ['${p.name} != null ? ${p.name}.toNativeUtf8(allocator: arena) : nullptr'];
+            return ['${p.name} != null ? ${p.name}.toNitroUtf8(allocator: arena) : nullptr'];
           }
           if (spec.isStructName(t)) {
             return ['${p.name}.toNative(arena).cast<Void>()'];

@@ -5,6 +5,10 @@
 - `NitroCompletionBatch::coalesce(port, freeItem)` frees stream items that are
   never delivered.
 - Web: typed-data posts send the byte length, not the element count.
+- `String.toNitroUtf8(allocator:)`: `toNativeUtf8` with an ASCII fast path
+  (writes straight into native memory; same bytes). 1.7× at 5 chars, 2.9× at 256.
+- Native → Dart string decode finds the NUL 8 bytes at a time: 2–8× faster
+  length scan.
 - Verbose log messages are no longer built when verbose logging is off: per
   stream item, per stream open/close, and per call with a slow-call threshold.
   256-item int stream burst: 125 → 90 µs.

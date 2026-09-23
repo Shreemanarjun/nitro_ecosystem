@@ -145,9 +145,9 @@ String callAsyncTransportType(BridgeType returnType, BridgeSpec spec) {
   final rt = type.name;
   final base = type.baseName;
 
-  // String / String? — need arena for toNativeUtf8
-  if (rt == 'String') return (expr: '$varName.toNativeUtf8(allocator: $allocator)', needsArena: true);
-  if (rt == 'String?') return (expr: '$varName != null ? $varName.toNativeUtf8(allocator: $allocator) : nullptr', needsArena: true);
+  // String / String? — need arena for toNitroUtf8
+  if (rt == 'String') return (expr: '$varName.toNitroUtf8(allocator: $allocator)', needsArena: true);
+  if (rt == 'String?') return (expr: '$varName != null ? $varName.toNitroUtf8(allocator: $allocator) : nullptr', needsArena: true);
 
   // TypedData
   if (type.isTypedData) return (expr: '$varName.toPointer($allocator)', needsArena: true);

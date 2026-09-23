@@ -150,7 +150,7 @@ void main() {
       // correctness requirement: package:ffi's malloc.free/calloc.free both
       // resolve to the same OS-level free regardless of which allocator
       // produced the pointer, so mixing malloc/calloc here was never unsafe.
-      expect(out, contains('toNativeUtf8(allocator: calloc)'));
+      expect(out, contains('toNitroUtf8(allocator: calloc)'));
       expect(out, contains('calloc.free(_keyPtr)'));
     });
 

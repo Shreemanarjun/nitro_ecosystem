@@ -148,7 +148,7 @@ class StructGenerator {
             s.writeln('    ptr.ref.${hasValueField(f.name)} = ${f.name} == null ? 0 : 1;');
           case 'String':
             s.writeln(
-              '    ptr.ref.${f.name} = ${orNullptr('${f.name}${nullable ? '!' : ''}.toNativeUtf8(allocator: arena)')};',
+              '    ptr.ref.${f.name} = ${orNullptr('${f.name}${nullable ? '!' : ''}.toNitroUtf8(allocator: arena)')};',
             );
           case 'DateTime':
             s.writeln('    ptr.ref.${f.name} = ${f.name}.millisecondsSinceEpoch;');

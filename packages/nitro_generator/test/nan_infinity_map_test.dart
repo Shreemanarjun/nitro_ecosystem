@@ -118,13 +118,13 @@ void main() {
       expect(out, contains('_nitroEncodeMapBinaryDouble'));
     });
 
-    test('param type: does NOT use toNativeUtf8 (binary uses alloc + Uint8)', () {
+    test('param type: does NOT use toNitroUtf8 (binary uses alloc + Uint8)', () {
       final out = DartFfiGenerator.generate(_doubleMapParamSpec());
-      // toNativeUtf8 appears in the _init constructor for the instance key; check only the setWeights body.
+      // toNitroUtf8 appears in the _init constructor for the instance key; check only the setWeights body.
       final setIdx = out.indexOf('_setWeightsPtr(');
       expect(setIdx, isNot(-1), reason: 'setWeights method call not found');
       final methodBody = out.substring(setIdx, setIdx + 300);
-      expect(methodBody, isNot(contains('toNativeUtf8')));
+      expect(methodBody, isNot(contains('toNitroUtf8')));
     });
 
     test('param type: does NOT use plain jsonEncode for Map<String, double>', () {

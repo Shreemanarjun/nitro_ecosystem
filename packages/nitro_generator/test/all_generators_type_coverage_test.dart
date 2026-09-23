@@ -1344,10 +1344,10 @@ void main() {
       expect(out, isNot(contains('exceptionalReturn: nullptr')), reason: 'NativeCallable.isolateLocal rejects exceptionalReturn for Pointer<Utf8>');
     });
 
-    test('Dart FFI: return expression uses toNativeUtf8(allocator: _nitroNativeAllocator)', () {
+    test('Dart FFI: return expression uses toNitroUtf8(allocator: _nitroNativeAllocator)', () {
       final out = DartFfiGenerator.generate(_stringCallbackReturnSpec());
       expect(out, contains('return callback('));
-      expect(out, contains('.toNativeUtf8(allocator: _nitroNativeAllocator)'));
+      expect(out, contains('.toNitroUtf8(allocator: _nitroNativeAllocator)'));
     });
 
     test('Dart FFI: void-return callback uses listener (no exceptionalReturn)', () {

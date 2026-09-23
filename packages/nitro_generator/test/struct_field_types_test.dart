@@ -213,8 +213,8 @@ void main() {
     });
 
     // toNative()
-    test('toNative() converts string field via .toNativeUtf8(allocator: arena)', () {
-      expect(dartExt, contains('ptr.ref.message = message.toNativeUtf8(allocator: arena)'));
+    test('toNative() converts string field via .toNitroUtf8(allocator: arena)', () {
+      expect(dartExt, contains('ptr.ref.message = message.toNitroUtf8(allocator: arena)'));
     });
 
     // freeFields()
@@ -952,7 +952,7 @@ void main() {
       expect(out, contains('ptr.ref.count = count'));
       expect(out, contains('ptr.ref.ratio = ratio'));
       expect(out, contains('ptr.ref.active = active ? 1 : 0'));
-      expect(out, contains('ptr.ref.label = label.toNativeUtf8(allocator: arena)'));
+      expect(out, contains('ptr.ref.label = label.toNitroUtf8(allocator: arena)'));
       expect(out, contains('ptr.ref.color = color.nativeValue'));
       expect(out, contains('ptr.ref.sub = sub.toNative(arena)'));
       expect(out, contains('ptr.ref.data = data.toPointer(arena)'));
@@ -1072,7 +1072,7 @@ void main() {
       final proxy = StructGenerator.generateDartProxies(spec);
       expect(ext, contains('external Pointer<Utf8> text;'));
       expect(ext, contains('text: text.toDartString()'));
-      expect(ext, contains('ptr.ref.text = text.toNativeUtf8(allocator: arena)'));
+      expect(ext, contains('ptr.ref.text = text.toNitroUtf8(allocator: arena)'));
       expect(ext, contains('if (text != nullptr) {'));
       expect(ext, contains('nativeFree(text);'));
       expect(proxy, contains("text: ''"));

@@ -253,9 +253,9 @@ void main() {
       expect(out, contains('toDartStringBorrowed()'));
     });
 
-    test('String param uses toNativeUtf8 inside withArena', () {
+    test('String param uses toNitroUtf8 inside withArena', () {
       final out = DartFfiGenerator.generate(richSpec());
-      expect(out, contains('toNativeUtf8(allocator: arena)'));
+      expect(out, contains('toNitroUtf8(allocator: arena)'));
       expect(out, contains('withArena'));
     });
 
@@ -886,11 +886,11 @@ void main() {
       );
       final out = DartFfiGenerator.generate(spec);
       expect(out, contains('_nitroEncodeMapBinaryDynamic'));
-      // toNativeUtf8 may appear in the _init constructor for the key; check only the method body.
+      // toNitroUtf8 may appear in the _init constructor for the key; check only the method body.
       final metaIdx = out.indexOf('_setMetadataPtr(');
       expect(metaIdx, isNot(-1), reason: 'method call not found');
       final methodBody = out.substring(metaIdx, metaIdx + 200);
-      expect(methodBody, isNot(contains('toNativeUtf8')));
+      expect(methodBody, isNot(contains('toNitroUtf8')));
       expect(out, isNot(contains('meta.toJson()')));
     });
 
@@ -918,11 +918,11 @@ void main() {
       );
       final out = DartFfiGenerator.generate(spec);
       expect(out, contains('_nitroEncodeMapBinaryDynamic'));
-      // toNativeUtf8 may appear in the _init constructor; check only setter body.
+      // toNitroUtf8 may appear in the _init constructor; check only setter body.
       final setIdx = out.indexOf('set metadata(');
       expect(setIdx, isNot(-1), reason: 'setter not found');
       final setterBody = out.substring(setIdx, setIdx + 300);
-      expect(setterBody, isNot(contains('toNativeUtf8')));
+      expect(setterBody, isNot(contains('toNitroUtf8')));
       expect(out, isNot(contains('value.toJson()')));
     });
 

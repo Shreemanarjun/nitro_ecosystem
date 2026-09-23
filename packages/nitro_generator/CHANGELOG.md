@@ -21,6 +21,8 @@ Changed
 - Kotlin/JNI number-only calls skip the per-call local-reference frame.
 - Generated instance create/dispose builds its log messages (and the init
   `Stopwatch`) only at verbose logging.
+- Generated code encodes `String` params, struct fields and callback results
+  with `toNitroUtf8` (ASCII fast path, nitro 0.7.7).
 
 ## 0.7.6
 

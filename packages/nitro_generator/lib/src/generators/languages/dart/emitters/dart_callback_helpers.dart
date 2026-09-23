@@ -386,9 +386,9 @@ String? _callbackReturnExpression(BridgeType callbackType, BridgeSpec spec, Stri
   // String-returning callback.
   if (returnName == 'String') {
     if (isNullableRet) {
-      return '(() { final _value = $invocation; return _value == null ? nullptr : _value.toNativeUtf8(allocator: _nitroNativeAllocator); })()';
+      return '(() { final _value = $invocation; return _value == null ? nullptr : _value.toNitroUtf8(allocator: _nitroNativeAllocator); })()';
     }
-    return '$invocation.toNativeUtf8(allocator: _nitroNativeAllocator)';
+    return '$invocation.toNitroUtf8(allocator: _nitroNativeAllocator)';
   }
   // Nullable enum: null → -1 sentinel.
   if (spec.isEnumName(returnName)) {
