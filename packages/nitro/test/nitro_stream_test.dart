@@ -7,6 +7,7 @@ void main() {
   setUpAll(() => NitroConfig.instance.disable());
   tearDownAll(() => NitroConfig.instance.reset());
   _coalesced();
+  _coalescedDelivery();
 
   // ── Lazy registration ─────────────────────────────────────────────────────
 
@@ -369,6 +370,34 @@ void _coalesced() {
       expect(acks, [fakePort.sendPort.nativePort, fakePort.sendPort.nativePort]);
       await sub.cancel();
       expect(acks.length, 2);
+    });
+  });
+}
+
+void _coalescedDelivery() {
+  group('NitroRuntime.openStream — coalesced', () {
+    test('each list element is unpacked separately; a failing one forwards one error, the rest still arrive', () async {
+      final fakePort = ReceivePort();
+      final acks = <int>[];
+      final got = <int>[];
+      final errors = <Object>[];
+      final sub = NitroRuntime.openStream<int>(
+        register: (_) {},
+        unpack: (m) => (m as int) < 0 ? throw StateError('bad $m') : m,
+        release: (_) {},
+        backpressure: Backpressure.dropLatest,
+        ack: acks.add,
+        coalesced: true,
+        testPort: fakePort,
+      ).listen(got.add, onError: errors.add);
+      fakePort.sendPort.send([1, 2, -3, 4]);
+      fakePort.sendPort.send([5]);
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(got, [1, 2, 4, 5]);
+      expect(errors, [isA<StateError>()]);
+      expect(acks.length, 2);
+      await sub.cancel();
     });
   });
 }

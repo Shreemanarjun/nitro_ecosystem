@@ -118,8 +118,8 @@ void main() {
   group('Dart FFI', () {
     test('record batch: list of per-item decodes, each freed, acked', () {
       final dart = DartFfiGenerator.generate(record);
-      expect(dart, contains('openStream<List<LogEntry>>('));
-      expect(dart, contains('unpack: (message) => [for (final m in message as List<dynamic>) unpackItem(m)],'));
+      expect(dart, contains('openStream<LogEntry>('));
+      expect(dart, contains('coalesced: true,'));
       expect(dart, contains('_nitroFree(rawPtr)'));
       expect(dart, contains('ack: _nitroAckPtr,'));
       expect(dart, isNot(contains('openStream<Uint8List>')));
@@ -128,14 +128,14 @@ void main() {
 
     test('variant batch: same shape with the variant decoder', () {
       final dart = DartFfiGenerator.generate(variant);
-      expect(dart, contains('openStream<List<NetEvent>>('));
+      expect(dart, contains('openStream<NetEvent>('));
       expect(dart, contains('NetEventVariantExt.fromNative(rawPtr)'));
       expect(dart, contains('ack: _nitroAckPtr,'));
     });
 
     test('numeric batch: List<double>, no [count, items...] unpack', () {
       final dart = DartFfiGenerator.generate(numeric);
-      expect(dart, contains('openStream<List<double>>('));
+      expect(dart, contains('openStream<double>('));
       expect(dart, isNot(contains('final count = batch[0];')));
     });
   });
@@ -173,11 +173,17 @@ void main() {
     test('register binds the port to the batcher, release unbinds it', () {
       for (final spec in [record, variant, numeric]) {
         final cpp = CppBridgeGenerator.generate(spec);
-        expect(cpp, contains('g_nitro_batch_${spec.lib}.coalesce(dart_port);'));
+        // record / variant items are heap blobs: registered with their free function
+        expect(cpp, contains('g_nitro_batch_${spec.lib}.coalesce(dart_port'));
         expect(cpp, contains('g_nitro_batch_${spec.lib}.uncoalesce(dart_port);'));
         expect(cpp, isNot(contains('_batch_to_dart')));
         expect(cpp, isNot(contains('_1batch(')));
       }
+    });
+
+    test('record items are freed through <lib>_nitro_free, numeric items own nothing', () {
+      expect(CppBridgeGenerator.generate(record), contains('coalesce(dart_port, [](int64_t a) { log_service_nitro_free((void*)(intptr_t)a); });'));
+      expect(CppBridgeGenerator.generate(numeric), contains('g_nitro_batch_sensor.coalesce(dart_port);'));
     });
 
     test('JNI emit for record items takes one jbyteArray', () {

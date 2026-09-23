@@ -44,16 +44,16 @@ void main() {
       final dart = DartFfiGenerator.generate(s);
       expect(dart, contains("_nitroAckPtr = _dylib.lookupFunction"));
       expect(dart, isNot(contains('_nitroBindPtr')), reason: 'no native-async: no shared completion port');
-      expect(dart, contains('openStream<List<int>>('));
-      expect(dart, contains('openStream<List<PtProxy>>('));
-      expect(dart, contains('openStream<List<String>>('));
-      expect(dart, contains('unpack: (message) => [for (final m in message as List<dynamic>) unpackItem(m)],'));
-      expect('ack: _nitroAckPtr,'.allMatches(dart).length, 3);
+      expect(dart, contains('openStream<int>('));
+      expect(dart, contains('openStream<PtProxy>('));
+      expect(dart, contains('openStream<String>('));
+      expect(dart, contains('coalesced: true,'));
+      expect('ack: _nitroAckPtr,'.allMatches(dart).length, 4, reason: 'every stream acks, dropLatest included');
+      expect('coalesced: true,'.allMatches(dart).length, 4);
       expect(dart, isNot(contains('final count = batch[0];')), reason: 'no [count, items...] shape anywhere');
-      expect(dart, contains('openStream<int>('), reason: 'plain stream untouched');
     });
 
-    test('$label C++: register/release bind the port to the batcher; plain streams do not', () {
+    test('$label C++: every stream port is bound to the batcher at register and released at release', () {
       final cpp = CppBridgeGenerator.generate(s);
       expect(cpp, contains('g_nitro_batch_demo.coalesce(dart_port);'));
       expect(cpp, contains('g_nitro_batch_demo.uncoalesce(dart_port);'));
@@ -61,9 +61,18 @@ void main() {
       expect(cpp, isNot(contains('_batch_to_dart')), reason: 'no Swift-shim batch helpers');
       expect(cpp, isNot(contains('_1batch(')), reason: 'no JNI batch emit functions');
       final plainRegister = cpp.substring(cpp.indexOf('void demo_register_plain_stream('));
-      expect(plainRegister.substring(0, plainRegister.indexOf('}')), isNot(contains('coalesce')));
+      expect(plainRegister.substring(0, plainRegister.indexOf('\n}\n')), contains('coalesce(dart_port)'), reason: 'dropLatest streams coalesce too: same items, fewer wakes');
     });
   }
+
+  test('C++: heap items get a free function at register; scalar and string streams do not', () {
+    for (final s in [spec, mixed]) {
+      final cpp = CppBridgeGenerator.generate(s);
+      expect(cpp, contains('g_nitro_batch_demo.coalesce(dart_port, [](int64_t a) { demo_release_Pt((void*)(intptr_t)a); });'));
+      expect(cpp, contains('g_nitro_batch_demo.coalesce(dart_port);'), reason: 'ticks / names own nothing');
+      expect(cpp, isNot(contains('uncoalesce(dart_port, ')), reason: 'release keeps the free function registered at register time');
+    }
+  });
 
   test('Kotlin/Swift specs post batch items one at a time, no accumulator', () {
     final kt = KotlinGenerator.generate(mixed);

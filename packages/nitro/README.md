@@ -147,10 +147,12 @@ abstract class Camera extends HybridObject {
 
 | Value | Behaviour |
 |---|---|
-| `Backpressure.dropLatest` | Drop new item if Dart hasn't consumed yet — best for sensors/camera |
-| `Backpressure.block` | Block the native thread until Dart consumes |
-| `Backpressure.bufferDrop` | Ring buffer — oldest item dropped when full |
-| `Backpressure.batch` | Everything native emits while Dart is busy rides the next message (any item type, every backend) |
+| `Backpressure.dropLatest` | Kotlin/Swift producer buffer keeps the newest item — best for sensors/camera |
+| `Backpressure.block` | Kotlin/Swift producer suspends while its buffer is full |
+| `Backpressure.bufferDrop` | Kotlin/Swift ring buffer — oldest item dropped when full |
+| `Backpressure.batch` | No producer-side buffer |
+
+Since 0.7.7 every stream is delivered through the library's completion batcher: items native emits while Dart is still handling the previous message travel together in the next one, in order, none dropped. The mode shapes only the Kotlin/Swift side, where the producer's `Flow`/Combine buffer applies it before the item reaches the bridge; C++ producers deliver every item.
 
 ### 5. Zero-copy proxy streaming for `@HybridStruct`
 

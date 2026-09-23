@@ -1,3 +1,23 @@
+## 0.7.7
+
+Changed
+- Every `@NitroStream` is delivered through the library's completion batcher,
+  whatever its backpressure mode: items native emits while Dart is still
+  handling the previous message travel in one message, in order, none
+  dropped (`openStream(coalesced: true)`, one unpack per item so a bad item
+  still forwards a single error). The mode keeps shaping the Kotlin/Swift
+  producer buffer as before. A 256-item `dropLatest` burst now costs what a
+  `batch` burst does.
+- Kotlin/JNI calls whose arguments and result are all numbers no longer open
+  a JNI local-reference frame per call; the frame is opened only around the
+  exception report, the one place such a call creates references.
+- Stream items that are heap blobs (structs, records, variants, maps) are
+  freed natively when they are never delivered: a subscription cancelled
+  mid-burst, or a flush racing a closed port. They used to leak.
+- Docs: the backpressure modes shape the Kotlin/Swift producer buffer; no
+  backend ever dropped items on the Dart side, and the tables now say so.
+  Validator E005 removed from the README table.
+
 ## 0.7.6
 
 Added

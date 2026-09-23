@@ -1314,7 +1314,7 @@ void main() {
 
       test('Dart ($itemType): list unpack + ack', () {
         final out = DartFfiGenerator.generate(spec);
-        expect(out, contains('openStream<List<$itemType>>('));
+        expect(out, contains('openStream<$itemType>('));
         expect(out, contains('ack: _nitroAckPtr,'));
         expect(out, isNot(contains('final count = batch[0];')));
       });

@@ -73,8 +73,9 @@ const _minPostOverFastInline = 4.0;
 /// `Future<T>` inline ÷ `FutureOr<T>` inline (native only): the await a Future costs.
 const _minInlineFutureOverFutureOr = 2.0;
 
-/// Coalesced batch stream ÷ per-item stream on a 256-item burst (native only).
-const _maxStreamBatchedOverPerItem = 0.5;
+/// dropLatest stream ÷ batch stream on a 256-item burst (native only): every
+/// stream is coalesced by the bridge since 0.7.7, so the two must stay close.
+const _maxDropLatestOverBatch = 2.0;
 const _leafOverheadBudgetUs = 1.0; // absolute per-call overhead budget
 const _maxCppOverRawFfi = 3.0;
 const _cppOverheadBudgetUs = 0.05; // checked C++ call ≈ 30 ns after 0.7.6 (was 270 ns)
@@ -153,16 +154,16 @@ void main() {
               '(inline=${asyncInline.toStringAsFixed(3)}µs, post=${asyncPost.toStringAsFixed(3)}µs).',
         );
       }
-      // Coalesced batch streams: a 256-item burst must cost well under the
-      // per-item post path (one message per Dart wake instead of one per item).
+      // Every stream is coalesced by the bridge: a dropLatest burst must cost
+      // about what a batch burst does, not one Dart wake per item.
       final streamPerItem = optionalMin('nitro_stream_struct_burst256_percall');
       final streamBatched = optionalMin('nitro_stream_struct_burst256_batched');
       if (!kIsWeb && streamPerItem != null && streamBatched != null) {
         expect(
-          streamBatched / streamPerItem,
-          lessThanOrEqualTo(_maxStreamBatchedOverPerItem),
-          reason: 'Backpressure.batch on an all-C++ spec should coalesce a burst '
-              '(batched=${streamBatched.toStringAsFixed(1)}µs, per-item=${streamPerItem.toStringAsFixed(1)}µs per 256 items).',
+          streamPerItem / streamBatched,
+          lessThanOrEqualTo(_maxDropLatestOverBatch),
+          reason: 'dropLatest streams should be coalesced like batch streams '
+              '(dropLatest=${streamPerItem.toStringAsFixed(1)}µs, batch=${streamBatched.toStringAsFixed(1)}µs per 256 items).',
         );
       }
       // FutureOr inline completion skips the Future and its microtask entirely,

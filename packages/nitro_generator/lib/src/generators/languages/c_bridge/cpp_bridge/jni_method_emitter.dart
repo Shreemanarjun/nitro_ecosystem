@@ -234,6 +234,53 @@ void _emitJniNativeAsyncFuncBody(
   writer.blankLine();
 }
 
+/// Number-only calls (every argument a JNI primitive, result a primitive or
+/// void) create no JNI local references on the success path, so the
+/// `PushLocalFrame`/`PopLocalFrame` pair around them is pure overhead on
+/// every call. Their body is emitted as usual and the frame is then moved
+/// into the exception branch, which is the only place references appear
+/// (the throwable and the strings the reporter reads from it).
+const _jniNumberReturns = {'void', 'int', 'double', 'bool', 'uint64', 'DateTime', 'float', 'int8', 'uint8', 'int16', 'uint16', 'int32', 'uint32', 'intptr', 'size'};
+const _jniNumberParams = {'int', 'double', 'bool', 'uint64', 'DateTime', 'float', 'int8', 'uint8', 'int16', 'uint16', 'int32', 'uint32', 'intptr', 'size'};
+
+bool _jniNumbersOnly(BridgeFunction func, BridgeSpec spec) {
+  if (func.isResult || func.zeroCopyReturn || !_jniNumberReturns.contains(func.returnType.name)) return false;
+  return func.params.every((p) => !p.zeroCopy && (_jniNumberParams.contains(p.type.name) || p.type.isNativeHandle || spec.isEnumName(p.type.name)));
+}
+
+void _emitJniRegularFuncBodyFramed(
+  CodeWriter writer,
+  BridgeFunction func,
+  BridgeSpec spec,
+  String libStem,
+  String libPkg,
+  Set<String> enumNames,
+  Set<String> structNames,
+  Set<String> recordNames,
+) {
+  if (!_jniNumbersOnly(func, spec)) {
+    _emitJniRegularFuncBody(writer, func, spec, libStem, libPkg, enumNames, structNames, recordNames);
+    return;
+  }
+  final sub = CodeWriter();
+  _emitJniRegularFuncBody(sub, func, spec, libStem, libPkg, enumNames, structNames, recordNames);
+  const report = 'nitro_report_jni_exception(env, env->ExceptionOccurred(), _nitro_err);';
+  final out = <String>[];
+  for (final line in sub.toString().split('\n')) {
+    final t = line.trim();
+    if (t.startsWith('if (env->PushLocalFrame(') || t == 'env->PopLocalFrame(nullptr);') continue;
+    if (t == report) {
+      final ind = line.substring(0, line.indexOf(t));
+      out.add('${ind}env->PushLocalFrame(8);');
+      out.add(line);
+      out.add('${ind}env->PopLocalFrame(nullptr);');
+      continue;
+    }
+    out.add(line);
+  }
+  writer.raw(out.join('\n'));
+}
+
 /// Emits the C bridge function body for a regular sync or `@nitroAsync` method.
 void _emitJniRegularFuncBody(
   CodeWriter writer,
@@ -1122,7 +1169,7 @@ void _emitJniStreamBridges(
 
     writer.line('    jmethodID methodId = g_mid_${stream.registerSymbol}_call;');
     writer.line('    if (methodId == nullptr) { LOGE("Method not found: ${stream.registerSymbol}_call sig=(JJ)V"); return; }');
-    if (stream.isBatch) CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'coalesce');
+    CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'coalesce', stream);
     writer.line('    env->CallStaticVoidMethod(g_bridgeClass, methodId, (jlong)instanceId, dart_port);');
     writer.line('}');
     writer.blankLine();
@@ -1133,7 +1180,7 @@ void _emitJniStreamBridges(
     writer.line('    jmethodID methodId = g_mid_${stream.releaseSymbol}_call;');
     writer.line('    if (methodId == nullptr) { LOGE("Method not found: ${stream.releaseSymbol}_call sig=(J)V"); return; }');
     writer.line('    env->CallStaticVoidMethod(g_bridgeClass, methodId, dart_port);');
-    if (stream.isBatch) CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'uncoalesce');
+    CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'uncoalesce');
     writer.line('}');
     writer.blankLine();
 
@@ -1967,7 +2014,7 @@ void _emitJniMethods(
       _emitJniNativeAsyncFuncBody(writer, func, spec, libStem, libPkg, enumNames, structNames, recordNames);
       continue;
     }
-    _emitJniRegularFuncBody(writer, func, spec, libStem, libPkg, enumNames, structNames, recordNames);
+    _emitJniRegularFuncBodyFramed(writer, func, spec, libStem, libPkg, enumNames, structNames, recordNames);
   }
 
   _emitJniPropertyBridges(writer, spec, enumNames, structNames);

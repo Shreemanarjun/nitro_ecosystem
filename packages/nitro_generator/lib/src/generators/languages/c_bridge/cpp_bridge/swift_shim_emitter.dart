@@ -308,13 +308,13 @@ void _emitSwiftBridgeSection(
     writer.blankLine();
     writer.line('extern void _${spec.namespace}_register_${stream.dartName}_stream(int64_t dartPort, bool (*emitCb)(int64_t, $itemCType));');
     writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
-    if (stream.isBatch) CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'coalesce');
+    CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'coalesce', stream);
     writer.line('    _${spec.namespace}_register_${stream.dartName}_stream(dart_port, _emit_${stream.dartName}_to_dart);');
     writer.line('}');
     writer.line('extern void _${spec.namespace}_release_${stream.dartName}_stream(int64_t dart_port);');
     writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
     writer.line('    _${spec.namespace}_release_${stream.dartName}_stream(dart_port);');
-    if (stream.isBatch) CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'uncoalesce');
+    CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'uncoalesce');
     writer.line('}');
     writer.blankLine();
   }

@@ -98,34 +98,20 @@ void _emitStreamImpls(CodeWriter writer, BridgeSpec spec) {
         : 'Stream<$streamItemType${stream.itemType.isNullable ? '?' : ''}> get ${stream.dartName}';
     writer.line('  $streamSig {');
     writer.line('    checkDisposed();');
-    if (stream.isBatch) {
-      // Batch stream: the bridge batcher delivers [item, item, ...] per Dart
-      // wake (whatever native emitted while Dart was busy) and expects an ack
-      // after each message. Same shape on every backend.
-      final openType = (isStruct || isStructBase) ? '${baseItemType}Proxy${stream.itemType.isNullable ? '?' : ''}' : '$streamItemType${stream.itemType.isNullable ? '?' : ''}';
-      // unpackExpr is a `(message) ...` closure; declare it as a local function.
-      final decl = '$openType unpackItem(dynamic message)${unpackExpr.substring('(message)'.length)}';
-      writer.line('    ${decl.endsWith('}') ? decl : '$decl;'}');
-      writer.line('    return NitroRuntime.openStream<List<$openType>>(');
-      writer.line('      register: (port) => _register${cap}Ptr(_instanceId, port),');
-      writer.line('      unpack: (message) => [for (final m in message as List<dynamic>) unpackItem(m)],');
-      writer.line('      release: (port) => _release${cap}Ptr(port),');
-      writer.line('      backpressure: Backpressure.batch,');
-      writer.line('      ack: _nitroAckPtr,');
-      writer.line('    ).asyncExpand(Stream.fromIterable);');
-    } else {
-      // For struct streams, openStream is typed to the Proxy so the NativeFinalizer
-      // is attached correctly, but the return is implicitly upcast to Stream<value>.
-      final openType = (isStruct || isStructBase) ? '${baseItemType}Proxy${stream.itemType.isNullable ? '?' : ''}' : '$streamItemType${stream.itemType.isNullable ? '?' : ''}';
-      writer.line('    return NitroRuntime.openStream<$openType>(');
-      writer.line('      register: (port) => _register${cap}Ptr(_instanceId, port),');
-      writer.line('      unpack: $unpackExpr,');
-      writer.line('      release: (port) => _release${cap}Ptr(port),');
-      writer.line(
-        '      backpressure: Backpressure.${stream.backpressure.name},',
-      );
-      writer.line('    );');
-    }
+    // Every stream is coalesced by the bridge batcher: a message carries the
+    // items that arrived while Dart was busy, each unpacked on its own, and
+    // Dart acks after each message. Items and order are unchanged.
+    // For struct streams, openStream is typed to the Proxy so the NativeFinalizer
+    // is attached correctly, but the return is implicitly upcast to Stream<value>.
+    final openType = (isStruct || isStructBase) ? '${baseItemType}Proxy${stream.itemType.isNullable ? '?' : ''}' : '$streamItemType${stream.itemType.isNullable ? '?' : ''}';
+    writer.line('    return NitroRuntime.openStream<$openType>(');
+    writer.line('      register: (port) => _register${cap}Ptr(_instanceId, port),');
+    writer.line('      unpack: $unpackExpr,');
+    writer.line('      release: (port) => _release${cap}Ptr(port),');
+    writer.line('      backpressure: Backpressure.${stream.backpressure.name},');
+    writer.line('      ack: _nitroAckPtr,');
+    writer.line('      coalesced: true,');
+    writer.line('    );');
     writer.line('  }');
     writer.blankLine();
   }

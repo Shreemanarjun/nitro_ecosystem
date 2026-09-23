@@ -115,12 +115,26 @@ class CppBridgeGenerator {
     writer.blankLine();
   }
 
-  /// Batch stream: the port is its own batch target in the per-library
-  /// batcher while it is registered (see nitro_completion_batch.h).
-  static void _emitStreamCoalesce(CodeWriter writer, BridgeSpec spec, String call) {
+  /// Every stream port is its own batch target in the per-library batcher
+  /// while registered (see nitro_completion_batch.h): items that arrive while
+  /// Dart is busy travel in one message. No item is dropped or reordered.
+  static void _emitStreamCoalesce(CodeWriter writer, BridgeSpec spec, String call, [BridgeStream? stream]) {
+    final libStem = spec.lib.replaceAll('-', '_');
+    final free = stream == null ? null : _streamItemFree(spec, stream, libStem);
     if (spec.targetsWeb) writer.line('#ifndef __EMSCRIPTEN__');
-    writer.line('    g_nitro_batch_${spec.lib.replaceAll('-', '_')}.$call(dart_port);');
+    writer.line(free == null ? '    g_nitro_batch_$libStem.$call(dart_port);' : '    g_nitro_batch_$libStem.$call(dart_port, $free);');
     if (spec.targetsWeb) writer.line('#endif');
+  }
+
+  /// How the batcher frees one undelivered item of [stream], matching what
+  /// Dart does on delivery: struct items go through the proxy's release
+  /// function, record/variant/map blobs through `<lib>_nitro_free`. Scalar and
+  /// string items own nothing (null).
+  static String? _streamItemFree(BridgeSpec spec, BridgeStream stream, String libStem) {
+    final base = bareTypeName(stream.itemType.name);
+    if (spec.isStructName(base)) return '[](int64_t a) { ${libStem}_release_$base((void*)(intptr_t)a); }';
+    if (stream.itemType.isRecord || spec.isVariantName(base)) return '[](int64_t a) { ${libStem}_nitro_free((void*)(intptr_t)a); }';
+    return null;
   }
 
   /// Worker pool + post helpers behind `<sym>_dispatch` (see
@@ -1263,12 +1277,12 @@ class CppBridgeGenerator {
       // single int64 slot here previously let a second subscriber overwrite
       // the first, which then received nothing.
       writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
-      if (stream.isBatch) _emitStreamCoalesce(writer, spec, 'coalesce');
+      _emitStreamCoalesce(writer, spec, 'coalesce', stream);
       writer.line('    g_ports_${stream.dartName}.add(_nitro_get_instance(instanceId), dart_port);');
       writer.line('}');
       writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
       writer.line('    g_ports_${stream.dartName}.remove(dart_port);');
-      if (stream.isBatch) _emitStreamCoalesce(writer, spec, 'uncoalesce');
+      _emitStreamCoalesce(writer, spec, 'uncoalesce');
       writer.line('}');
       writer.blankLine();
     }

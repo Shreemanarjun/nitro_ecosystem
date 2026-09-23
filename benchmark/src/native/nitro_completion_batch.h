@@ -113,16 +113,29 @@ class NitroCompletionBatch {
   }
 
   // Stream register/release: the port coalesces its own items until released.
-  void coalesce(int64_t port) {
+  // [freeItem] releases one heap item (kInt64 address) the way Dart would
+  // have — struct/record/variant streams pass it so items that are never
+  // delivered (released mid-burst, or a flush to a closed port) are freed.
+  using FreeItem = void (*)(int64_t);
+  void coalesce(int64_t port, FreeItem freeItem = nullptr) {
     std::lock_guard<std::mutex> lk(mu_);
-    coalesced_.insert(port);
+    coalesced_[port] = freeItem;
   }
-  // ponytail: items still pending at release are dropped; struct/record ones
-  // are heap pointers Dart would have freed, so a cancel mid-burst leaks them.
   void uncoalesce(int64_t port) {
-    std::lock_guard<std::mutex> lk(mu_);
-    coalesced_.erase(port);
-    ports_.erase(port);
+    std::vector<std::pair<int64_t, std::unique_ptr<Owned>>> dropped;
+    FreeItem freeItem = nullptr;
+    {
+      std::lock_guard<std::mutex> lk(mu_);
+      auto c = coalesced_.find(port);
+      if (c != coalesced_.end()) freeItem = c->second;
+      coalesced_.erase(port);
+      auto it = ports_.find(port);
+      if (it != ports_.end()) {
+        dropped.swap(it->second.pending);
+        ports_.erase(it);
+      }
+    }
+    freeItems(freeItem, dropped);
   }
 
   // Native side: every post. Unbound ports post directly.
@@ -135,7 +148,7 @@ class NitroCompletionBatch {
       if (it != bound_.end()) {
         batchPort = it->second;
         bound_.erase(it);
-      } else if (coalesced_.count(idOrPort)) {
+      } else if (coalesced_.count(idOrPort) != 0) {
         batchPort = idOrPort;
         stream = true;
       } else {
@@ -155,6 +168,7 @@ class NitroCompletionBatch {
   void ack(int64_t batchPort) {
     std::vector<std::pair<int64_t, std::unique_ptr<Owned>>> pending;
     bool stream;
+    FreeItem freeItem = nullptr;
     {
       std::lock_guard<std::mutex> lk(mu_);
       auto it = ports_.find(batchPort);
@@ -164,13 +178,16 @@ class NitroCompletionBatch {
         return;
       }
       pending.swap(it->second.pending);
-      stream = coalesced_.count(batchPort) != 0;
+      auto c = coalesced_.find(batchPort);
+      stream = c != coalesced_.end();
+      if (stream) freeItem = c->second;
     }
     if (stream) {
       std::vector<Dart_CObject*> items;
       items.reserve(pending.size());
       for (auto& p : pending) items.push_back(&p.second->obj);
-      postItems(batchPort, items);
+      // A port closed between the post and this flush never takes ownership.
+      if (!postItems(batchPort, items)) freeItems(freeItem, pending);
       return;
     }
     std::vector<std::pair<int64_t, Dart_CObject*>> pairs;
@@ -218,6 +235,13 @@ class NitroCompletionBatch {
     return (Dart_PostCObject_DL)(batchPort, &batch);
   }
 
+  static void freeItems(FreeItem freeItem, const std::vector<std::pair<int64_t, std::unique_ptr<Owned>>>& items) {
+    if (!freeItem) return;
+    for (const auto& p : items) {
+      if (p.second->obj.type == Dart_CObject_kInt64 && p.second->obj.value.as_int64 != 0) freeItem(p.second->obj.value.as_int64);
+    }
+  }
+
   // Stream items: [obj, obj, ...] as one kArray message.
   static bool postItems(int64_t port, const std::vector<Dart_CObject*>& items) {
     Dart_CObject batch;
@@ -230,7 +254,7 @@ class NitroCompletionBatch {
   std::mutex mu_;
   int64_t seq_ = 0;
   std::unordered_map<int64_t, int64_t> bound_;  // id → batch port
-  std::unordered_set<int64_t> coalesced_;       // stream ports (own batch target)
+  std::unordered_map<int64_t, FreeItem> coalesced_;  // stream port → item free (own batch target)
   std::unordered_map<int64_t, State> ports_;    // batch port → in-flight state
 };
 

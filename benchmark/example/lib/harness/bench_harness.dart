@@ -696,10 +696,11 @@ class BenchHarness {
     await coalescer.dispose();
 
     // ── Stream burst: per-item post vs coalesced batch ───────────────────────
-    // Native emits 256 items while Dart is busy. Per-item = 256 embedder
-    // tasks; @NitroStream(backpressure: batch) on an all-C++ spec = the first
-    // item's message plus one for everything that queued behind it. Each
-    // burst also checks order and values, so a wrong item fails the case.
+    // Native emits 256 items while Dart is busy. Since 0.7.7 every stream is
+    // coalesced by the bridge (the first item's message plus one for what
+    // queued behind it), whatever its backpressure mode; the `percall` ids
+    // keep their name for history and measure a dropLatest stream. Each burst
+    // checks order and values, so a dropped or reordered item fails the case.
     const streamBurst = 256;
     final streamBurstIters = (config.asyncIters ~/ streamBurst).clamp(20, 2000);
     Future<void> oneStreamBurst<T>(Stream<T> stream, void Function() fire, int Function(T) valueOf) async {
@@ -724,7 +725,7 @@ class BenchHarness {
 
     for (final batched in const [false, true]) {
       final tag = batched ? 'batched' : 'percall';
-      final how = batched ? 'coalesced batch' : 'per-item post';
+      final how = batched ? 'Backpressure.batch' : 'Backpressure.dropLatest';
       await latencyCase(
         'nitro_stream_struct_burst${streamBurst}_$tag',
         'Nitro Stream<@HybridStruct> (burst×$streamBurst, $how)',

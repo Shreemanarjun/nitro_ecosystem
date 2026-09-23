@@ -586,12 +586,12 @@ String _generateCppDirect(BridgeSpec spec) {
   // overwrite the first.
   for (final stream in spec.streams) {
     writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
-    if (stream.isBatch) CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'coalesce');
+    CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'coalesce', stream);
     writer.line('    g_ports_${stream.dartName}.add(_nitro_get_instance(instanceId), dart_port);');
     writer.line('}');
     writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
     writer.line('    g_ports_${stream.dartName}.remove(dart_port);');
-    if (stream.isBatch) CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'uncoalesce');
+    CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'uncoalesce');
     writer.line('}');
     writer.blankLine();
   }

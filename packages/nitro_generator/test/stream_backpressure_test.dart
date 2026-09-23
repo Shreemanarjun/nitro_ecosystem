@@ -190,8 +190,8 @@ void main() {
 
     test('Dart FFI: batch stream receives List<String> and acks each message', () {
       final out = DartFfiGenerator.generate(stringBatchSpec());
-      expect(out, contains('NitroRuntime.openStream<List<String>>('));
-      expect(out, contains('unpack: (message) => [for (final m in message as List<dynamic>) unpackItem(m)],'));
+      expect(out, contains('NitroRuntime.openStream<String>('));
+      expect(out, contains('coalesced: true,'));
       expect(out, contains('ack: _nitroAckPtr,'));
       expect(out, isNot(contains('batch.cast<String>()')));
     });

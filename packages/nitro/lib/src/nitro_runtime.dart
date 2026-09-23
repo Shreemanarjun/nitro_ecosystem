@@ -794,6 +794,11 @@ class NitroRuntime {
     /// meanwhile, or goes idle.
     void Function(int dartPort)? ack,
 
+    /// Each message is a `List` of items (the bridge batcher's delivery shape);
+    /// [unpack] runs once per element, so a failing item forwards one error
+    /// and the rest of the batch is still delivered.
+    bool coalesced = false,
+
     /// Optional tag used in log messages to identify this stream.
     /// Defaults to `'Stream<$T>'`.
     String? debugLabel,
@@ -836,8 +841,7 @@ class NitroRuntime {
     // fires so the native emitter stops and the ReceivePort is freed.
     _streamFinalizer.attach(controller, doRelease, detach: controller);
 
-    receivePort.listen((dynamic message) {
-      if (controller.isClosed) return;
+    void deliver(dynamic message) {
       try {
         final item = unpack(message);
         eventCount++;
@@ -858,6 +862,18 @@ class NitroRuntime {
           st,
         );
         controller.addError(e, st);
+      }
+    }
+
+    receivePort.listen((dynamic message) {
+      if (controller.isClosed) return;
+      if (coalesced) {
+        for (final m in message as List<dynamic>) {
+          if (controller.isClosed) break;
+          deliver(m);
+        }
+      } else {
+        deliver(message);
       }
       if (!released) ack?.call(nativePort);
     });

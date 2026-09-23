@@ -140,10 +140,12 @@ others return the bridge future as is. A disposed instance throws
 synchronously. Use it on hot paths where the extra microtask shows up.
 
 **Backpressure strategies:**
-- `Backpressure.dropLatest` — drop the newest item if the consumer is behind
-- `Backpressure.bufferDrop` — ring buffer; oldest item dropped
-- `Backpressure.block` — block the emitter until the consumer catches up
-- `Backpressure.batch` — whatever native emits while Dart is busy travels in the next message (any item type, every backend; `batchMaxSize` is ignored)
+- `Backpressure.dropLatest` — Kotlin/Swift producer buffer keeps the newest item
+- `Backpressure.bufferDrop` — Kotlin/Swift ring buffer; oldest item dropped
+- `Backpressure.block` — Kotlin/Swift producer suspends while its buffer is full
+- `Backpressure.batch` — no producer-side buffer
+
+Since 0.7.7 every stream is delivered through the library's completion batcher: items native emits while Dart is still handling the previous message travel together in the next one, in order, none dropped. The mode shapes only the Kotlin/Swift side, where the producer's `Flow`/Combine buffer applies it before the item reaches the bridge; C++ producers deliver every item.
 
 ### Tuple Types
 

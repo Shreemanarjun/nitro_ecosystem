@@ -83,7 +83,7 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   writer.line(
     "  late final Pointer<Void> Function(int) _nitroAllocPtr = _dylib.lookupFunction<Pointer<Void> Function(IntPtr), Pointer<Void> Function(int)>('${libStem}_nitro_alloc', isLeaf: true);",
   );
-  if (spec.functions.any(spec.bridgeAsync) || spec.streams.any((st) => st.isBatch)) {
+  if (spec.functions.any(spec.bridgeAsync) || spec.streams.isNotEmpty) {
     // Ack for the per-library batcher: native-async completions and
     // coalesced batch streams both flush on it.
     writer.line("  late final void Function(int) _nitroAckPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('${libStem}_nitro_ack', isLeaf: true);");
