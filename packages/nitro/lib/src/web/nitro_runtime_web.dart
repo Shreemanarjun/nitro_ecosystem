@@ -656,11 +656,10 @@ class NitroRuntime {
       try {
         final item = unpack(message);
         eventCount++;
-        _log(
-          NitroLogLevel.verbose,
-          label,
-          'event #$eventCount unpacked',
-        );
+        // Guarded: the message is built per item, before _log checks the level.
+        if (NitroConfig.instance.effectiveLogLevel == NitroLogLevel.verbose) {
+          _log(NitroLogLevel.verbose, label, 'event #$eventCount unpacked');
+        }
         controller.add(item);
       } catch (e, st) {
         _log(
