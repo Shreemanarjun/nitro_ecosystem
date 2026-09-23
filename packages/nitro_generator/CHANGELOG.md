@@ -19,6 +19,8 @@ Changed
   16-entry echo: 2.71 → 1.66 µs.
 - `@nitroAsync` struct and nullable-primitive returns run on bridge dispatch.
 - Kotlin/JNI number-only calls skip the per-call local-reference frame.
+- Generated instance create/dispose builds its log messages (and the init
+  `Stopwatch`) only at verbose logging.
 
 ## 0.7.6
 

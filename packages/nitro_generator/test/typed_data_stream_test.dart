@@ -4,6 +4,7 @@
 import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
 import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
 import 'package:nitro_generator/src/generators/languages/web/web_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:test/test.dart';
 
 import 'spec_from_source.dart';
@@ -22,6 +23,7 @@ abstract class Demo extends HybridObject {
 
 void main() {
   _dateTimeStreams();
+  _lifecycleLogs();
   final spec = SpecFromSource.parse(_src, sourceUri: 'package:demo/src/demo.native.dart');
   final cpp = CppBridgeGenerator.generate(spec);
 
@@ -68,9 +70,36 @@ abstract class Demo extends HybridObject {
 }
 ''';
     final cpp = CppBridgeGenerator.generate(SpecFromSource.parse(src, sourceUri: 'package:demo/src/demo.native.dart'));
-    String body(String fn) { final i = cpp.indexOf(fn); return cpp.substring(i, cpp.indexOf('\n}\n', i)); }
+    String body(String fn) {
+      final i = cpp.indexOf(fn);
+      return cpp.substring(i, cpp.indexOf('\n}\n', i));
+    }
+
     expect(body('bool _emit_dates_to_dart('), contains('obj.value.as_int64 = (int64_t)item;'));
     expect(body('bool _emit_maybeDates_to_dart('), contains('const int64_t* item'));
     expect(body('bool _emit_maybeDates_to_dart('), contains('obj.value.as_int64 = *item;'));
+  });
+}
+
+void _lifecycleLogs() {
+  test('lifecycle log messages and the init Stopwatch exist only at verbose', () {
+    parse(String web) => SpecFromSource.parse('''
+import 'package:nitro_annotations/nitro_annotations.dart';
+part 'demo.g.dart';
+@NitroModule(ios: NativeImpl.swift, android: NativeImpl.kotlin$web)
+abstract class Demo extends HybridObject {
+  int ping(int x);
+}
+''', sourceUri: 'package:demo/src/demo.native.dart');
+    const verbose = 'NitroConfig.instance.effectiveLogLevel == NitroLogLevel.verbose';
+    final dart = DartFfiGenerator.generate(parse(''));
+    expect(dart, contains('final initSw = $verbose ? (Stopwatch()..start()) : null;'));
+    expect(dart, isNot(contains('initSw.stop()')));
+    expect(RegExp(r"if \(initSw != null\) \{\n\s*NitroRuntime\.logLifecycle\('init").hasMatch(dart), isTrue);
+    expect(RegExp("if \\(${RegExp.escape(verbose)}\\) \\{\\n\\s*NitroRuntime\\.logLifecycle\\('dispose\\(demo\\)', 'disposing").hasMatch(dart), isTrue);
+    final web = WebBridgeGenerator.generate(parse(', web: WebNativeImpl.wasm'));
+    for (final what in ['web instance created', 'web instance disposed']) {
+      expect(RegExp("if \\(${RegExp.escape(verbose)}\\) \\{\\n\\s*NitroRuntime\\.logLifecycle\\('\\w+', '$what").hasMatch(web), isTrue, reason: what);
+    }
   });
 }

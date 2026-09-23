@@ -321,7 +321,10 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
 
   _BenchmarkCppImpl._init(this._instanceKey)
     : _dylib = _loadSupportedLibrary() {
-    final initSw = Stopwatch()..start();
+    final initSw =
+        NitroConfig.instance.effectiveLogLevel == NitroLogLevel.verbose
+        ? (Stopwatch()..start())
+        : null;
     assert(
       sizeOf<IntPtr>() >= 4,
       'benchmark_cpp: unsupported pointer width ${sizeOf<IntPtr>()}B',
@@ -383,11 +386,12 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
       err: _nitroErr,
       destroy: _destroyInstancePtr,
     ), detach: this);
-    initSw.stop();
-    NitroRuntime.logLifecycle(
-      'init(benchmark_cpp)',
-      'initialized in ${initSw.elapsedMicroseconds} µs (instanceId=$_instanceId)',
-    );
+    if (initSw != null) {
+      NitroRuntime.logLifecycle(
+        'init(benchmark_cpp)',
+        'initialized in ${initSw.elapsedMicroseconds} µs (instanceId=$_instanceId)',
+      );
+    }
   }
 
   late final int Function(Pointer<Utf8>) _createInstancePtr = _dylib
@@ -720,10 +724,12 @@ class _BenchmarkCppImpl extends BenchmarkCpp {
   void dispose() {
     if (isDisposed) return;
     _instanceFinalizer.detach(this);
-    NitroRuntime.logLifecycle(
-      'dispose(benchmark_cpp)',
-      'disposing (instanceId=$_instanceId)',
-    );
+    if (NitroConfig.instance.effectiveLogLevel == NitroLogLevel.verbose) {
+      NitroRuntime.logLifecycle(
+        'dispose(benchmark_cpp)',
+        'disposing (instanceId=$_instanceId)',
+      );
+    }
     _destroyInstancePtr(_instanceId);
     NitroRuntime.releaseLib('benchmark_cpp');
     _instances.remove(_instanceKey);

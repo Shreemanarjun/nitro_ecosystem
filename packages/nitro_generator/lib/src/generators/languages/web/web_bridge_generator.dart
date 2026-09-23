@@ -117,7 +117,9 @@ class WebBridgeGenerator {
     w.line('    } finally {');
     w.line('      keyArena.releaseAll();');
     w.line('    }');
-    w.line("    NitroRuntime.logLifecycle('$className', 'web instance created (key=\$_key, id=\$_instanceId)');");
+    w.line('    if (NitroConfig.instance.effectiveLogLevel == NitroLogLevel.verbose) {');
+    w.line("      NitroRuntime.logLifecycle('$className', 'web instance created (key=\$_key, id=\$_instanceId)');");
+    w.line('    }');
     w.line('  }');
     w.blankLine();
     w.line('  final String _key;');
@@ -142,7 +144,9 @@ class WebBridgeGenerator {
     w.line('    _err.free();');
     w.line('    _instances.remove(_key);');
     w.line('    NitroRuntime.releaseLib(_libName);');
-    w.line("    NitroRuntime.logLifecycle('$className', 'web instance disposed (key=\$_key)');");
+    w.line('    if (NitroConfig.instance.effectiveLogLevel == NitroLogLevel.verbose) {');
+    w.line("      NitroRuntime.logLifecycle('$className', 'web instance disposed (key=\$_key)');");
+    w.line('    }');
     w.line('    // Last: flips isDisposed and runs onDestroy(), matching the FFI impl.');
     w.line('    super.dispose();');
     w.line('  }');

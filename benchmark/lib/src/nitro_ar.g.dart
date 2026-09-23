@@ -774,7 +774,10 @@ class _NitroArImpl extends NitroAr {
   }
 
   _NitroArImpl._init(this._instanceKey) : _dylib = _loadSupportedLibrary() {
-    final initSw = Stopwatch()..start();
+    final initSw =
+        NitroConfig.instance.effectiveLogLevel == NitroLogLevel.verbose
+        ? (Stopwatch()..start())
+        : null;
     assert(
       sizeOf<IntPtr>() >= 4,
       'nitro_ar: unsupported pointer width ${sizeOf<IntPtr>()}B',
@@ -839,11 +842,12 @@ class _NitroArImpl extends NitroAr {
       err: _nitroErr,
       destroy: _destroyInstancePtr,
     ), detach: this);
-    initSw.stop();
-    NitroRuntime.logLifecycle(
-      'init(nitro_ar)',
-      'initialized in ${initSw.elapsedMicroseconds} µs (instanceId=$_instanceId)',
-    );
+    if (initSw != null) {
+      NitroRuntime.logLifecycle(
+        'init(nitro_ar)',
+        'initialized in ${initSw.elapsedMicroseconds} µs (instanceId=$_instanceId)',
+      );
+    }
   }
 
   late final int Function(Pointer<Utf8>) _createInstancePtr = _dylib
@@ -980,10 +984,12 @@ class _NitroArImpl extends NitroAr {
   void dispose() {
     if (isDisposed) return;
     _instanceFinalizer.detach(this);
-    NitroRuntime.logLifecycle(
-      'dispose(nitro_ar)',
-      'disposing (instanceId=$_instanceId)',
-    );
+    if (NitroConfig.instance.effectiveLogLevel == NitroLogLevel.verbose) {
+      NitroRuntime.logLifecycle(
+        'dispose(nitro_ar)',
+        'disposing (instanceId=$_instanceId)',
+      );
+    }
     _destroyInstancePtr(_instanceId);
     NitroRuntime.releaseLib('nitro_ar');
     _instances.remove(_instanceKey);

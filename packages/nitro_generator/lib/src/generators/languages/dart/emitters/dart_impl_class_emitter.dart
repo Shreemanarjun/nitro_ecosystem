@@ -133,7 +133,9 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   writer.line(
     '  _${spec.dartClassName}Impl._init(this._instanceKey) : _dylib = _loadSupportedLibrary() {',
   );
-  writer.line("    final initSw = Stopwatch()..start();");
+  // Lifecycle timing and messages exist only at verbose: instances are cheap to
+  // create, and Dart builds a message before logLifecycle can drop it.
+  writer.line("    final initSw = NitroConfig.instance.effectiveLogLevel == NitroLogLevel.verbose ? (Stopwatch()..start()) : null;");
   // Finding 10: TypedData lengths use the `Size` FFI type (= size_t), which
   // is 4 bytes on 32-bit and 8 bytes on 64-bit — no platform-width mismatch.
   // We emit a soft debug-mode note (not a failure) if running on 32-bit so
@@ -184,8 +186,9 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   writer.line('    NitroInstanceRegistry.register(_instanceId, this);');
   writer.line('    _instances[_instanceKey] = WeakReference(this);');
   writer.line('    _instanceFinalizer.attach(this, (id: _instanceId, key: _instanceKey, err: _nitroErr, destroy: _destroyInstancePtr), detach: this);');
-  writer.line('    initSw.stop();');
-  writer.line("    NitroRuntime.logLifecycle('init(${spec.lib})', 'initialized in \${initSw.elapsedMicroseconds} µs (instanceId=\$_instanceId)');");
+  writer.line('    if (initSw != null) {');
+  writer.line("      NitroRuntime.logLifecycle('init(${spec.lib})', 'initialized in \${initSw.elapsedMicroseconds} µs (instanceId=\$_instanceId)');");
+  writer.line('    }');
   writer.line('  }');
   writer.blankLine();
 
@@ -307,7 +310,9 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   // the finalizer must not also run (would double-free the native instance +
   // error slot).
   writer.line('    _instanceFinalizer.detach(this);');
-  writer.line("    NitroRuntime.logLifecycle('dispose(${spec.lib})', 'disposing (instanceId=\$_instanceId)');");
+  writer.line('    if (NitroConfig.instance.effectiveLogLevel == NitroLogLevel.verbose) {');
+  writer.line("      NitroRuntime.logLifecycle('dispose(${spec.lib})', 'disposing (instanceId=\$_instanceId)');");
+  writer.line('    }');
   // Tell native to release this instance's impl before any local cleanup.
   writer.line('    _destroyInstancePtr(_instanceId);');
   // Finding 5: decrement the library ref count; closes the dylib when last instance disposes.
