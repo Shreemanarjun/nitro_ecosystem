@@ -319,6 +319,8 @@ class LinkView extends StatefulComponent {
 }
 
 class _LinkViewState extends State<LinkView> {
+  // Symlink repairs made at the start, shown on the build step.
+  String _linkNote = '';
   late final List<LinkStep> _steps = [
     LinkStep('Discovering modules'),
     LinkStep('Updating src/CMakeLists.txt'),
@@ -395,6 +397,13 @@ class _LinkViewState extends State<LinkView> {
     final pluginName = component.pluginName;
     try {
       await _setRunning(0);
+      // First: every later step writes through the Sources/ links, and a
+      // dangling one makes those writes throw.
+      final links = spm.healDanglingSpmLinks(Directory.current.path);
+      _linkNote = [
+        if (links.healed.isNotEmpty) 'repaired ${links.healed.length} broken symlink(s)',
+        if (links.unresolved.isNotEmpty) 'broken symlink(s) with no target: ${links.unresolved.join(', ')}',
+      ].map((n) => ', $n').join();
       final moduleInfos = discoverModuleInfos(
         pluginName,
         baseDir: Directory.current.path,
@@ -710,12 +719,6 @@ class _LinkViewState extends State<LinkView> {
     // CocoaPods is only used as a fallback when NO Package.swift is present.
     final spmDetected = spm.detectSpmStatus(Directory.current.path);
     final hasSpm = spmDetected.hasSpm;
-    // A dangling link under Sources/ breaks `flutter pub get`, SPM or not.
-    final links = spm.healDanglingSpmLinks(Directory.current.path);
-    final linkNote = [
-      if (links.healed.isNotEmpty) 'repaired ${links.healed.length} broken symlink(s)',
-      if (links.unresolved.isNotEmpty) 'broken symlink(s) with no target: ${links.unresolved.join(', ')}',
-    ].map((n) => ', $n').join();
 
     if (hasSpm) {
       // Sync generated Swift bridges into the SPM Sources/ target directories
@@ -732,7 +735,7 @@ class _LinkViewState extends State<LinkView> {
         spm.ensureFlutterFrameworkSymlink(pkgPath, Directory.current.path);
       }
 
-      await _setDone(10, detail: 'SPM (Package.swift) — CocoaPods skipped$linkNote');
+      await _setDone(10, detail: 'SPM (Package.swift) — CocoaPods skipped$_linkNote');
     } else {
       final podfileDirs = findPodfileDirs(Directory.current.path);
       if (podfileDirs.isEmpty) {
@@ -1137,6 +1140,16 @@ class LinkCommand extends Command {
 
     log('nitrogen link $pluginName');
 
+    // First: every later step writes through the Sources/ links, and a
+    // dangling one makes those writes throw.
+    final links = spm.healDanglingSpmLinks(baseDir);
+    for (final l in links.healed) {
+      log('repaired broken symlink $l');
+    }
+    for (final l in links.unresolved) {
+      stderr.writeln('[nitro:warn] broken symlink $l — its file is not in Classes/ or lib/src/generated/swift/; delete it or restore the file');
+    }
+
     log('discovering modules...');
     final moduleInfos = discoverModuleInfos(pluginName, baseDir: baseDir);
     final hasCpp = moduleInfos.any((m) => m.isCpp);
@@ -1315,13 +1328,6 @@ class LinkCommand extends Command {
     void Function(String) logSkip,
   ) async {
     final spmDetected = spm.detectSpmStatus(baseDir);
-    final links = spm.healDanglingSpmLinks(baseDir);
-    for (final l in links.healed) {
-      log('repaired broken symlink $l');
-    }
-    for (final l in links.unresolved) {
-      stderr.writeln('[nitro:warn] broken symlink $l — its file is not in Classes/ or lib/src/generated/swift/; delete it or restore the file');
-    }
     if (spmDetected.hasSpm) {
       log('SPM detected — syncing Swift bridges to SPM Sources/...');
       _syncSwiftBridgesToSpmSources(baseDir);
