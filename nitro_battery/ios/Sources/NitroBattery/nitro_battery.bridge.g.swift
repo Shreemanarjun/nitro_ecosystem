@@ -1,1 +1,1 @@
-../../Classes/nitro_battery.bridge.g.swift
+../../../lib/src/generated/swift/nitro_battery.bridge.g.swift
