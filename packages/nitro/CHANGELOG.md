@@ -5,8 +5,9 @@
 - `NitroCompletionBatch::coalesce(port, freeItem)` frees stream items that are
   never delivered.
 - Web: typed-data posts send the byte length, not the element count.
-- Streams no longer build a verbose log message per item when verbose logging
-  is off. 256-item int burst: 125 → 97 µs (`Backpressure.batch`: 122 → 97).
+- Verbose log messages are no longer built when verbose logging is off: per
+  stream item, per stream open/close, and per call with a slow-call threshold.
+  256-item int stream burst: 125 → 90 µs.
 
 ## 0.7.6
 

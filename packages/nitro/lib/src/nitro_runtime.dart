@@ -16,6 +16,10 @@ export 'nitro_config.dart';
 
 // ── Internal logger helper ────────────────────────────────────────────────────
 
+// Callers check this before building an interpolated verbose message: Dart
+// evaluates the arguments before _log can drop the line.
+bool get _verboseOn => NitroConfig.instance.effectiveLogLevel == NitroLogLevel.verbose;
+
 void _log(
   NitroLogLevel level,
   String tag,
@@ -384,7 +388,9 @@ class NitroRuntime {
   }
 
   static void _logElapsed(int us, String tag) {
-    _log(NitroLogLevel.verbose, tag, 'completed in $us µs');
+    if (_verboseOn) {
+      _log(NitroLogLevel.verbose, tag, 'completed in $us µs');
+    }
     final threshold = NitroConfig.instance.slowCallThresholdUs;
     if (threshold > 0 && us > threshold) {
       _log(NitroLogLevel.warning, tag, 'slow call: $us µs exceeded threshold of $threshold µs');
@@ -588,7 +594,9 @@ class NitroRuntime {
         _log(NitroLogLevel.verbose, tag, 'dispatching via Isolate.run');
         result = await _runLegacyIsolate<T>(fn, args, getError, clearError);
       } else {
-        _log(NitroLogLevel.verbose, tag, 'dispatching via pool (size=$poolSize)');
+        if (_verboseOn) {
+          _log(NitroLogLevel.verbose, tag, 'dispatching via pool (size=$poolSize)');
+        }
         result = await _pool!.dispatch<T>(
           fn,
           args,
@@ -807,30 +815,33 @@ class NitroRuntime {
     /// Only for unit tests — production callers should leave this null.
     @visibleForTesting ReceivePort? testPort,
   }) {
-    final label = debugLabel ?? 'Stream<$T>';
+    // Built only when a line is actually logged: streams open per subscription.
+    String label() => debugLabel ?? 'Stream<$T>';
     final receivePort = testPort ?? ReceivePort();
     final nativePort = receivePort.sendPort.nativePort;
     var released = false;
     var eventCount = 0;
 
-    _log(NitroLogLevel.verbose, label, 'opening (port=$nativePort)');
+    if (_verboseOn) {
+      _log(NitroLogLevel.verbose, label(), 'opening (port=$nativePort)');
+    }
 
     // Idempotent release — safe to call from either onCancel or the finalizer.
     void doRelease() {
       if (released) return;
       released = true;
-      _log(
-        NitroLogLevel.verbose,
-        label,
-        'releasing (port=$nativePort, events=$eventCount)',
-      );
+      if (_verboseOn) {
+        _log(NitroLogLevel.verbose, label(), 'releasing (port=$nativePort, events=$eventCount)');
+      }
       release(nativePort);
       receivePort.close();
     }
 
     final controller = StreamController<T>(
       onListen: () {
-        _log(NitroLogLevel.verbose, label, 'listener attached — registering');
+        if (_verboseOn) {
+          _log(NitroLogLevel.verbose, label(), 'listener attached — registering');
+        }
         register(nativePort);
       },
       onCancel: doRelease,
@@ -845,9 +856,8 @@ class NitroRuntime {
       try {
         final item = unpack(message);
         eventCount++;
-        // Guarded: the message is built per item, before _log checks the level.
-        if (NitroConfig.instance.effectiveLogLevel == NitroLogLevel.verbose) {
-          _log(NitroLogLevel.verbose, label, 'event #$eventCount unpacked');
+        if (_verboseOn) {
+          _log(NitroLogLevel.verbose, label(), 'event #$eventCount unpacked');
         }
         controller.add(item);
       } catch (e, st) {
@@ -855,7 +865,7 @@ class NitroRuntime {
         // are never silently swallowed.
         _log(
           NitroLogLevel.error,
-          label,
+          label(),
           'unpack failed on event #${eventCount + 1} — forwarding error to stream',
           e,
           st,

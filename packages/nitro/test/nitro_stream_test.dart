@@ -8,6 +8,7 @@ void main() {
   tearDownAll(() => NitroConfig.instance.reset());
   _coalesced();
   _coalescedDelivery();
+  _streamLogging();
 
   // ── Lazy registration ─────────────────────────────────────────────────────
 
@@ -398,6 +399,46 @@ void _coalescedDelivery() {
       expect(errors, [isA<StateError>()]);
       expect(acks.length, 2);
       await sub.cancel();
+    });
+  });
+}
+
+void _streamLogging() {
+  group('NitroRuntime.openStream — logging', () {
+    Future<List<String>> run(NitroLogLevel level) async {
+      final lines = <String>[];
+      final cfg = NitroConfig.instance;
+      final handler = cfg.logHandler;
+      cfg
+        ..logLevel = level
+        ..debugMode = level == NitroLogLevel.verbose;
+      cfg.logHandler = (l, tag, msg, [e, st]) => lines.add('$tag: $msg');
+      addTearDown(() {
+        cfg.logHandler = handler;
+        cfg.disable();
+      });
+      final port = ReceivePort();
+      final sub = NitroRuntime.openStream<int>(
+        register: (p) => port.sendPort.send([1, 2]),
+        unpack: (m) => m as int,
+        release: (_) {},
+        backpressure: Backpressure.dropLatest,
+        coalesced: true,
+        debugLabel: 'nums',
+        testPort: port,
+      ).listen((_) {});
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await sub.cancel();
+      return lines;
+    }
+
+    test('verbose logs open, register, every item and release', () async {
+      final lines = await run(NitroLogLevel.verbose);
+      expect(lines, containsAllInOrder([contains('opening'), contains('registering'), 'nums: event #1 unpacked', 'nums: event #2 unpacked', contains('releasing')]));
+    });
+
+    test('the default level logs nothing on the happy path', () async {
+      expect(await run(NitroLogLevel.error), isEmpty);
     });
   });
 }
