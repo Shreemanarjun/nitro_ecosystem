@@ -57,7 +57,7 @@ void main() {
 
   test('every backend writes the same tag for the same value type', () {
     for (final (type, wire) in [('int', MapValueWire.int64), ('double', MapValueWire.float64), ('bool', MapValueWire.boolean)]) {
-      expect(DartFfiGenerator.generate(_spec(type)), contains('bb.addByte(${wire.tag})'), reason: 'dart/$type');
+      expect(DartFfiGenerator.generate(_spec(type)), anyOf(contains('bb.addByte(${wire.tag})'), contains('out[pos++] = ${wire.tag};')), reason: 'dart/$type');
       expect(KotlinGenerator.generate(_spec(type)), contains('_outBb.write(${wire.tag})'), reason: 'kotlin/$type');
     }
     // Swift shares one codec across all value types.
@@ -90,11 +90,11 @@ void main() {
       // blob needs a declared record in the spec; skip the ones that cannot be
       // expressed with a bare scalar spec and assert the tag literal instead.
       if (wire == MapValueWire.blob) {
-        expect(DartFfiGenerator.generate(_spec('int')), isNot(contains('bb.addByte(${wire.tag})')));
+        expect(DartFfiGenerator.generate(_spec('int')), allOf(isNot(contains('bb.addByte(${wire.tag})')), isNot(contains('out[pos++] = ${wire.tag};'))));
         continue;
       }
       final dart = DartFfiGenerator.generate(_spec(type));
-      expect(dart, contains('bb.addByte(${wire.tag})'), reason: 'dart missing ${wire.name}');
+      expect(dart, anyOf(contains('bb.addByte(${wire.tag})'), contains('out[pos++] = ${wire.tag};')), reason: 'dart missing ${wire.name}');
 
       final kotlin = KotlinGenerator.generate(_spec(type));
       expect(kotlin, contains('${wire.tag})'), reason: 'kotlin missing ${wire.name}');
@@ -109,7 +109,7 @@ void main() {
 
   test('the null tag is only reachable for the supported value types', () {
     expect(nullableMapValueTypes, {'int', 'double', 'bool', 'String'});
-    expect(DartFfiGenerator.generate(_spec('int?')), contains('bb.addByte(${MapValueWire.nul.tag})'));
-    expect(DartFfiGenerator.generate(_spec('int')), isNot(contains('bb.addByte(${MapValueWire.nul.tag})')));
+    expect(DartFfiGenerator.generate(_spec('int?')), anyOf(contains('bb.addByte(${MapValueWire.nul.tag})'), contains('out[pos++] = ${MapValueWire.nul.tag};')));
+    expect(DartFfiGenerator.generate(_spec('int')), allOf(isNot(contains('bb.addByte(${MapValueWire.nul.tag})')), isNot(contains('out[pos++] = ${MapValueWire.nul.tag};'))));
   });
 }

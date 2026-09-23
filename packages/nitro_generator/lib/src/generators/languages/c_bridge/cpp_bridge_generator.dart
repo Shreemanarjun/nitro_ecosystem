@@ -220,7 +220,10 @@ class CppBridgeGenerator {
       return (params: params, copy: '    std::string _c_$n($n ? $n : ""); const bool _n_$n = $n == nullptr;', args: ['_n_$n ? nullptr : _c_$n.c_str()'], release: null);
     }
     if (p.type.isTypedData) {
-      return (params: params, copy: '    std::vector<uint8_t> _c_$n = _nitro_copy_bytes($n, (size_t)${n}_length * sizeof(*$n));', args: ['($cType)_c_$n.data()', '${n}_length'], release: null);
+      // One padding byte keeps data() non-null for an empty list, so only a
+      // null argument reaches the sync export as nullptr.
+      final copy = '    std::vector<uint8_t> _c_$n = _nitro_copy_bytes($n, (size_t)${n}_length * sizeof(*$n)); const bool _n_$n = $n == nullptr; _c_$n.push_back(0);';
+      return (params: params, copy: copy, args: ['_n_$n ? nullptr : ($cType)_c_$n.data()', '${n}_length'], release: null);
     }
     if (spec.isStructName(base)) {
       return (

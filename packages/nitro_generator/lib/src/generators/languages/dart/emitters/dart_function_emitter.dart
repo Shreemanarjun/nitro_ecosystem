@@ -38,6 +38,9 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
             return [_nativeHandleArgExpr(p)];
           }
           if (p.type.isTypedData) {
+            // Nullable list: nullptr + length 0 for null (an empty list still
+            // gets a real pointer, so native can tell the two apart).
+            if (t.endsWith('?')) return ['${p.name} == null ? nullptr : ${p.name}.toPointer(arena)', '${p.name}?.length ?? 0'];
             return ['${p.name}.toPointer(arena)', '${p.name}.length'];
           }
           if (t == 'String') {

@@ -615,7 +615,8 @@ class WebBridgeGenerator {
     }
     if (t.isTypedData) {
       if (nullable) {
-        final bytes = base == 'Uint8List' ? '$name!' : '$name!.buffer.asUint8List($name.offsetInBytes, $name.lengthInBytes)';
+        // The null check above promotes the parameter; no `!` needed.
+        final bytes = base == 'Uint8List' ? name : '$name.buffer.asUint8List($name.offsetInBytes, $name.lengthInBytes)';
         return '($name == null ? 0 : arena.copyIn($bytes)).toJS';
       }
       final bytes = base == 'Uint8List' ? name : '$name.buffer.asUint8List($name.offsetInBytes, $name.lengthInBytes)';

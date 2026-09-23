@@ -1,8 +1,6 @@
 ## 0.7.7
 
-- Ecosystem sync for `nitro_generator` 0.7.7 (every stream coalesced, JNI
-  number-only calls without a local frame, undelivered stream items freed).
-  **Re-run `nitrogen generate`.**
+- Sync with `nitro_generator` 0.7.7. **Re-run `nitrogen generate`.**
 
 ## 0.7.6
 

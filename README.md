@@ -916,7 +916,7 @@ Source: `benchmark/example`, `flutter drive --profile`; same C function behind e
 | `@HybridStruct` round-trip | scratch arena + struct clone | 0.097 | — |
 | `String` round-trip | scratch arena + ASCII fast path | 0.202 | — |
 | `List<@HybridRecord>` round-trip | scratch `RecordWriter`, view-free copy | 0.934 | — |
-| `Map<String,int>` round-trip | binary map codec | 2.75 | — |
+| `Map<String,int>` round-trip | one-pass binary map codec, ASCII key fast path | 1.66 | — |
 | `@nitroAsync` record | bridge worker pool + shared completion port | 24.1 | — |
 | `@nitroNativeAsync` record | native thread + shared completion port | 23.9 | — |
 | `@nitroNativeAsync` scalar | same-thread post + isolate wake | 10.9 | — |

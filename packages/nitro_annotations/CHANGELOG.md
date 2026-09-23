@@ -1,10 +1,7 @@
 ## 0.7.7
 
-- Ecosystem sync for `nitro_generator` 0.7.7 (every stream coalesced, JNI
-  number-only calls without a local frame, undelivered stream items freed).
-  **Re-run `nitrogen generate`.**
-- Docs: `Backpressure` modes describe the Kotlin/Swift producer buffer; every
-  stream is coalesced by the bridge since 0.7.7.
+- Sync with `nitro_generator` 0.7.7. **Re-run `nitrogen generate`.**
+- Docs: `Backpressure` modes describe the Kotlin/Swift producer buffer.
 
 ## 0.7.6
 

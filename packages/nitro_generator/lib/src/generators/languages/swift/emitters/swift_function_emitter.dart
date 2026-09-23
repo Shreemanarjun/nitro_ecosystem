@@ -219,9 +219,9 @@ class SwiftFunctionEmitter {
     for (final p in typedListParams) {
       final isData = p.type.name.startsWith('Uint8List') || p.type.name.startsWith('Int8List');
       if (isData) {
-        writer.line('    let ${p.name}Arr = ${p.name}.map { Data(bytes: \$0, count: Int(${p.name}_length)) } ?? Data()');
+        writer.line('    let ${p.name}Arr = ${p.name}.map { Data(bytes: \$0, count: Int(${p.name}_length)) }${p.type.name.endsWith('?') ? '' : ' ?? Data()'}');
       } else {
-        writer.line('    let ${p.name}Arr = ${p.name}.map { Array(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? []');
+        writer.line('    let ${p.name}Arr = ${p.name}.map { Array(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) }${p.type.name.endsWith('?') ? '' : ' ?? []'}');
       }
     }
     for (final p in recordListParams) {
@@ -304,9 +304,9 @@ class SwiftFunctionEmitter {
     for (final p in typedListParams) {
       final isData = p.type.name.startsWith('Uint8List') || p.type.name.startsWith('Int8List');
       if (isData) {
-        writer.line('    let ${p.name}Arr = ${p.name}.map { Data(bytes: \$0, count: Int(${p.name}_length)) } ?? Data()');
+        writer.line('    let ${p.name}Arr = ${p.name}.map { Data(bytes: \$0, count: Int(${p.name}_length)) }${p.type.name.endsWith('?') ? '' : ' ?? Data()'}');
       } else {
-        writer.line('    let ${p.name}Arr = ${p.name}.map { Array(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) } ?? []');
+        writer.line('    let ${p.name}Arr = ${p.name}.map { Array(UnsafeBufferPointer(start: \$0, count: Int(${p.name}_length))) }${p.type.name.endsWith('?') ? '' : ' ?? []'}');
       }
     }
     // Build call args for native async. Nullable prim/DateTime pointer params

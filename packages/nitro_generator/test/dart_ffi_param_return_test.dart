@@ -165,9 +165,10 @@ void main() {
       expect(out, contains('Future<Reading>'));
     });
 
-    test('async struct return uses NitroRuntime.callAsync', () {
+    test('async struct return dispatches on the bridge and frees like the pool path', () {
       final out = DartFfiGenerator.generate(asyncStructReturnSpec());
-      expect(out, contains('callAsync'));
+      expect(out, contains('NitroRuntime.openNativeAsync'));
+      expect(out, contains('ptr.ref.freeFields(_nitroFree); _nitroFree(ptr);'));
     });
 
     test('async struct return decodes via struct unpack, not jsonDecode', () {

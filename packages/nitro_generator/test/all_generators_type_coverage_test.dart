@@ -1596,7 +1596,7 @@ void main() {
 
     test('Dart FFI: encoder uses .nativeValue (tag 1 = int64) for enum', () {
       final out = DartFfiGenerator.generate(_enumMapCoverageSpec());
-      expect(out, contains('bb.addByte(1)'));
+      expect(out, anyOf(contains('bb.addByte(1)'), contains('out[pos++] = 1;')));
       expect(out, contains('.nativeValue'));
     });
 

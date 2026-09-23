@@ -44,8 +44,8 @@ void main() {
 
     test('encode writes tag 0 for null and the value tag otherwise', () {
       final out = DartFfiGenerator.generate(_spec());
-      expect(out, contains('bb.addByte(0)'));
-      expect(out, contains('bb.addByte(1)'), reason: 'int values still tag 1');
+      expect(out, anyOf(contains('bb.addByte(0)'), contains('out[pos++] = 0;')));
+      expect(out, anyOf(contains('bb.addByte(1)'), contains('out[pos++] = 1;')), reason: 'int values still tag 1');
     });
 
     test('decode reads the tag instead of skipping it, and keeps the key', () {
@@ -59,7 +59,7 @@ void main() {
       final out = DartFfiGenerator.generate(_spec(valueType: 'int'));
       expect(out, contains('skip type tag'));
       expect(out, isNot(contains('Nullable')));
-      expect(out, isNot(contains('bb.addByte(0)')));
+      expect(out, allOf(isNot(contains('bb.addByte(0)')), isNot(contains('out[pos++] = 0;'))));
     });
   });
 

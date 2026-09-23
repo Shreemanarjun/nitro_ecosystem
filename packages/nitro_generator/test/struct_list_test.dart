@@ -387,7 +387,7 @@ void main() {
     test('single struct return still uses structPtr path not LazyRecordList', () {
       // Use the richSpec which has fetchReading returning a struct
       final out = DartFfiGenerator.generate(richSpec());
-      expect(out, contains('structPtr.ref.toDart()'));
+      expect(out, contains('.ref.toDart()'));
       expect(out, isNot(contains('LazyRecordList.decode')));
     });
   });

@@ -1,22 +1,18 @@
 ## 0.7.7
 
+Fixed
+- Nullable typed-data parameters (`Uint8List?`, `Float32List?`, …) compile and
+  arrive as `null` on every backend.
+- Stream items that are never delivered (cancel mid-burst) are freed instead
+  of leaking.
+
 Changed
-- Every `@NitroStream` is delivered through the library's completion batcher,
-  whatever its backpressure mode: items native emits while Dart is still
-  handling the previous message travel in one message, in order, none
-  dropped (`openStream(coalesced: true)`, one unpack per item so a bad item
-  still forwards a single error). The mode keeps shaping the Kotlin/Swift
-  producer buffer as before. A 256-item `dropLatest` burst now costs what a
-  `batch` burst does.
-- Kotlin/JNI calls whose arguments and result are all numbers no longer open
-  a JNI local-reference frame per call; the frame is opened only around the
-  exception report, the one place such a call creates references.
-- Stream items that are heap blobs (structs, records, variants, maps) are
-  freed natively when they are never delivered: a subscription cancelled
-  mid-burst, or a flush racing a closed port. They used to leak.
-- Docs: the backpressure modes shape the Kotlin/Swift producer buffer; no
-  backend ever dropped items on the Dart side, and the tables now say so.
-  Validator E005 removed from the README table.
+- Every stream is batched by the bridge, whatever its backpressure mode; no
+  item dropped or reordered. 256-item `dropLatest` burst: 1209 → 138 µs.
+- `Map<String, T>` codec: one-pass encode and ASCII fast path, same wire bytes.
+  16-entry echo: 2.71 → 1.66 µs.
+- `@nitroAsync` struct and nullable-primitive returns run on bridge dispatch.
+- Kotlin/JNI number-only calls skip the per-call local-reference frame.
 
 ## 0.7.6
 

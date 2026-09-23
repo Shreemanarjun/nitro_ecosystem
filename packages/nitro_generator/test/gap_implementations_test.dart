@@ -267,7 +267,7 @@ void main() {
         final code = DartFfiGenerator.generate(_enumMapSpec());
         expect(code, contains('.nativeValue'));
         // Should use tag 1 (int64) for enum encoding
-        expect(code, contains('bb.addByte(1)'));
+        expect(code, anyOf(contains('bb.addByte(1)'), contains('out[pos++] = 1;')));
       });
 
       test('decoder calls .toRoute() to convert from int64', () {

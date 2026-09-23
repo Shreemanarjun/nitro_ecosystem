@@ -1,9 +1,9 @@
 ## 0.7.7
 
-Added
-- `openStream(coalesced:)`: each message is a list of items, unpacked one
-  by one (per-item errors unchanged). `NitroCompletionBatch::coalesce(port,
-  freeItem)` frees heap items that are never delivered.
+- `openStream(coalesced:)`: a message carries a list of items, each unpacked
+  on its own.
+- `NitroCompletionBatch::coalesce(port, freeItem)` frees stream items that are
+  never delivered.
 
 ## 0.7.6
 

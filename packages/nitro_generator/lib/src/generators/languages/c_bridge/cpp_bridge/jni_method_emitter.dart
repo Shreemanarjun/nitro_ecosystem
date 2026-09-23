@@ -148,9 +148,19 @@ void _emitJniNativeAsyncFuncBody(
         );
         callArgsList.add('j_${p.name}');
       case _ when !p.zeroCopy && p.type.isTypedData:
-        final ops = _typedDataJniOps(pt);
-        writer.line('    ${ops[0]} j_${p.name} = env->${ops[1]}((jsize)${p.name}_length);');
-        writer.line('    env->${ops[2]}(j_${p.name}, 0, (jsize)${p.name}_length, (const ${ops[3]}*)${p.name});');
+        // Element type from the bare name: `Float32List?` must build a
+        // jfloatArray (the JNI signature says [F), not the byte-array default.
+        final ops = _typedDataJniOps(bareTypeName(pt));
+        if (pt.endsWith('?')) {
+          writer.line('    ${ops[0]} j_${p.name} = nullptr;');
+          writer.line('    if (${p.name} != nullptr) {');
+          writer.line('        j_${p.name} = env->${ops[1]}((jsize)${p.name}_length);');
+          writer.line('        env->${ops[2]}(j_${p.name}, 0, (jsize)${p.name}_length, (const ${ops[3]}*)${p.name});');
+          writer.line('    }');
+        } else {
+          writer.line('    ${ops[0]} j_${p.name} = env->${ops[1]}((jsize)${p.name}_length);');
+          writer.line('    env->${ops[2]}(j_${p.name}, 0, (jsize)${p.name}_length, (const ${ops[3]}*)${p.name});');
+        }
         callArgsList.add('j_${p.name}');
       case _ when p.type.isNativeHandle:
         callArgsList.add('(jlong)${p.name}');
@@ -437,9 +447,19 @@ void _emitJniRegularFuncBody(
         );
         callArgsList.add('j_${p.name}');
       case _ when !p.zeroCopy && p.type.isTypedData:
-        final ops = _typedDataJniOps(pt);
-        writer.line('    ${ops[0]} j_${p.name} = env->${ops[1]}((jsize)${p.name}_length);');
-        writer.line('    env->${ops[2]}(j_${p.name}, 0, (jsize)${p.name}_length, (const ${ops[3]}*)${p.name});');
+        // Element type from the bare name: `Float32List?` must build a
+        // jfloatArray (the JNI signature says [F), not the byte-array default.
+        final ops = _typedDataJniOps(bareTypeName(pt));
+        if (pt.endsWith('?')) {
+          writer.line('    ${ops[0]} j_${p.name} = nullptr;');
+          writer.line('    if (${p.name} != nullptr) {');
+          writer.line('        j_${p.name} = env->${ops[1]}((jsize)${p.name}_length);');
+          writer.line('        env->${ops[2]}(j_${p.name}, 0, (jsize)${p.name}_length, (const ${ops[3]}*)${p.name});');
+          writer.line('    }');
+        } else {
+          writer.line('    ${ops[0]} j_${p.name} = env->${ops[1]}((jsize)${p.name}_length);');
+          writer.line('    env->${ops[2]}(j_${p.name}, 0, (jsize)${p.name}_length, (const ${ops[3]}*)${p.name});');
+        }
         callArgsList.add('j_${p.name}');
       case _ when p.type.isNativeHandle:
         callArgsList.add('(jlong)${p.name}');

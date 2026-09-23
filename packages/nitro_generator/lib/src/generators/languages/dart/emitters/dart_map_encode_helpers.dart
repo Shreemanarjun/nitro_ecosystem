@@ -238,6 +238,61 @@ void _emitMapBinaryHelpers(CodeWriter writer, String vt, BridgeSpec spec) {
   final isRecordOrVariant = isRecord || isVariant;
   // Encode helper: Map<String, VT> → length-prefixed binary Pointer<Uint8>
   // Use camelCase function names to satisfy Dart lint.
+  final fixedValue = switch (base) { 'int' || 'double' => 9, 'bool' => 2, _ when isEnum => 9, _ => 0 };
+  if (fixedValue > 0 || base == 'String') {
+    // One pass sizes, the second writes [4B payload_len][4B count][entries]
+    // straight into native memory. Same bytes as the builder path below.
+    final valueExpr = switch (base) {
+      'int' => "out[pos++] = ${MapValueWire.int64.tag}; bd.setInt64(pos, v, Endian.little); pos += 8;",
+      'double' => "out[pos++] = ${MapValueWire.float64.tag}; bd.setFloat64(pos, v, Endian.little); pos += 8;",
+      'bool' => "out[pos++] = ${MapValueWire.boolean.tag}; out[pos++] = v ? 1 : 0;",
+      'String' => "out[pos++] = ${MapValueWire.string.tag}; pos = _nitroPutStr(out, bd, pos, v, vb[i]);",
+      _ => "out[pos++] = ${MapValueWire.int64.tag}; bd.setInt64(pos, v.nativeValue, Endian.little); pos += 8;",
+    };
+    writer.line('Pointer<Uint8> _nitroEncodeMapBinary$suffix(Map<String, $vt> m, Allocator alloc) {');
+    writer.line('  final kb = List<List<int>?>.filled(m.length, null);');
+    if (base == 'String') writer.line('  final vb = List<List<int>?>.filled(m.length, null);');
+    writer.line('  var size = 4, i = 0;');
+    writer.line('  for (final e in m.entries) {');
+    writer.line('    final k = e.key;');
+    writer.line('    if (!_nitroIsAscii(k)) { kb[i] = utf8.encode(k); }');
+    writer.line('    size += 4 + (kb[i]?.length ?? k.length);');
+    // Fixed-size values only need their size; read the value when it can be
+    // null or its length depends on it.
+    if (nullable || base == 'String') writer.line('    final v = e.value;');
+    if (nullable) writer.line('    if (v == null) { size += 1; i++; continue; }');
+    if (base == 'String') {
+      writer.line('    if (!_nitroIsAscii(v)) { vb[i] = utf8.encode(v); }');
+      writer.line('    size += 5 + (vb[i]?.length ?? v.length);');
+    } else {
+      writer.line('    size += $fixedValue;');
+    }
+    writer.line('    i++;');
+    writer.line('  }');
+    writer.line('  final ptr = alloc<Uint8>(4 + size);');
+    writer.line('  final out = ptr.asTypedList(4 + size);');
+    writer.line('  final bd = ByteData.sublistView(out);');
+    writer.line('  bd.setInt32(0, size, Endian.little);');
+    writer.line('  bd.setInt32(4, m.length, Endian.little);');
+    writer.line('  var pos = 8;');
+    writer.line('  i = 0;');
+    writer.line('  for (final e in m.entries) {');
+    writer.line('    pos = _nitroPutStr(out, bd, pos, e.key, kb[i]);');
+    writer.line('    final v = e.value;');
+    if (nullable) writer.line('    if (v == null) { out[pos++] = ${MapValueWire.nul.tag}; i++; continue; }');
+    writer.line('    $valueExpr');
+    writer.line('    i++;');
+    writer.line('  }');
+    writer.line('  return ptr;');
+    writer.line('}');
+    writer.blankLine();
+  } else {
+    _emitMapBinaryEncodeViaBuilder(writer, vt, suffix, base, nullable, isEnum, isRecordOrVariant);
+  }
+  _emitMapBinaryDecode(writer, vt, suffix, base, nullable, isEnum, isRecord, isVariant, spec);
+}
+
+void _emitMapBinaryEncodeViaBuilder(CodeWriter writer, String vt, String suffix, String base, bool nullable, bool isEnum, bool isRecordOrVariant) {
   writer.line('Pointer<Uint8> _nitroEncodeMapBinary$suffix(Map<String, $vt> m, Allocator alloc) {');
   writer.line('  final bytes = _nitroMapPayload(m, (h, bb, v) {');
   if (nullable) {
@@ -279,19 +334,23 @@ void _emitMapBinaryHelpers(CodeWriter writer, String vt, BridgeSpec spec) {
   writer.line('  return ptr;');
   writer.line('}');
   writer.blankLine();
+}
+
+void _emitMapBinaryDecode(CodeWriter writer, String vt, String suffix, String base, bool nullable, bool isEnum, bool isRecord, bool isVariant, BridgeSpec spec) {
   // Decode helper: Pointer<Uint8> → Map<String, VT>
   writer.line('Map<String, $vt> _nitroDecodeMapBinary$suffix(Pointer<Uint8> ptr) {');
   // Copy to Dart heap first — native-backed ByteData has bd.offsetInBytes = raw pointer address,
   // causing bd.buffer.asUint8List(offset + pos, kLen) to compute a huge offset → OOM crash.
   writer.line('  final payLen = ByteData.sublistView(ptr.asTypedList(4)).getInt32(0, Endian.little);');
-  writer.line('  final bd = ByteData.sublistView(Uint8List.fromList((ptr + 4).asTypedList(payLen)));');
+  writer.line('  final bytes = Uint8List.fromList((ptr + 4).asTypedList(payLen));');
+  writer.line('  final bd = ByteData.sublistView(bytes);');
   writer.line('  int pos = 0;');
   writer.line('  final count = bd.getInt32(pos, Endian.little); pos += 4;');
   writer.line('  final result = <String, $vt>{};');
   writer.line('  for (var i = 0; i < count; i++) {');
   writer.line('    final kLen = bd.getInt32(pos, Endian.little); pos += 4;');
   // Use offset 0 (Uint8List.fromList gives offsetInBytes=0, so bd.buffer.asUint8List(pos) is correct)
-  writer.line('    final key = utf8.decode(bd.buffer.asUint8List(pos, kLen)); pos += kLen;');
+  writer.line('    final key = _nitroMapStr(bytes, pos, kLen); pos += kLen;');
   // For typed maps: skip tag byte (we know the type); for dynamic: dispatch on
   // tag. A nullable value type reads the tag instead — 0 means null.
   if (nullable) {
@@ -317,7 +376,7 @@ void _emitMapBinaryHelpers(CodeWriter writer, String vt, BridgeSpec spec) {
     case 'String':
       skipTag('4=string for Map<String,String>');
       writer.line('    final vLen = bd.getInt32(pos, Endian.little); pos += 4;');
-      writer.line('    final v = utf8.decode(bd.buffer.asUint8List(pos, vLen)); pos += vLen;');
+      writer.line('    final v = _nitroMapStr(bytes, pos, vLen); pos += vLen;');
     case _ when isEnum:
       // @HybridEnum: decode tag 1 int64 rawValue → enum via generated .toEnumName() extension.
       skipTag('1=int64 for Map<String,$vt>');

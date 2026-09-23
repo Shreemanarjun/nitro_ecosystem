@@ -40,8 +40,8 @@ void main() {
   final spec = SpecFromSource.parse(_cpp, sourceUri: 'package:demo/src/demo.native.dart');
   final mixed = SpecFromSource.parse(_cpp.replaceFirst('ios: NativeImpl.cpp, android: NativeImpl.cpp,', 'ios: NativeImpl.swift, android: NativeImpl.kotlin,'), sourceUri: 'package:demo/src/demo.native.dart');
 
-  test('eligibility: plain kinds dispatch on every backend; typed-data, struct and nullable-prim returns and per-method timeouts stay on the pool', () {
-    const want = {'echo': true, 'name': true, 'load': true, 'ping': true, 'raw': false, 'slow': false, 'where': false, 'maybe': false};
+  test('eligibility: plain, struct and nullable-prim returns dispatch on every backend; typed-data returns and per-method timeouts stay on the pool', () {
+    const want = {'echo': true, 'name': true, 'load': true, 'ping': true, 'raw': false, 'slow': false, 'where': true, 'maybe': true};
     expect({for (final f in spec.functions) f.dartName: spec.dispatchesAsync(f)}, want);
     expect({for (final f in mixed.functions) f.dartName: mixed.dispatchesAsync(f)}, want, reason: 'Kotlin/Swift specs dispatch too');
     expect(spec.nativeSymbol(spec.functions.first), 'demo_echo_dispatch');
@@ -62,6 +62,17 @@ void main() {
     expect(lastTwin, greaterThan(0));
     expect(lastTwin, lessThan(lastEndif), reason: 'twins must be emitted inside the JNI / Apple sections, not after the chain');
     expect('demo_echo_dispatch(int64_t instanceId'.allMatches(cpp).length, 2, reason: 'one per platform section (JNI + Apple)');
+  });
+
+  test('C++: struct and nullable-prim twins post the export\'s malloc\'d result as is', () {
+    final cpp = CppBridgeGenerator.generate(spec);
+    final where = cpp.substring(cpp.indexOf('NITRO_EXPORT void demo_where_dispatch('));
+    expect(where.substring(0, where.indexOf('\n}\n')), contains('_nitro_post_ptr(dart_port, (const void*)_r);'));
+    final maybe = cpp.substring(cpp.indexOf('NITRO_EXPORT void demo_maybe_dispatch('));
+    expect(maybe.substring(0, maybe.indexOf('\n}\n')), contains('_nitro_post_ptr(dart_port, (const void*)_r);'));
+    final dart = DartFfiGenerator.generate(spec);
+    expect(dart, contains("('demo_where_dispatch')"));
+    expect(dart, contains('ptr.ref.freeFields(_nitroFree); _nitroFree(ptr);'), reason: 'same free as the pool path');
   });
 
   test('Dart: dispatched methods bind <sym>_dispatch with the native-async signature and complete through the batch', () {
@@ -91,11 +102,13 @@ void main() {
     final twin = cpp.substring(cpp.indexOf('NITRO_EXPORT void demo_echo_dispatch('), cpp.indexOf('NITRO_EXPORT void demo_name_dispatch('));
     expect(twin, contains('std::string _c_label(label ? label : ""); const bool _n_label = label == nullptr;'));
     expect(twin, contains('std::vector<uint8_t> _c_bytes = _nitro_copy_bytes(bytes, (size_t)bytes_length * sizeof(*bytes));'));
+    expect(twin, contains('_c_bytes.push_back(0);'), reason: 'an empty list keeps a non-null pointer');
+    expect(twin, contains('_n_bytes ? nullptr : (uint8_t*)_c_bytes.data()'));
     expect(twin, contains('*_c_at = _nitro_clone_Pt(*static_cast<const Pt*>(at));'));
     expect(twin, contains('std::vector<uint8_t> _c_job = _nitro_copy_framed(job);'));
     expect(twin, contains('_nitro_copy_bytes(maybe, sizeof(NitroOptInt64))'));
     expect(twin, contains('g_nitro_pool_demo.enqueue([=]() mutable {'));
-    expect(twin, contains('int64_t _r = demo_echo(instanceId, v, _n_label ? nullptr : _c_label.c_str(), (uint8_t*)_c_bytes.data(), bytes_length, (void*)_c_at, _c_job.empty() ? nullptr : (void*)_c_job.data(), _c_maybe.empty() ? nullptr : (const uint8_t*)_c_maybe.data());'));
+    expect(twin, contains('int64_t _r = demo_echo(instanceId, v, _n_label ? nullptr : _c_label.c_str(), _n_bytes ? nullptr : (uint8_t*)_c_bytes.data(), bytes_length, (void*)_c_at, _c_job.empty() ? nullptr : (void*)_c_job.data(), _c_maybe.empty() ? nullptr : (const uint8_t*)_c_maybe.data());'));
     expect(twin, contains('if (_c_at) demo_release_Pt(_c_at);'));
     expect(twin, contains('if (_e->hasError) { _nitro_move_err(_nitro_err, _e); _nitro_post_null(dart_port); return; }'));
     expect(twin, contains('_nitro_post_i64(dart_port, _r);'));

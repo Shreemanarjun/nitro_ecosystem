@@ -181,11 +181,9 @@ void main() {
   group('DartFfiGenerator (edge cases)', () {
     test('struct return calls freeFields()', () {
       final out = DartFfiGenerator.generate(richSpec());
-      // For any non-zero-copy struct return, we should see freeFields()
-      expect(out, contains('structPtr.ref.freeFields(_nitroFree);'));
-      expect(out, contains('freeFields(_nitroFree)'));
-      // These specs also contain async struct returns, which still own (and
-      // free) their shell; the sync contract is asserted in edge_cases_test.
+      // Async struct returns dispatch on the bridge; the unpack frees the
+      // fields and the shell exactly as the pool path did.
+      expect(out, contains('.ref.freeFields(_nitroFree);'));
     });
 
     test('struct property getter calls freeFields()', () {

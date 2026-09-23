@@ -91,16 +91,17 @@ class BridgeSpec {
   /// the `<sym>_dispatch` twin runs the same sync export (JNI, Swift shim or
   /// C++ virtual dispatch) on the bridge worker pool. Plain argument and
   /// return kinds only; no per-method timeout (its semantics stay Dart-side
-  /// on the pool). Struct and nullable-primitive returns are thread-local
-  /// borrows in every backend, so they stay on the pool too.
+  /// on the pool). Struct and nullable-primitive returns qualify too: an
+  /// `@nitroAsync` export `malloc`s them on every backend (sync calls borrow
+  /// a per-thread slot; async ones do not), and the native-async unpack frees
+  /// them exactly as the pool path does.
   bool dispatchesAsync(BridgeFunction f) {
     if (!f.isAsync || f.isNativeAsync || f.isResult || f.zeroCopyReturn || f.asyncTimeout != null || f.mainThread) return false;
     final rt = f.returnType;
     final base = rt.baseName;
-    if (rt.isNullableNitroPrim || isStructName(base)) return false;
     final retOk = rt.name == 'void' ||
         const {'int', 'double', 'bool', 'String', 'DateTime', 'uint64'}.contains(base) ||
-        isEnumName(base) || isVariantName(base) || rt.isAnyMap ||
+        isEnumName(base) || isStructName(base) || isVariantName(base) || rt.isAnyMap ||
         (rt.isRecord && !rt.isMap);
     if (!retOk) return false;
     return f.params.every((p) {

@@ -39,6 +39,11 @@ void _emitMapAndFactory(CodeWriter writer, BridgeSpec spec) {
     // Returns just the payload (`[4B count][entries]`) — the caller writes the
     // outer `[4B payload_len]` prefix directly into the native buffer, avoiding
     // an element-wise spread-concatenation copy.
+    // ASCII fast path for map keys and String values: an ASCII string's code
+    // units are its UTF-8 bytes, so both directions skip the UTF-8 codec.
+    writer.line('bool _nitroIsAscii(String s) { for (var i = 0; i < s.length; i++) { if (s.codeUnitAt(i) > 0x7f) return false; } return true; }');
+    writer.line('String _nitroMapStr(Uint8List b, int pos, int len) { for (var i = pos; i < pos + len; i++) { if (b[i] > 0x7f) { return utf8.decode(Uint8List.sublistView(b, pos, pos + len)); } } return String.fromCharCodes(b, pos, pos + len); }');
+    writer.line('int _nitroPutStr(Uint8List out, ByteData bd, int pos, String s, List<int>? utf8Bytes) { final n = utf8Bytes?.length ?? s.length; bd.setInt32(pos, n, Endian.little); pos += 4; if (utf8Bytes == null) { for (var i = 0; i < n; i++) { out[pos + i] = s.codeUnitAt(i); } } else { out.setRange(pos, pos + n, utf8Bytes); } return pos + n; }');
     writer.line('Uint8List _nitroMapPayload(Map<String, dynamic> m, void Function(ByteData h, BytesBuilder bb, dynamic v) writeVal) {');
     // copy: true (default) is required: copy:false holds references to hdr.buffer,
     // so every hdr.setInt32 call would silently corrupt all previously-added count/kLen bytes.
@@ -46,7 +51,7 @@ void _emitMapAndFactory(CodeWriter writer, BridgeSpec spec) {
     writer.line('  final hdr = ByteData(8);');
     writer.line('  hdr.setInt32(0, m.length, Endian.little); bb.add(hdr.buffer.asUint8List(0, 4));');
     writer.line('  for (final e in m.entries) {');
-    writer.line('    final k = utf8.encode(e.key); hdr.setInt32(0, k.length, Endian.little);');
+    writer.line('    final k = _nitroIsAscii(e.key) ? e.key.codeUnits : utf8.encode(e.key); hdr.setInt32(0, k.length, Endian.little);');
     writer.line('    bb.add(hdr.buffer.asUint8List(0, 4)); bb.add(k); writeVal(hdr, bb, e.value);');
     writer.line('  }');
     writer.line('  return bb.toBytes();');
