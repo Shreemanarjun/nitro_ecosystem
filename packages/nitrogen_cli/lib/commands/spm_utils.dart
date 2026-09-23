@@ -616,3 +616,54 @@ bool ensureModuleCppTargets(
   file.writeAsStringSync(content);
   return true;
 }
+
+// ── Dangling SPM symlinks ────────────────────────────────────────────────────
+
+/// Repairs symlinks under a plugin's SPM `Sources/` trees whose target is
+/// gone: the flat `<platform>/Sources/` and every nested
+/// `<platform>/<pkg>/Sources/` that sits next to a `Package.swift`, for iOS and
+/// macOS. A dangling link is repointed at the first place its file lives now —
+/// `<platform>/Classes/`, then `lib/src/generated/swift/` — so a moved or
+/// deleted bridge copy no longer breaks `flutter pub get` ("Cannot resolve
+/// symbolic links"). Links with nowhere to point are reported, not guessed.
+///
+/// Returns the healed and unresolved link paths, relative to [baseDir].
+({List<String> healed, List<String> unresolved}) healDanglingSpmLinks(String baseDir) {
+  final healed = <String>[];
+  final unresolved = <String>[];
+  bool exists(String path) => FileSystemEntity.typeSync(path) != FileSystemEntityType.notFound;
+
+  for (final platform in ['ios', 'macos']) {
+    final platformDir = Directory(p.join(baseDir, platform));
+    if (!platformDir.existsSync()) continue;
+    final sourcesDirs = [
+      p.join(platformDir.path, 'Sources'),
+      for (final d in platformDir.listSync().whereType<Directory>())
+        if (File(p.join(d.path, 'Package.swift')).existsSync()) p.join(d.path, 'Sources'),
+    ];
+    for (final sources in sourcesDirs) {
+      final dir = Directory(sources);
+      if (!dir.existsSync()) continue;
+      for (final link in dir.listSync(recursive: true, followLinks: false).whereType<Link>()) {
+        if (exists(link.path)) continue; // typeSync follows the link: it resolves.
+        final name = p.basename(link.path);
+        final target = [
+          p.join(platformDir.path, 'Classes', name),
+          p.join(baseDir, 'lib', 'src', 'generated', 'swift', name),
+        ].where(exists).firstOrNull;
+        final rel = p.relative(link.path, from: baseDir);
+        if (target == null) {
+          unresolved.add(rel);
+          continue;
+        }
+        try {
+          link.updateSync(p.relative(target, from: p.dirname(link.path)));
+          healed.add(rel);
+        } catch (_) {
+          unresolved.add(rel);
+        }
+      }
+    }
+  }
+  return (healed: healed, unresolved: unresolved);
+}

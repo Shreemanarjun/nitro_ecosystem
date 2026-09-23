@@ -1,6 +1,10 @@
 ## 0.7.7
 
 - Sync with `nitro_generator` 0.7.7. **Re-run `nitrogen generate`.**
+- `link` repairs dangling symlinks under the SwiftPM `Sources/` trees (flat
+  and nested, iOS and macOS): each is repointed at its file in `Classes/` or
+  `lib/src/generated/swift/`; one with no file left is reported. Fixes
+  `flutter pub get` failing with "Cannot resolve symbolic links".
 
 ## 0.7.6
 

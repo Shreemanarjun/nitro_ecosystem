@@ -41,6 +41,7 @@ Directory _scaffoldWithPodspec({List<String> platforms = const ['ios']}) {
 }
 
 void main() {
+  _healDanglingLinks();
   // ── toPascalCase ──────────────────────────────────────────────────────────
 
   group('toPascalCase', () {
@@ -907,6 +908,51 @@ let package = Package(targets: [
       ensureModuleCppTargets(path, pluginName: 'my_plugin', pluginClass: 'MyPlugin', moduleClasses: ['Gpu']);
       expect(File(path).readAsStringSync(), contains('// hand-tuned'));
       expect('name: "GpuCpp"'.allMatches(File(path).readAsStringSync()).length, equals(1), reason: 'must not insert a duplicate target');
+    });
+  });
+}
+
+void _healDanglingLinks() {
+  group('healDanglingSpmLinks', () {
+    late Directory root;
+    setUp(() => root = Directory.systemTemp.createTempSync('nitro_heal_'));
+    tearDown(() => root.deleteSync(recursive: true));
+
+    File touch(String rel) => File(p.join(root.path, rel))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('// $rel');
+    Link link(String rel, String target) => Link(p.join(root.path, rel))
+      ..parent.createSync(recursive: true)
+      ..createSync(target);
+
+    test('repoints a flat-layout link whose Classes copy was removed (nitro_battery)', () {
+      touch('lib/src/generated/swift/demo.bridge.g.swift');
+      final l = link('ios/Sources/Demo/demo.bridge.g.swift', '../../Classes/demo.bridge.g.swift');
+      final r = healDanglingSpmLinks(root.path);
+      expect(r.healed, ['ios/Sources/Demo/demo.bridge.g.swift']);
+      expect(r.unresolved, isEmpty);
+      expect(l.targetSync(), '../../../lib/src/generated/swift/demo.bridge.g.swift');
+      expect(File(l.path).readAsStringSync(), '// lib/src/generated/swift/demo.bridge.g.swift');
+    });
+
+    test('prefers <platform>/Classes and heals nested packages next to Package.swift', () {
+      touch('macos/demo/Package.swift');
+      touch('macos/Classes/DemoImpl.swift');
+      touch('lib/src/generated/swift/DemoImpl.swift');
+      final l = link('macos/demo/Sources/Demo/DemoImpl.swift', '../../../Gone/DemoImpl.swift');
+      expect(healDanglingSpmLinks(root.path).healed, ['macos/demo/Sources/Demo/DemoImpl.swift']);
+      expect(l.targetSync(), '../../../Classes/DemoImpl.swift');
+    });
+
+    test('leaves resolving links alone and reports links with nowhere to point', () {
+      touch('ios/Classes/ok.swift');
+      final ok = link('ios/Sources/Demo/ok.swift', '../../Classes/ok.swift');
+      final lost = link('ios/Sources/Demo/lost.swift', '../../Classes/lost.swift');
+      final r = healDanglingSpmLinks(root.path);
+      expect(r.healed, isEmpty);
+      expect(r.unresolved, ['ios/Sources/Demo/lost.swift']);
+      expect(ok.targetSync(), '../../Classes/ok.swift');
+      expect(lost.targetSync(), '../../Classes/lost.swift');
     });
   });
 }
