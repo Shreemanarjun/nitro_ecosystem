@@ -208,7 +208,7 @@ void main() {
     setUpAll(() => swift = StructGenerator.generateSwift(_stringFieldSpec()));
 
     test('emits fileprivate _DeviceInfoC shadow struct', () {
-      expect(swift, contains('fileprivate struct _DeviceInfoC'));
+      expect(swift, contains('struct _DeviceInfoC'));
     });
 
     test('String fields become UnsafeMutablePointer<CChar>? in shadow', () {
@@ -243,7 +243,7 @@ void main() {
     setUpAll(() => swift = StructGenerator.generateSwift(_nonZcSpec()));
 
     test('emits _DocumentC shadow struct', () {
-      expect(swift, contains('fileprivate struct _DocumentC'));
+      expect(swift, contains('struct _DocumentC'));
     });
 
     test('Uint8List becomes UnsafeMutablePointer<UInt8>? in shadow', () {

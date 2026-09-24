@@ -203,14 +203,15 @@ class CppInterfaceGenerator {
           params.add('NitroError* _nitro_err');
           params.add('int64_t dartPort');
           nodes.add(
-            CodeLine('    virtual void ${func.dartName}(${params.join(', ')}) = 0;'),
+            CodeLine('    virtual void ${func.cppName}(${params.join(', ')}) = 0;'),
           );
         } else {
           final retType = _cppReturnType(func.returnType, enumNames, structNames, recordNames);
           final params = _cppMethodParams(func.params, enumNames, structNames, recordNames);
           final paramStr = params.join(', ');
+          // A getter keeps the property shape: `get_x() const`.
           nodes.add(
-            CodeLine('    virtual $retType ${func.dartName}($paramStr) = 0;'),
+            CodeLine('    virtual $retType ${func.cppName}($paramStr)${func.isGetter ? ' const' : ''} = 0;'),
           );
         }
       }

@@ -34,7 +34,7 @@ class CppMockGenerator {
       final retCpp = func.returnType.isRecord ? 'NitroCppBuffer' : _cppReturnType(func.returnType.name, enumNames, structNames, recordNames);
       final params = _mockParams(func.params, enumNames, structNames, recordNames);
       final paramStr = params.join(', ');
-      classBody.add(CodeLine('MOCK_METHOD($retCpp, ${func.dartName}, ($paramStr), (override));'));
+      classBody.add(CodeLine('MOCK_METHOD($retCpp, ${func.cppName}, ($paramStr), (${func.isGetter ? 'const, ' : ''}override));'));
     }
 
     for (final prop in spec.properties) {

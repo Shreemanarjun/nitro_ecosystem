@@ -1736,7 +1736,7 @@ void _emitJniInitializeAndPostHelpers(
     if (stream.itemType.isRecord) {
       final recName = bareTypeName(stream.itemType.name);
       if (cachedRecordClasses.add(recName)) {
-        final jniRecClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/$recName';
+        final jniRecClass = '${spec.jniPackageOf(recName)}/$recName';
         writer.line('    // Cache $recName class + encode() for stream serialisation');
         writer.line('    {');
         writer.line('        jclass local_cls_$recName = env->FindClass("$jniRecClass");');
@@ -1754,7 +1754,7 @@ void _emitJniInitializeAndPostHelpers(
   if (spec.structs.isNotEmpty) {
     writer.line('    // Cache struct class + ctor + field IDs');
     for (final st in spec.structs) {
-      final jniClass = 'nitro/${spec.lib.replaceAll('-', '_')}_module/${st.name}';
+      final jniClass = '${spec.jniPackageOf(st.name)}/${st.name}';
 
       final ctorSig =
           '(${st.fields.map((f) {
@@ -1763,7 +1763,7 @@ void _emitJniInitializeAndPostHelpers(
             if (StructGenerator.needsHasValue(f, structNames)) return _structFieldJniSig(f, structNames, _jniSigType);
             if (isEnum) return 'J';
             if (_isZeroCopy(st, f.name)) return 'Ljava/nio/ByteBuffer;';
-            if (isNestedStruct) return 'L$libPkg/${bareTypeName(f.type.name)};';
+            if (isNestedStruct) return 'L${spec.jniPackageOf(bareTypeName(f.type.name))}/${bareTypeName(f.type.name)};';
             return _jniSigType(f.type.name);
           }).join('')})V';
       writer.line('    {');
@@ -1778,7 +1778,7 @@ void _emitJniInitializeAndPostHelpers(
         final isNestedStruct = structNames.contains(bareTypeName(f.type.name));
         final sig = StructGenerator.needsHasValue(f, structNames)
             ? _structFieldJniSig(f, structNames, _jniSigType)
-            : (isEnum ? 'J' : (isZeroCopy ? 'Ljava/nio/ByteBuffer;' : (isNestedStruct ? 'L$libPkg/${bareTypeName(f.type.name)};' : _jniSigType(f.type.name))));
+            : (isEnum ? 'J' : (isZeroCopy ? 'Ljava/nio/ByteBuffer;' : (isNestedStruct ? 'L${spec.jniPackageOf(bareTypeName(f.type.name))}/${bareTypeName(f.type.name)};' : _jniSigType(f.type.name))));
         writer.line('            g_fid_${st.name}_${f.name} = env->GetFieldID(g_cls_${st.name}, "${f.name}", "$sig");');
       }
       writer.line('        }');

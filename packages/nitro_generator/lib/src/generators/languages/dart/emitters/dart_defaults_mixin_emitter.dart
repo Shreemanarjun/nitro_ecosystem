@@ -20,7 +20,7 @@ void _emitDefaultsMixin(CodeWriter w, BridgeSpec spec) {
   for (final f in spec.functions) {
     final ret = _defaultsReturnType(f);
     w.line('  @override');
-    w.line("  $ret ${f.dartName}(${_paramList(f.params)}) => throw UnimplementedError('$cls.${f.dartName}');");
+    w.line("  $ret ${f.dartMember(_paramList(f.params))} => throw UnimplementedError('$cls.${f.dartName}');");
   }
   for (final p in spec.properties) {
     final rt = p.type.name;

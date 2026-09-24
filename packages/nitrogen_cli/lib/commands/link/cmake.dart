@@ -81,7 +81,9 @@ void createSharedHeaders(String nitroNativePath, {String baseDir = '.'}) {
         // nitro_wasm_compat.h: SwiftPM compiles every header in include/, and
         // that one #errors outside Emscripten. link/apple.dart deletes stale
         // copies; copying it here re-planted it on every generate.
-        for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h']) {
+        // Same list as link/apple.dart: 0.7.x bridges #include the batch,
+        // worker-pool and background headers too.
+        for (final headerName in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h', 'nitro_background.h', 'nitro_completion_batch.h', 'nitro_worker_pool.h']) {
           final src = File(p.join(nitroNativePath, headerName));
           if (src.existsSync()) src.copySync(p.join(includeDir.path, headerName));
         }
@@ -451,6 +453,14 @@ void _linkDesktopCMake(
   }
 
   if (usesSharedSrc) {
+    final bundled = _withBundledModuleLibs(content, pluginName, [
+      for (final m in moduleInfos ?? const <ModuleInfo>[])
+        if (platform == 'linux' ? m.linuxIsCpp : m.windowsIsCpp) m.lib,
+    ]);
+    if (bundled != content) {
+      content = bundled;
+      modified = true;
+    }
     _desktopCMakeHandleSharedSrc(
       cmakeFile,
       content,
@@ -656,3 +666,20 @@ String _removeBraceBalancedBlock(String content, RegExp opener) {
   }
   return content; // unbalanced — do not touch
 }
+
+/// Each desktop C++ module is its own shared library (src/CMakeLists.txt), and
+/// Flutter ships only what `<plugin>_bundled_libraries` lists — a second
+/// module's library was missing at runtime ("cannot open shared object file").
+String _withBundledModuleLibs(String cmake, String pluginName, List<String> libs) {
+  final block = RegExp('set\\(${RegExp.escape(pluginName)}_bundled_libraries\\b([\\s\\S]*?)PARENT_SCOPE').firstMatch(cmake);
+  if (block == null) return cmake;
+  final missing = [
+    for (final lib in libs)
+      if (!block.group(1)!.contains('\$<TARGET_FILE:$lib>')) lib,
+  ];
+  if (missing.isEmpty) return cmake;
+  // Insert at the start of the PARENT_SCOPE line, keeping the list's indentation.
+  final at = cmake.lastIndexOf('\n', block.end - 'PARENT_SCOPE'.length) + 1;
+  return cmake.substring(0, at) + missing.map((l) => '  \$<TARGET_FILE:$l>\n').join() + cmake.substring(at);
+}
+

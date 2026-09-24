@@ -25,7 +25,10 @@ const _cppSkippedLibraryRecordTypes = {
 /// `if (offset + 1 > size)` check that throws `std::runtime_error`, preventing
 /// out-of-bounds reads on malformed wire data (IMPROVEMENTS.md §3.3).
 String _generateCppRecords(BridgeSpec spec) {
-  final localRecords = spec.localRecordTypes;
+  // Imported (shared) records too: a type-only file has no native.g.h of its
+  // own, and each module's C++ is its own translation unit, so identical
+  // inline definitions per module are fine (as the struct codecs already are).
+  final localRecords = spec.recordTypes;
   if (localRecords.isEmpty) return '';
   final enumNames = spec.enums.map((e) => e.name).toSet();
   final structNames = spec.structs.map((st) => st.name).toSet();

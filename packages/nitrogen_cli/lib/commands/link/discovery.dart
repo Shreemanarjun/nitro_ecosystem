@@ -150,6 +150,28 @@ bool hasCustomPlatformImpl(String baseDir, String platform, String className) {
   return codeLines.isNotEmpty;
 }
 
+/// `.native.dart` files under [libDir] that declare a `@NitroModule`. Type-only
+/// files (shared @HybridStruct/@HybridEnum/@HybridRecord) are not modules: no
+/// registry, JNI bridge, SwiftPM target or CMake library of their own.
+List<File> moduleSpecFiles(Directory libDir) => libDir.existsSync()
+    ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart') && declaresNitroModule(f.readAsStringSync())).toList()
+    : <File>[];
+
+/// Generated C headers of type-only spec files. Every module bridge that uses
+/// their shared types `#include`s them, so each C++ include dir needs a copy.
+List<File> typeOnlyBridgeHeaders(String baseDir) {
+  final libDir = Directory(p.join(baseDir, 'lib'));
+  if (!libDir.existsSync()) return [];
+  return [
+    for (final f in libDir.listSync(recursive: true).whereType<File>())
+      if (f.path.endsWith('.native.dart') && !declaresNitroModule(f.readAsStringSync()))
+        File(p.join(p.dirname(f.path), 'generated', 'cpp', '${p.basename(f.path).replaceAll('.native.dart', '')}.bridge.g.h')),
+  ].where((h) => h.existsSync()).toList();
+}
+
+/// The annotation itself, not a mention in a comment ("type-only, no @NitroModule").
+bool declaresNitroModule(String source) => RegExp(r'^\s*@NitroModule\s*\(', multiLine: true).hasMatch(source);
+
 List<ModuleInfo> discoverModuleInfos(
   String pluginName, {
   String baseDir = '.',
@@ -166,6 +188,7 @@ List<ModuleInfo> discoverModuleInfos(
   final modules = <ModuleInfo>[];
   for (final spec in specs) {
     final content = spec.readAsStringSync();
+    if (!declaresNitroModule(content)) continue; // type-only file — see moduleSpecFiles
     final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
     final libName = extractLibNameFromSpec(spec) ?? stem.replaceAll('-', '_');
     final moduleMatch = RegExp(

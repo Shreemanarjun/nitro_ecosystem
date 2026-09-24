@@ -111,7 +111,7 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
 
     writer.line('  @override');
     writer.line(
-      '  $returnType ${func.dartName}(${_paramList(func.params)}) $asyncMod{',
+      '  $returnType ${func.dartMember(_paramList(func.params))} $asyncMod{',
     );
     final isFast = func.isFast;
     writer.line('    checkDisposed();');

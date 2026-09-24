@@ -30,7 +30,20 @@ void _emitStreamImpls(CodeWriter writer, BridgeSpec spec) {
         // type, Stream<${baseItemType}Proxy> satisfies Stream<${baseItemType}> via Dart's
         // covariant generics — no .map() or eager field copy required.
         final nullAction = stream.itemType.isNullable ? 'return null' : "throw StateError('Received null event on non-nullable stream ${stream.dartName}')";
-        unpackExpr = '(message) { if (message == null) { $nullAction; } return ${baseItemType}Proxy(Pointer<${baseItemType}Ffi>.fromAddress(message as int)); }';
+        if (spec.localStructs.any((s) => s.name == baseItemType)) {
+          unpackExpr = '(message) { if (message == null) { $nullAction; } return ${baseItemType}Proxy(Pointer<${baseItemType}Ffi>.fromAddress(message as int)); }';
+        } else {
+          // Imported struct: its proxy belongs to the owning file, whose release
+          // symbol this module's library does not export. Decode eagerly and
+          // release through THIS module's ${spec.lib.replaceAll('-', '_')}_release_$baseItemType.
+          // ponytail: symbol lookup per item; cache it if a shared-struct stream gets hot.
+          final release = '${spec.lib.replaceAll('-', '_')}_release_$baseItemType';
+          unpackExpr =
+              '(message) { if (message == null) { $nullAction; } '
+              'final p = Pointer<${baseItemType}Ffi>.fromAddress(message as int); '
+              'try { return p.ref.toDart(); } '
+              "finally { _dylib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('$release')(p.cast()); } }";
+        }
         streamItemType = baseItemType;
       case _ when isVariant:
         // @NitroVariant stream: native posts address of [4B len][1B tag][fields] binary blob.
@@ -103,7 +116,8 @@ void _emitStreamImpls(CodeWriter writer, BridgeSpec spec) {
     // Dart acks after each message. Items and order are unchanged.
     // For struct streams, openStream is typed to the Proxy so the NativeFinalizer
     // is attached correctly, but the return is implicitly upcast to Stream<value>.
-    final openType = (isStruct || isStructBase) ? '${baseItemType}Proxy${stream.itemType.isNullable ? '?' : ''}' : '$streamItemType${stream.itemType.isNullable ? '?' : ''}';
+    final localStruct = (isStruct || isStructBase) && spec.localStructs.any((s) => s.name == baseItemType);
+    final openType = localStruct ? '${baseItemType}Proxy${stream.itemType.isNullable ? '?' : ''}' : '$streamItemType${stream.itemType.isNullable ? '?' : ''}';
     writer.line('    return NitroRuntime.openStream<$openType>(');
     writer.line('      register: (port) => _register${cap}Ptr(_instanceId, port),');
     writer.line('      unpack: $unpackExpr,');

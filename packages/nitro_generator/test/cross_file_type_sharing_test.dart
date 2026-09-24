@@ -291,10 +291,12 @@ void main() {
       expect(code, isNot(contains('SettingsRecordExt')));
     });
 
-    test('generateCpp emits only local record struct', () {
+    // C++ is the exception: a type-only file has no native.g.h, so each C++
+    // module's header carries the imported records it uses (own TU per module).
+    test('generateCpp emits local AND imported record structs', () {
       final code = RecordGenerator.generateCpp(spec);
       expect(code, contains('struct Result'));
-      expect(code, isNot(contains('struct Settings')));
+      expect(code, contains('struct Settings'));
     });
 
     test('generateKotlin emits only local record data class', () {

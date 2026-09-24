@@ -281,8 +281,11 @@ extension _DoctorAppleChecks on DoctorCommand {
   }
 
   void _checkIosSpmCppTarget(_DoctorCtx ctx, DoctorSection iosSec, String pkgSwift, String cppTargetName, Directory spmCppDir) {
-    if (pkgSwift.contains(cppTargetName)) {
+    final moduleTargets = _cppModuleTargets(ctx);
+    if (_declaresTarget(pkgSwift, cppTargetName)) {
       ctx.ok(iosSec, 'Package.swift: $cppTargetName target defined');
+    } else if (moduleTargets.isNotEmpty && moduleTargets.every((t) => _declaresTarget(pkgSwift, t))) {
+      ctx.ok(iosSec, 'Package.swift: per-module C++ targets defined (${moduleTargets.join(', ')})');
     } else {
       ctx.err(iosSec, 'Package.swift: $cppTargetName target missing', hint: 'Run: nitrogen init  (re-creates Package.swift with the correct C++ target)');
     }
@@ -323,9 +326,10 @@ extension _DoctorAppleChecks on DoctorCommand {
       // <plugin>.cpp — forwarder that pulls in src/<plugin>.cpp via #include
       final pluginCppSpm = File(p.join(spmCppDir.path, '${ctx.pluginName}.cpp'));
       final pluginCSpm = File(p.join(spmCppDir.path, '${ctx.pluginName}.c'));
+      final hasPluginSource = ['cpp', 'c'].any((e) => File(p.join(ctx.root.path, 'src', '${ctx.pluginName}.$e')).existsSync());
       if (pluginCppSpm.existsSync() || pluginCSpm.existsSync()) {
         ctx.ok(iosSec, 'SPM Sources/$cppTargetName/${ctx.pluginName}.cpp forwarder present');
-      } else {
+      } else if (hasPluginSource) {
         ctx.warn(iosSec, 'SPM Sources/$cppTargetName/${ctx.pluginName}.cpp forwarder missing', hint: 'Run: nitrogen link');
       }
 
@@ -358,7 +362,7 @@ extension _DoctorAppleChecks on DoctorCommand {
     // that depends on the C++ target and the FlutterFramework. Its sources
     // live in Sources/<PascalCaseName>/ and must include the generated
     // <ctx.pluginName>.bridge.g.swift file so Swift can call the C ABI.
-    final isSwift = ctx.specs.isEmpty || _isAppleSwiftModule(ctx.specs.first);
+    final isSwift = ctx.specs.isEmpty || ctx.specs.any(_isAppleSwiftModule);
     if (isSwift) {
       final swiftDirName = _toPascalCase(ctx.pluginName);
       final spmSwiftDir = Directory(p.join(packageRoot, 'Sources', swiftDirName));
@@ -375,11 +379,12 @@ extension _DoctorAppleChecks on DoctorCommand {
 
       if (spmSwiftDir.existsSync()) {
         ctx.ok(iosSec, 'SPM Sources/$swiftDirName/ directory present');
-        final swiftBridge = File(p.join(spmSwiftDir.path, '${ctx.pluginName}.bridge.g.swift'));
-        if (swiftBridge.existsSync()) {
-          ctx.ok(iosSec, 'SPM Sources/$swiftDirName/${ctx.pluginName}.bridge.g.swift present');
-        } else if (ctx.specs.isNotEmpty) {
-          ctx.err(iosSec, 'Missing ${ctx.pluginName}.bridge.g.swift in SPM Sources/$swiftDirName/', hint: 'Run: nitrogen link  (copies generated bridge to the SPM Swift target)');
+        for (final bridge in _swiftBridgeNames(ctx)) {
+          if (File(p.join(spmSwiftDir.path, bridge)).existsSync()) {
+            ctx.ok(iosSec, 'SPM Sources/$swiftDirName/$bridge present');
+          } else {
+            ctx.err(iosSec, 'Missing $bridge in SPM Sources/$swiftDirName/', hint: 'Run: nitrogen link  (copies generated bridge to the SPM Swift target)');
+          }
         }
       } else if (ctx.specs.isNotEmpty) {
         ctx.warn(iosSec, 'SPM Sources/$swiftDirName/ directory not found', hint: 'Run: nitrogen link  (creates SPM Swift target directory with bridge)');
@@ -550,8 +555,11 @@ extension _DoctorAppleChecks on DoctorCommand {
   }
 
   void _checkMacosSpmCppTarget(_DoctorCtx ctx, DoctorSection macosSec, String pkgSwift, String cppTargetName, Directory spmCppDir) {
-    if (pkgSwift.contains(cppTargetName)) {
+    final moduleTargets = _cppModuleTargets(ctx);
+    if (_declaresTarget(pkgSwift, cppTargetName)) {
       ctx.ok(macosSec, 'Package.swift: $cppTargetName target defined');
+    } else if (moduleTargets.isNotEmpty && moduleTargets.every((t) => _declaresTarget(pkgSwift, t))) {
+      ctx.ok(macosSec, 'Package.swift: per-module C++ targets defined (${moduleTargets.join(', ')})');
     } else {
       ctx.err(macosSec, 'Package.swift: $cppTargetName target missing', hint: 'Run: nitrogen init  (re-creates Package.swift with the correct C++ target)');
     }
@@ -592,9 +600,10 @@ extension _DoctorAppleChecks on DoctorCommand {
       // <plugin>.cpp — forwarder that pulls in src/<plugin>.cpp via #include
       final pluginCppSpm = File(p.join(spmCppDir.path, '${ctx.pluginName}.cpp'));
       final pluginCSpm = File(p.join(spmCppDir.path, '${ctx.pluginName}.c'));
+      final hasPluginSource = ['cpp', 'c'].any((e) => File(p.join(ctx.root.path, 'src', '${ctx.pluginName}.$e')).existsSync());
       if (pluginCppSpm.existsSync() || pluginCSpm.existsSync()) {
         ctx.ok(macosSec, 'SPM Sources/$cppTargetName/${ctx.pluginName}.cpp forwarder present');
-      } else {
+      } else if (hasPluginSource) {
         ctx.warn(macosSec, 'SPM Sources/$cppTargetName/${ctx.pluginName}.cpp forwarder missing', hint: 'Run: nitrogen link');
       }
 
@@ -627,7 +636,7 @@ extension _DoctorAppleChecks on DoctorCommand {
 
   void _checkMacosSpmSwiftTarget(_DoctorCtx ctx, DoctorSection macosSec, String pkgSwift, String packageRoot) {
     // ── Swift target completeness (nested-SPM gap fix) ───────────────────
-    final isMacosSwift = ctx.specs.isEmpty || _isAppleSwiftModule(ctx.specs.first);
+    final isMacosSwift = ctx.specs.isEmpty || ctx.specs.any(_isAppleSwiftModule);
     if (isMacosSwift) {
       final swiftDirName = _toPascalCase(ctx.pluginName);
       final spmSwiftDir = Directory(p.join(packageRoot, 'Sources', swiftDirName));
@@ -641,19 +650,31 @@ extension _DoctorAppleChecks on DoctorCommand {
 
       if (spmSwiftDir.existsSync()) {
         ctx.ok(macosSec, 'SPM Sources/$swiftDirName/ directory present');
-        final swiftBridge = File(p.join(spmSwiftDir.path, '${ctx.pluginName}.bridge.g.swift'));
-        if (swiftBridge.existsSync()) {
-          ctx.ok(macosSec, 'SPM Sources/$swiftDirName/${ctx.pluginName}.bridge.g.swift present');
-        } else if (ctx.specs.isNotEmpty) {
-          ctx.err(
-            macosSec,
-            'Missing ${ctx.pluginName}.bridge.g.swift in SPM Sources/$swiftDirName/',
-            hint: 'Run: nitrogen link  (copies generated bridge to the SPM Swift target)',
-          );
+        for (final bridge in _swiftBridgeNames(ctx)) {
+          if (File(p.join(spmSwiftDir.path, bridge)).existsSync()) {
+            ctx.ok(macosSec, 'SPM Sources/$swiftDirName/$bridge present');
+          } else {
+            ctx.err(macosSec, 'Missing $bridge in SPM Sources/$swiftDirName/', hint: 'Run: nitrogen link  (copies generated bridge to the SPM Swift target)');
+          }
         }
       } else if (ctx.specs.isNotEmpty) {
         ctx.warn(macosSec, 'SPM Sources/$swiftDirName/ directory not found', hint: 'Run: nitrogen link  (creates SPM Swift target directory with bridge)');
       }
     }
   }
+
+  /// One generated Swift bridge per Apple-Swift module, named after its lib —
+  /// a multi-module plugin has several, none named after the plugin.
+  List<String> _swiftBridgeNames(_DoctorCtx ctx) => [
+    for (final spec in ctx.specs.where(_isAppleSwiftModule))
+      '${_extractLibName(spec) ?? p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '').replaceAll('-', '_')}.bridge.g.swift',
+  ];
+
+  /// `<ModuleClass>Cpp` SwiftPM targets of the plugin's C++ modules.
+  List<String> _cppModuleTargets(_DoctorCtx ctx) => [
+    for (final spec in ctx.specs.where(isCppModule))
+      if (RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync()) case final m?) '${m.group(1)}Cpp',
+  ];
 }
+
+bool _declaresTarget(String pkgSwift, String name) => RegExp('name:\\s*"${RegExp.escape(name)}"').hasMatch(pkgSwift);

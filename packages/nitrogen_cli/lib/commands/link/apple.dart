@@ -841,15 +841,15 @@ void _spmSyncPerModuleCppTargets(
 ) {
   final sourcesRoot = packageRoot != null ? p.join(packageRoot, 'Sources') : p.join(baseDir, platform, 'Sources');
   final specLibDir = Directory(p.join(baseDir, 'lib'));
-  final moduleSpecFiles = specLibDir.existsSync() ? specLibDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
+  final moduleSpecs = moduleSpecFiles(specLibDir);
   final modulePlatformFilter = platform == 'ios' ? isIosCppModule : isMacosCppModule;
   String libOf(File f) {
     final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
     return extractLibNameFromSpec(f) ?? stem;
   }
 
-  final modulePlatformCppLibs = moduleSpecFiles.where(modulePlatformFilter).map(libOf).toSet();
-  final moduleKnownLibs = moduleSpecFiles.map(libOf).toSet();
+  final modulePlatformCppLibs = moduleSpecs.where(modulePlatformFilter).map(libOf).toSet();
+  final moduleKnownLibs = moduleSpecs.map(libOf).toSet();
 
   final nonMainModules = moduleInfos.where((m) => m.lib != pluginName).toList();
 
@@ -973,6 +973,9 @@ void _spmSyncOneModuleCppTarget(
   // Bridge header for every module (the Swift bridge needs <lib>_nitro_post).
   final hSrc = File(p.join(baseDir, 'lib', 'src', 'generated', 'cpp', '${m.lib}.bridge.g.h'));
   if (hSrc.existsSync()) hSrc.copySync(p.join(moduleIncludeDir.path, '${m.lib}.bridge.g.h'));
+  for (final h in typeOnlyBridgeHeaders(baseDir)) {
+    h.copySync(p.join(moduleIncludeDir.path, p.basename(h.path)));
+  }
 
   // REPAIR: this module's sources used to be synced into the
   // plugin-level target — remove them there so both targets never
@@ -1000,7 +1003,7 @@ void _spmSyncMainModuleCppForwarders(
   // Discover which modules use NativeImpl.cpp specifically on THIS platform.
   // A mixed module (ios:swift, macos:cpp) must only get HybridXxx.cpp on macOS.
   final libDir = Directory(p.join(baseDir, 'lib'));
-  final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
+  final specFiles = moduleSpecFiles(libDir);
   final platformCppFilter = platform == 'ios' ? isIosCppModule : isMacosCppModule;
   final platformCppLibs = specFiles.where(platformCppFilter).map((f) {
     final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
@@ -1082,6 +1085,10 @@ void _spmSyncMainModuleCppForwarders(
     if (hSrc.existsSync()) {
       hSrc.copySync(p.join(includeDir.path, bridgeHeader));
     }
+  }
+  // Shared types from type-only files: the module bridges above #include them.
+  for (final h in typeOnlyBridgeHeaders(baseDir)) {
+    h.copySync(p.join(includeDir.path, p.basename(h.path)));
   }
 }
 
@@ -1196,7 +1203,7 @@ void _writeAppleModuleForwarders(
   if (moduleInfos != null) {
     // Discover specs for iOS-cpp filtering (per-platform, not broad Apple check).
     final libDir = Directory(p.join(baseDir, 'lib'));
-    final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
+    final specFiles = moduleSpecFiles(libDir);
     final appleCppLibs = specFiles.where(platformFilter).map((f) {
       final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
       return extractLibNameFromSpec(f) ?? stem;

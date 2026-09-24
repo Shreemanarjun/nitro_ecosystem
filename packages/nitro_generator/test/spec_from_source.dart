@@ -120,9 +120,9 @@ class SpecFromSource {
     final streams = <BridgeStream>[];
     final propMap = <String, _PropEntry>{};
 
-    for (final member in (moduleClass.body as BlockClassBody).members) {
-      if (member is! MethodDeclaration) continue;
-      if (member.isComplete) continue; // analyzer 13: isAbstract → !isComplete
+    final members = (moduleClass.body as BlockClassBody).members.whereType<MethodDeclaration>().where((m) => !m.isComplete).toList();
+    _setterNames = {for (final m in members) if (m.isSetter) m.name.lexeme};
+    for (final member in members) {
       _processMember(member, ns, enumNames, structNames, recordNames, functions, propMap, streams);
     }
 
@@ -136,6 +136,10 @@ class SpecFromSource {
           setSymbol: '${ns}_set_${_toSnakeCase(entry.name)}',
           hasGetter: entry.hasGetter,
           hasSetter: entry.hasSetter,
+          getFast: entry.getFast,
+          setFast: entry.setFast,
+          getMainThread: entry.getMainThread,
+          setMainThread: entry.setMainThread,
         ),
       );
     }
@@ -181,6 +185,10 @@ class SpecFromSource {
 
   // ─── Member dispatch ──────────────────────────────────────────────────────
 
+  /// Setter names of the module being parsed: a getter with a setter stays a
+  /// property (read/write), mirroring SpecExtractor.
+  static Set<String> _setterNames = {};
+
   static void _processMember(
     MethodDeclaration m,
     String ns,
@@ -213,16 +221,25 @@ class SpecFromSource {
     }
 
     // ── Getter / setter → property ─────────────────────────────────────────
-    if (m.isGetter) {
+    // Mirrors SpecExtractor._isMethodGetter: annotated getters take the
+    // function path below (isGetter: true).
+    const methodAnns = ['NitroAsync', 'NitroNativeAsync', 'NitroFast', 'MainThread', 'ZeroCopy', 'NitroOwned', 'NitroResult'];
+    bool ann(String n) => m.metadata.any((a) => _annName(a) == n || _annName(a) == n[0].toLowerCase() + n.substring(1));
+    final methodGetter = m.isGetter && !_setterNames.contains(name) && methodAnns.any(ann);
+    if (m.isGetter && !methodGetter) {
       final e = propMap.putIfAbsent(name, () => _PropEntry(name, retSrc));
       e.hasGetter = true;
       e.typeName = retSrc;
+      e.getFast = ann('NitroFast');
+      e.getMainThread = ann('MainThread');
       return;
     }
     if (m.isSetter) {
       final paramType = m.parameters?.parameters.firstOrNull.let(_typeSrc) ?? 'dynamic';
       final e = propMap.putIfAbsent(name, () => _PropEntry(name, paramType));
       e.hasSetter = true;
+      e.setFast = ann('NitroFast');
+      e.setMainThread = ann('MainThread');
       return;
     }
 
@@ -255,6 +272,7 @@ class SpecFromSource {
         isOwned: isOwnedFn,
         isFast: isFastFn || name.endsWith('Fast'),
         mainThread: isMainThread,
+        isGetter: m.isGetter,
         returnType: _makeType(effectiveReturn, effectiveBase, enumNames, structNames, recordNames, isFuture: isFuture),
         params: params,
       ),
@@ -532,6 +550,7 @@ class _PropEntry {
   String typeName;
   bool hasGetter = false;
   bool hasSetter = false;
+  bool getFast = false, setFast = false, getMainThread = false, setMainThread = false;
 }
 
 extension _Let<T> on T? {

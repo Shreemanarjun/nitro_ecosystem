@@ -10,7 +10,15 @@ void _emitPropertyImpls(CodeWriter writer, BridgeSpec spec) {
 
     final isVariantProp = spec.isVariantName(bareTypeName(prop.type.name));
 
-    if (prop.hasGetter) {
+    if (prop.hasGetter && prop.getFast) {
+      // @nitroFast: bare call — no callSync wrapper, no error-slot check.
+      writer.line('  @override');
+      writer.line('  $rt get ${prop.dartName} {');
+      writer.line('    checkDisposed();');
+      writer.line('    final res = _get${cap}Ptr(_instanceId, _nitroErr);');
+      _emitReturnDecode(writer, prop.type, 'res', '    ', spec, optIsBorrowed: true);
+      writer.line('  }');
+    } else if (prop.hasGetter) {
       writer.line('  @override');
       writer.line('  $rt get ${prop.dartName} {');
       writer.line('    checkDisposed();');
@@ -22,7 +30,15 @@ void _emitPropertyImpls(CodeWriter writer, BridgeSpec spec) {
       writer.line('  }');
     }
 
-    if (prop.hasSetter) {
+    if (prop.hasSetter && prop.setFast) {
+      final encoded = isRecordProp || isVariantProp ? (expr: _encodeRecordParam(prop.type, 'value', 'arena'), needsArena: true) : encodePropertyValue(prop.type, spec, 'value', 'arena');
+      final call = '_set${cap}Ptr(_instanceId, ${encoded.expr}, _nitroErr);';
+      writer.line('  @override');
+      writer.line('  set ${prop.dartName}($rt value) {');
+      writer.line('    checkDisposed();');
+      writer.line(encoded.needsArena ? '    withArena((arena) { $call });' : '    $call');
+      writer.line('  }');
+    } else if (prop.hasSetter) {
       writer.line('  @override');
       if (isRecordProp || isVariantProp) {
         // @HybridRecord properties use _encodeRecordParam for full Map/List fidelity.

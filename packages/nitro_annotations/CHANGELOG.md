@@ -1,3 +1,7 @@
+## 0.7.8
+
+- Version sync with nitro_generator 0.7.8.
+
 ## 0.7.7
 
 - Sync with `nitro_generator` 0.7.7. **Re-run `nitrogen generate`.**

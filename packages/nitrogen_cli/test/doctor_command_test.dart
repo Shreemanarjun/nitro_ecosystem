@@ -137,6 +137,7 @@ void _chmod(File file, String mode) {
 }
 
 void main() {
+  _falsePositives();
   group('Permission checks', () {
     test('warns when src/CMakeLists.txt is not writable', () {
       final tmp = _scaffold();
@@ -1963,6 +1964,10 @@ let package = Package(name: "my_plugin", targets: [
       if (!Platform.isMacOS) return;
       final tmp = scaffoldSpm(hasPluginCpp: false);
       addTearDown(() => tmp.deleteSync(recursive: true));
+      // The forwarder exists to pull in src/<plugin>.cpp — only required when that file does.
+      File(p.join(tmp.path, 'src', 'my_plugin.cpp'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('// plugin C++');
       final result = _run(tmp);
       final iosSec = result.sections.firstWhere((s) => s.title == 'iOS');
       final check = iosSec.checks.firstWhere(
@@ -2478,6 +2483,140 @@ let package = Package(name: "my_plugin", targets: [
       final label = sec.checks.single.label;
       expect(label, contains('ios/.symlinks'));
       expect(label, contains('macos/Flutter/ephemeral'));
+    });
+  });
+}
+
+// ── False positives found on real plugins (nitro_vani/webgpu/http/printing/view) ──
+
+List<String> _errors(DoctorViewResult r) => [
+  for (final sec in r.sections)
+    for (final c in sec.checks)
+      if (c.status == DoctorStatus.error) c.label,
+];
+
+void _write(Directory root, String rel, String content) =>
+    File(p.join(root.path, rel))
+      ..createSync(recursive: true)
+      ..writeAsStringSync(content);
+
+/// A C++ module `demo` with one pure-virtual method, built for linux.
+Directory _cppDesktopPlugin({required String linuxCmake, required Map<String, String> files}) {
+  final root = _scaffold(withIos: false);
+  _write(root, 'lib/src/demo.native.dart', '@NitroModule(lib: "demo", ios: NativeImpl.cpp, android: NativeImpl.cpp, linux: NativeImpl.cpp)\nabstract class Demo extends HybridObject {}\n');
+  _write(root, 'lib/src/generated/cpp/demo.native.g.h', 'class HybridDemo {\n    virtual int64_t ping() = 0;\n};\n');
+  _write(root, 'linux/CMakeLists.txt', linuxCmake);
+  files.forEach((rel, content) => _write(root, rel, content));
+  return root;
+}
+
+const _fullImpl = 'class DemoImpl : public HybridDemo {\n  int64_t ping() override { return 1; }\n};\n';
+
+void _falsePositives() {
+  group('doctor false positives', () {
+    test('desktop parity checks the dir CMake compiles, not unused <platform>/src stubs', () {
+      final root = _cppDesktopPlugin(
+        linuxCmake: 'add_subdirectory("\${CMAKE_CURRENT_SOURCE_DIR}/../src" shared)\n',
+        files: {'src/HybridDemo.cpp': _fullImpl, 'linux/src/HybridDemo.cpp': '// TODO stub from nitrogen init\n'},
+      );
+      addTearDown(() => root.deleteSync(recursive: true));
+      expect(_errors(_run(root)).where((e) => e.contains('is missing')), isEmpty);
+    });
+
+    test('desktop parity follows NITRO_IMPL_SRC and #include forwarders', () {
+      final root = _cppDesktopPlugin(
+        linuxCmake: 'set(NITRO_IMPL_SRC_demo "\${CMAKE_CURRENT_SOURCE_DIR}/src/HybridDemo.cpp")\n',
+        files: {'src/HybridDemo.cpp': _fullImpl, 'linux/src/HybridDemo.cpp': '#include "../../src/HybridDemo.cpp"\n'},
+      );
+      addTearDown(() => root.deleteSync(recursive: true));
+      expect(_errors(_run(root)).where((e) => e.contains('is missing')), isEmpty);
+    });
+
+    test('a genuinely unimplemented shared impl is still an error', () {
+      final root = _cppDesktopPlugin(
+        linuxCmake: 'add_subdirectory("\${CMAKE_CURRENT_SOURCE_DIR}/../src" shared)\n',
+        files: {'src/HybridDemo.cpp': 'class DemoImpl : public HybridDemo {};\n'},
+      );
+      addTearDown(() => root.deleteSync(recursive: true));
+      expect(_errors(_run(root)), contains(startsWith('src is missing 1 demo method(s): ping')));
+    });
+
+    test('CMake impl check: set() target variables, impl file named differently from the class', () {
+      final root = _cppDesktopPlugin(linuxCmake: '', files: {'src/HybridDemoCore.cpp': _fullImpl});
+      addTearDown(() => root.deleteSync(recursive: true));
+      _write(root, 'src/CMakeLists.txt', 'set(NITRO_NATIVE "\${CMAKE_CURRENT_SOURCE_DIR}/native")\nset(LIB_NAME demo)\nadd_library(\${LIB_NAME} SHARED dart_api_dl.c)\ntarget_sources(demo PRIVATE "HybridDemoCore.cpp")\n');
+      final errors = _errors(_run(root));
+      expect(errors.where((e) => e.contains('add_library(demo) missing') || e.contains('implements HybridDemo')), isEmpty);
+    });
+
+    test('CMake impl check still reports a module no compiled source implements', () {
+      final root = _cppDesktopPlugin(linuxCmake: '', files: {'src/HybridDemoCore.cpp': 'class X : public HybridOther {};\n'});
+      addTearDown(() => root.deleteSync(recursive: true));
+      _write(root, 'src/CMakeLists.txt', 'set(NITRO_NATIVE "\${CMAKE_CURRENT_SOURCE_DIR}/native")\nadd_library(demo SHARED dart_api_dl.c "HybridDemoCore.cpp")\n');
+      expect(_errors(_run(root)), contains('demo: no source in src/CMakeLists.txt implements HybridDemo'));
+    });
+
+    test('a pluginClass with a real desktop registrant is not dangling; a sibling entry does not leak', () {
+      final root = _scaffold(withIos: false);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final pubspec = File(p.join(root.path, 'pubspec.yaml'));
+      pubspec.writeAsStringSync(
+        '${pubspec.readAsStringSync()}      windows:\n        ffiPlugin: true\n        pluginClass: DemoPluginCApi\n      linux:\n        ffiPlugin: true\n      web:\n        pluginClass: DemoWeb\n        fileName: demo_web.dart\n',
+      );
+      _write(root, 'windows/demo_plugin.cpp', 'void DemoPluginCApiRegisterWithRegistrar(void*) {}\n');
+      expect(_errors(_run(root)).where((e) => e.contains('FFI-only')), isEmpty);
+    });
+
+    test('a dangling desktop pluginClass is still an error', () {
+      final root = _scaffold(withIos: false);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final pubspec = File(p.join(root.path, 'pubspec.yaml'));
+      pubspec.writeAsStringSync('${pubspec.readAsStringSync()}      linux:\n        ffiPlugin: true\n        pluginClass: DemoPlugin\n');
+      Directory(p.join(root.path, 'linux')).createSync();
+      expect(_errors(_run(root)), contains('linux declares pluginClass on an FFI-only platform'));
+    });
+
+    test('an all-C++ Android FFI plugin needs no pluginClass or package', () {
+      final root = _scaffold(withIos: false, specs: [(name: 'demo', isCpp: true)]);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final pubspec = File(p.join(root.path, 'pubspec.yaml'));
+      pubspec.writeAsStringSync(pubspec.readAsStringSync().replaceFirst('        package: com.example.my_plugin\n        pluginClass: MyPlugin\n', '        ffiPlugin: true\n'));
+      expect(_errors(_run(root)).where((e) => e.startsWith('android pluginClass') || e.startsWith('android package')), isEmpty);
+    });
+
+    test('a Kotlin module still requires the android pluginClass', () {
+      final root = _scaffold(withIos: false, specs: [(name: 'demo', isCpp: false)]);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final pubspec = File(p.join(root.path, 'pubspec.yaml'));
+      pubspec.writeAsStringSync(pubspec.readAsStringSync().replaceFirst('        package: com.example.my_plugin\n        pluginClass: MyPlugin\n', '        ffiPlugin: true\n'));
+      expect(_errors(_run(root)), contains('android pluginClass missing'));
+    });
+
+    test('multi-module SPM: one Swift bridge per module, per-module C++ targets, no plugin forwarder needed', () {
+      final root = _scaffold(withIos: false);
+      addTearDown(() => root.deleteSync(recursive: true));
+      for (final (lib, cls) in [('demo_audio', 'DemoAudio'), ('demo_speech', 'DemoSpeech')]) {
+        _write(root, 'lib/src/$lib.native.dart', '@NitroModule(lib: "$lib", ios: NativeImpl.swift, android: NativeImpl.kotlin, linux: NativeImpl.cpp)\nabstract class $cls extends HybridObject {}\n');
+        _write(root, 'ios/my_plugin/Sources/MyPlugin/$lib.bridge.g.swift', '//');
+      }
+      _write(
+        root,
+        'ios/my_plugin/Package.swift',
+        'let package = Package(name: "my_plugin", targets: [\n'
+        '  .target(name: "DemoAudioCpp", path: "Sources/DemoAudioCpp", publicHeadersPath: "include", cxxSettings: [.unsafeFlags(["-std=c++17"])]),\n'
+        '  .target(name: "DemoSpeechCpp", path: "Sources/DemoSpeechCpp", publicHeadersPath: "include"),\n'
+        '  .target(name: "my_plugin", dependencies: ["DemoAudioCpp", "DemoSpeechCpp"]),\n'
+        '])\n',
+      );
+      _write(root, 'ios/my_plugin/Sources/MyPluginCpp/dart_api_dl.c', 'Dart_InitializeApiDL');
+      _write(root, 'ios/my_plugin/Sources/MyPluginCpp/include/nitro.h', '//');
+      _write(root, 'ios/my_plugin/Sources/MyPluginCpp/my_plugin.bridge.g.mm', '//');
+      final r = _run(root);
+      final ios = r.sections.where((s) => s.title == 'iOS').expand((s) => s.checks).toList();
+      expect(ios, isNotEmpty, reason: 'iOS section ran');
+      final problems = [for (final c in ios) if (c.status == DoctorStatus.error || c.status == DoctorStatus.warn) c.label];
+      expect(problems.where((e) => e.contains('bridge.g.swift') || e.contains('forwarder missing') || e.contains('Cpp target missing')), isEmpty, reason: '$problems');
+      expect(ios.where((c) => c.status == DoctorStatus.ok).map((c) => c.label), containsAll(['SPM Sources/MyPlugin/demo_audio.bridge.g.swift present', 'SPM Sources/MyPlugin/demo_speech.bridge.g.swift present']));
     });
   });
 }

@@ -112,25 +112,29 @@ extension _DoctorDesktopChecks on DoctorCommand {
     }
   }
 
-  /// Desktop plugins keep hand-maintained copies of the C++ impl under
-  /// `linux/src/` and `windows/src/` (the desktop CMake compiles those, not
-  /// `src/`). A method added to the spec lands in `src/` and silently misses
-  /// the copies, so the desktop build fails to instantiate the abstract impl —
-  /// far from the edit that caused it. The generated header is the contract.
+  /// Desktop plugins may keep hand-maintained copies of the C++ impl under
+  /// `linux/src/` and `windows/src/`. A method added to the spec lands in
+  /// `src/` and silently misses the copies, so the desktop build fails to
+  /// instantiate the abstract impl — far from the edit that caused it. The
+  /// generated header is the contract. Only the directory the platform's CMake
+  /// actually compiles is checked: its own `src/` copy when it points
+  /// `NITRO_IMPL_SRC_<lib>` there, else the shared `src/` (unused init stubs
+  /// left in `<platform>/src` are not errors).
   void _checkDesktopImplParity(_DoctorCtx ctx) {
     final sec = DoctorSection('Desktop C++ impl parity');
-    final copies = [
+    final copies = <String>{
       for (final d in ['linux', 'windows'])
-        if (Directory(p.join(ctx.root.path, d, 'src')).existsSync()) d,
-    ];
-    if (copies.isEmpty) return; // no desktop copies to drift
+        if (Directory(p.join(ctx.root.path, d)).existsSync()) _compiledImplDir(ctx.root.path, d),
+    };
+    final generatedCpp = Directory(p.join(ctx.root.path, 'lib', 'src', 'generated', 'cpp'));
+    if (copies.isEmpty || !generatedCpp.existsSync()) return; // no desktop platforms / no C++ modules
     ctx.sections.add(sec);
 
     final pureVirtual = RegExp(r'^\s*virtual\s+.*?\b(\w+)\s*\([^;]*\)\s*=\s*0\s*;', multiLine: true);
     final override = RegExp(r'^\s*[\w:<>&,\s\*]+?\b(\w+)\s*\([^;{]*\)\s*(?:const\s+)?override\b', multiLine: true);
-    Set<String> names(RegExp re, File f) => re.allMatches(f.readAsStringSync()).map((m) => m.group(1)!).toSet();
+    Set<String> names(RegExp re, File f) => re.allMatches(_withCppIncludes(f)).map((m) => m.group(1)!).toSet();
 
-    for (final header in Directory(p.join(ctx.root.path, 'lib', 'src', 'generated', 'cpp'))
+    for (final header in generatedCpp
         .listSync()
         .whereType<File>()
         .where((f) => f.path.endsWith('.native.g.h'))) {
@@ -138,17 +142,22 @@ extension _DoctorDesktopChecks on DoctorCommand {
       if (required.isEmpty) continue;
       final stem = p.basename(header.path).replaceAll('.native.g.h', '');
       for (final copy in copies) {
-        final impls = Directory(p.join(ctx.root.path, copy, 'src')).listSync().whereType<File>().where((f) => f.path.endsWith('.cpp'));
+        final dir = Directory(p.join(ctx.root.path, copy));
+        if (!dir.existsSync()) continue;
+        final impls = dir
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.cpp') && !f.path.endsWith('.g.cpp') && !f.path.contains('${p.separator}native${p.separator}'));
         if (impls.isEmpty) continue;
         final implemented = <String>{for (final f in impls) ...names(override, f)};
         final missing = required.difference(implemented).toList()..sort();
         if (missing.isEmpty) {
-          ctx.ok(sec, '$copy/src implements every $stem spec method');
+          ctx.ok(sec, '$copy implements every $stem spec method');
         } else {
           ctx.err(
             sec,
-            '$copy/src is missing ${missing.length} $stem method(s): ${missing.take(5).join(', ')}${missing.length > 5 ? ' …' : ''}',
-            hint: 'Copy the new override(s) from src/ — the desktop build cannot instantiate an abstract impl',
+            '$copy is missing ${missing.length} $stem method(s): ${missing.take(5).join(', ')}${missing.length > 5 ? ' …' : ''}',
+            hint: 'Implement the missing override(s) — the desktop build cannot instantiate an abstract impl',
           );
         }
       }
@@ -167,15 +176,16 @@ extension _DoctorDesktopChecks on DoctorCommand {
       final fallbackName = parsedSegments.isNotEmpty ? parsedSegments.map((w) => w[0].toUpperCase() + w.substring(1)).join('') : lib;
       final moduleName = moduleMatch?.group(1) ?? fallbackName;
 
-      // Check if user has a C++ impl file in src/ (anything that isn't generated or dart_api_dl)
-      final srcDir = Directory(p.join(ctx.root.path, 'src'));
-      final cppImplFiles = srcDir.existsSync()
-          ? srcDir
-                .listSync()
-                .whereType<File>()
-                .where((f) => f.path.endsWith('.cpp') && !f.path.contains('.bridge.g.') && !f.path.contains('.test.g.') && !f.path.contains('dart_api_dl'))
-                .toList()
-          : <File>[];
+      // User C++ impl files (anything not generated or dart_api_dl) in src/
+      // and in every desktop impl dir CMake actually compiles.
+      final implDirs = {'src', for (final d in ['linux', 'windows']) if (Directory(p.join(ctx.root.path, d)).existsSync()) _compiledImplDir(ctx.root.path, d)};
+      final cppImplFiles = [
+        for (final d in implDirs)
+          if (Directory(p.join(ctx.root.path, d)) case final dir when dir.existsSync())
+            ...dir.listSync().whereType<File>().where(
+              (f) => f.path.endsWith('.cpp') && !f.path.contains('.bridge.g.') && !f.path.contains('.test.g.') && !f.path.contains('dart_api_dl'),
+            ),
+      ];
 
       if (cppImplFiles.isNotEmpty) {
         // Check if any impl file registers the implementation
@@ -183,7 +193,7 @@ extension _DoctorDesktopChecks on DoctorCommand {
         if (anyRegisters) {
           ctx.ok(cppSec, '$lib: ${lib}_register_impl() wired up in user impl');
         } else {
-          ctx.warn(cppSec, '$lib: ${lib}_register_impl(&impl) not found in src/', hint: 'Call ${lib}_register_impl(&impl) at startup before first Dart use');
+          ctx.warn(cppSec, '$lib: ${lib}_register_impl(&impl) not found in ${implDirs.join(', ')}', hint: 'Call ${lib}_register_impl(&impl) at startup before first Dart use');
         }
       } else {
         ctx.info(cppSec, '$lib: Create src/Hybrid$moduleName.cpp, subclass Hybrid$moduleName, then call ${lib}_register_impl(&impl)');
@@ -281,3 +291,27 @@ extension _DoctorDesktopChecks on DoctorCommand {
     }
   }
 }
+
+/// The C++ impl directory [platform]'s CMake compiles, relative to the plugin
+/// root: `<platform>/src` when its CMakeLists points `NITRO_IMPL_SRC_<lib>`
+/// into it, else the shared `src`.
+String _compiledImplDir(String root, String platform) {
+  final cmake = File(p.join(root, platform, 'CMakeLists.txt'));
+  final ownCopy = cmake.existsSync() && RegExp(r'NITRO_IMPL_SRC_\w+\s+"\$\{CMAKE_CURRENT_SOURCE_DIR\}/src/').hasMatch(cmake.readAsStringSync());
+  return ownCopy ? '$platform/src' : 'src';
+}
+
+/// [f]'s source with every `#include "….cpp"` it (transitively) pulls in —
+/// a forwarder like `linux/src/HybridX.cpp` → `../../src/HybridX.cpp` is what
+/// the compiler actually sees.
+String _withCppIncludes(File f, [Set<String>? seen]) {
+  seen ??= {};
+  if (!seen.add(p.canonicalize(f.path)) || !f.existsSync()) return '';
+  final src = f.readAsStringSync();
+  final included = [
+    for (final m in RegExp(r'^\s*#include\s+"([^"]+\.cpp)"', multiLine: true).allMatches(src))
+      _withCppIncludes(File(p.join(f.parent.path, m.group(1)!)), seen),
+  ];
+  return [src, ...included].join('\n');
+}
+

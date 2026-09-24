@@ -3,7 +3,7 @@ import 'package:args/command_runner.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 import 'package:nitrogen_cli/version.dart';
-import 'link_command.dart' show PlatformTargetAnalyzer, isCppModule, isNativeCppModule, readBridgeChecksum, stampedBridgeChecksums, webSpecificImplPath, webUsesSpecificImpl;
+import 'link_command.dart' show PlatformTargetAnalyzer, desktopPluginClassIsReal, isAndroidCppModule, isCppModule, moduleSpecFiles, isNativeCppModule, readBridgeChecksum, stampedBridgeChecksums, webSpecificImplPath, webUsesSpecificImpl;
 import 'spm_utils.dart';
 import '../ui.dart';
 import '../templates/build_versions.dart';
@@ -605,8 +605,8 @@ class DoctorCommand extends Command {
   List<File> _findSpecs({Directory? root}) {
     root ??= Directory.current;
     final libDir = Directory(p.join(root.path, 'lib'));
-    if (!libDir.existsSync()) return [];
-    return libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList();
+    // Module specs only: a type-only shared-types file is no module to check.
+    return moduleSpecFiles(libDir);
   }
 
   String _generatedPath(String specPath, String stem, String suffix) {

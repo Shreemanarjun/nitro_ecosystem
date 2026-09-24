@@ -16,8 +16,16 @@ part 'cpp_bridge/jni_swift_prologue.dart';
 part 'cpp_bridge/jni_method_emitter.dart';
 
 class CppBridgeGenerator {
+  /// Imported type → owner lib, for JNI class paths built by the static
+  /// signature helpers below (set per [generate] call; generation is synchronous).
+  static Map<String, String> _jniTypeLibs = const {};
+
+  /// JNI package of struct [base]: its owner's when imported, else [libPkg].
+  static String _jniPkg(String base, String libPkg) => _jniTypeLibs.containsKey(base) ? 'nitro/${_jniTypeLibs[base]}_module' : libPkg;
+
   static String generate(BridgeSpec spec) {
-    final core = _generateCore(spec);
+    _jniTypeLibs = spec.importedTypeLibs;
+    final core = spec.renderGetterCalls(_generateCore(spec));
     if (spec.entryPoints.isEmpty) return core;
     // Appended after every prologue so GetEnv/g_bridgeClass are in scope, and
     // regardless of which bridge path the spec took above.
@@ -1546,7 +1554,7 @@ class CppBridgeGenerator {
   static void _emitStreamPortRegistry(CodeWriter writer, BridgeSpec spec) {
     if (spec.streams.isEmpty) {
       // Still define the hook destroy_instance calls, or the bridge fails to link.
-      writer.line('void _nitro_release_instance_streams(const void*) {}');
+      writer.line('static void _nitro_release_instance_streams(const void*) {}');
       writer.blankLine();
       return;
     }
@@ -1590,7 +1598,7 @@ class CppBridgeGenerator {
     }
     writer.blankLine();
     writer.line('// Called by destroy_instance so a disposed instance leaves no subscribers.');
-    writer.line('void _nitro_release_instance_streams(const void* impl) {');
+    writer.line('static void _nitro_release_instance_streams(const void* impl) {');
     for (final stream in spec.streams) {
       writer.line('    g_ports_${stream.dartName}.dropInstance(impl);');
     }
@@ -1673,7 +1681,7 @@ class CppBridgeGenerator {
     writer.blankLine();
     writer.line('// Defined with the stream registries below (which may be emitted after');
     writer.line('// this block): drops every subscriber belonging to one instance.');
-    writer.line('void _nitro_release_instance_streams(const void* impl);');
+    writer.line('static void _nitro_release_instance_streams(const void* impl);');
     writer.blankLine();
     writer.line('extern "C" {');
     writer.line('void ${libStem}_register_factory(void* fn) {');
@@ -2534,7 +2542,7 @@ class CppBridgeGenerator {
       _ when returnType.isAnyNativeObject => 'J', // AnyNativeObject → Long
       final base when customTypeNames.contains(base) => '[B', // @NitroCustomType → ByteArray
       final base when enumNames.contains(base) => 'J',
-      final base when structNames.contains(base) => 'L$libPkg/$base;',
+      final base when structNames.contains(base) => 'L${_jniPkg(base, libPkg)}/$base;',
       _ when zeroCopyReturn && returnType.isTypedData => 'Ljava/nio/ByteBuffer;',
       _ when returnType.isRecord && !returnType.isMap => '[B', // binary record
       _ when returnType.isAnyMap => '[B', // NitroAnyMap: type-tagged binary
@@ -2581,7 +2589,7 @@ class CppBridgeGenerator {
     final baseParamType = bareTypeName(param.type.name);
     if (structNames.contains(baseParamType)) {
       // Struct params are passed as the Kotlin data class object.
-      return 'L$libPkg/$baseParamType;';
+      return 'L${_jniPkg(baseParamType, libPkg)}/$baseParamType;';
     }
     if (param.zeroCopy && param.type.isTypedData) {
       // Zero-copy TypedData params bridge as java.nio.ByteBuffer.

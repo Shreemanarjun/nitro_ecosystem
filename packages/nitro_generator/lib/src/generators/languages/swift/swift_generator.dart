@@ -65,7 +65,7 @@ class SwiftGenerator {
     // @mainThread sync dispatch helper (issue #19). fileprivate: each bridge
     // file that needs it carries its own copy — no cross-file collision, no
     // dedup pass involvement.
-    if (spec.functions.any((f) => f.mainThread && !f.isAsync && !f.isNativeAsync)) {
+    if (spec.functions.any((f) => f.mainThread && !f.isAsync && !f.isNativeAsync) || spec.properties.any((p) => p.getMainThread || p.setMainThread)) {
       writer.line('/// Runs body on the main thread. Re-entrancy safe: executes inline');
       writer.line('/// when the caller is already the main thread (no self-deadlock).');
       writer.line('fileprivate func _nitroMainSync<T>(_ body: () -> T) -> T {');
@@ -125,7 +125,7 @@ class SwiftGenerator {
       SwiftStreamEmitter.emit(writer, stream, spec, mapper);
     }
 
-    return writer.toString();
+    return spec.renderGetterCalls(writer.toString());
   }
 
   /// Emits Swift helper functions for @NitroResult encoding.

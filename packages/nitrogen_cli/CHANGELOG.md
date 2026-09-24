@@ -1,3 +1,19 @@
+## 0.7.8
+
+Fixed
+- `link` / `doctor` no longer treat a type-only shared-types file as a module
+  (no registry, JNI bridge or SwiftPM target for it); its C header is copied
+  into every module's C++ include dir.
+- `link` lists every desktop C++ module in `<plugin>_bundled_libraries`: a
+  second module's library was missing from Linux/Windows apps at runtime.
+- `doctor` false positives: checks the desktop C++ the CMake actually compiles
+  (and follows `#include` forwarders), accepts a desktop `pluginClass` backed
+  by a real registrant, an all-C++ Android FFI plugin, impl files named apart
+  from the class, `set()`-variable targets, and multi-module SwiftPM layouts.
+- `link` copies `nitro_background.h`, `nitro_completion_batch.h` and
+  `nitro_worker_pool.h` into per-module SwiftPM C++ targets that don't depend on
+  the plugin target (0.7.x bridges failed with "file not found").
+
 ## 0.7.7
 
 - Sync with `nitro_generator` 0.7.7. **Re-run `nitrogen generate`.**

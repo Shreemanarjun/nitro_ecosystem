@@ -9,7 +9,9 @@ extension _DoctorCmakeChecks on DoctorCommand {
       ctx.err(cmakeSec, 'src/CMakeLists.txt not found', hint: 'Run: nitrogen link');
     } else {
       ctx.checkFilePermissions(cmakeSec, cmakeFile, 'src/CMakeLists.txt');
-      final cmake = cmakeFile.readAsStringSync();
+      // `add_library(${NITRO_MODULE_NAME} …)` names the same target as
+      // `add_library(nitro_view …)`: expand plain `set(VAR value)` variables.
+      final cmake = _expandCmakeVars(cmakeFile.readAsStringSync());
       // Check for redundant includes in nearby C++ files
       final srcDir = Directory(p.join(ctx.root.path, 'src'));
       final cppFiles = srcDir.listSync().whereType<File>().where((f) => f.path.endsWith('.cpp') || f.path.endsWith('.c')).toList();
@@ -71,9 +73,15 @@ extension _DoctorCmakeChecks on DoctorCommand {
           if (isNativeCppModule(spec)) {
             final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
             final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
-            final implName = 'Hybrid$moduleName.cpp';
-            if (!cmake.contains('"$implName"') && !cmake.contains(' $implName ') && !cmake.contains('\n  $implName')) {
-              ctx.err(cmakeSec, '$lib: $implName not linked in target', hint: 'Add "$implName" to add_library($lib ...)');
+            // The impl is whichever compiled source subclasses Hybrid<Module>;
+            // its file name is the user's choice (HybridNitroHttp.cpp can
+            // implement HybridNitroHttpNative).
+            if (!_cmakeCompilesSubclassOf(cmake, ctx.root.path, 'Hybrid$moduleName')) {
+              ctx.err(
+                cmakeSec,
+                '$lib: no source in src/CMakeLists.txt implements Hybrid$moduleName',
+                hint: 'Add the file with `class … : public Hybrid$moduleName` to the $lib target',
+              );
             }
           }
         } else {
@@ -83,3 +91,27 @@ extension _DoctorCmakeChecks on DoctorCommand {
     }
   }
 }
+
+/// Replaces `${VAR}` with its value for every plain `set(VAR value)` in [cmake].
+String _expandCmakeVars(String cmake) {
+  for (final m in RegExp(r'^\s*set\(\s*(\w+)\s+([\w.-]+)\s*\)', multiLine: true).allMatches(cmake).toList()) {
+    cmake = cmake.replaceAll('\${${m.group(1)}}', m.group(2)!);
+  }
+  return cmake;
+}
+
+/// True when a compiled `.cpp` declares a class deriving from [base]: a file
+/// src/CMakeLists [cmake] names, or a desktop impl a platform CMakeLists
+/// selects with `set(NITRO_IMPL_SRC_<lib> "${CMAKE_CURRENT_SOURCE_DIR}/…")`.
+bool _cmakeCompilesSubclassOf(String cmake, String root, String base) {
+  final derives = RegExp('public\\s+${RegExp.escape(base)}\\b');
+  final candidates = [
+    for (final m in RegExp(r'([\w./-]+\.cpp)\b').allMatches(cmake)) p.join(root, 'src', p.basename(m.group(1)!)),
+    for (final platform in ['linux', 'windows'])
+      if (File(p.join(root, platform, 'CMakeLists.txt')) case final f when f.existsSync())
+        for (final m in RegExp(r'NITRO_IMPL_SRC_\w+\s+"\$\{CMAKE_CURRENT_SOURCE_DIR\}/([^"]+)"').allMatches(f.readAsStringSync()))
+          p.join(root, platform, m.group(1)!),
+  ];
+  return candidates.any((path) => File(path).existsSync() && derives.hasMatch(File(path).readAsStringSync()));
+}
+

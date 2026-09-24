@@ -1464,7 +1464,7 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
       // planting them here again flipped the same five files on every
       // generate/link pair (seen on benchmark: BenchmarkCppCpp/NitroArCpp).
       final nitroNative = Directory(p.join(tmp.path, 'nitro_native'))..createSync();
-      for (final header in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h']) {
+      for (final header in ['dart_api_dl.h', 'dart_api.h', 'dart_native_api.h', 'dart_version.h', 'nitro_background.h', 'nitro_completion_batch.h', 'nitro_worker_pool.h']) {
         File(p.join(nitroNative.path, header)).writeAsStringSync('// $header\n');
       }
       final pkg = Directory(p.join(tmp.path, 'macos', 'my_plugin'))..createSync(recursive: true);
@@ -1490,6 +1490,10 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
       expect(planted('MyPluginCpp'), isTrue, reason: 'the plugin-level target is where the headers live');
       expect(planted('FooCpp'), isFalse, reason: 'resolves them through its MyPluginCpp dependency; link deletes copies here');
       expect(planted('BarCpp'), isTrue, reason: 'a hand-authored target without the dependency still needs its own copies');
+      // 0.7.x bridges #include these too (nitro_webgpu's Present target failed on them).
+      for (final h in ['nitro_background.h', 'nitro_completion_batch.h', 'nitro_worker_pool.h']) {
+        expect(File(p.join(pkg.path, 'Sources', 'BarCpp', 'include', h)).existsSync(), isTrue, reason: h);
+      }
     });
 
     test('cleanRedundantIncludes removes bridge imports', () {

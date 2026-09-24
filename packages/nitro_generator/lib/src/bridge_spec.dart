@@ -78,6 +78,15 @@ class BridgeSpec {
   /// True when Web is a targeted platform.
   bool get targetsWeb => webImpl != null;
 
+  /// A type-only file imported by a web-targeting module (set by the builder,
+  /// which sees the package): its dart:ffi pieces must live in the native-only
+  /// library so the web build of the importer never compiles them.
+  bool typeOnlyForWeb = false;
+
+  /// Dart output uses the web-split layout: codecs in the `.g.dart` part,
+  /// dart:ffi in `generated/native/<file>.ffi.g.dart`.
+  bool get usesWebSplitDart => targetsWeb || (isTypeOnly && typeOnlyForWeb);
+
   /// Every targeted native platform is implemented in C++ (direct dispatch).
   bool get allNativeCpp => [iosImpl, androidImpl, macosImpl, windowsImpl, linuxImpl].every((i) => i == null || i is CppImpl);
 
@@ -173,6 +182,19 @@ class BridgeSpec {
   /// shared types are not re-declared in every bridge header.
   final List<String> importedTypeFiles;
 
+  /// Other `.native.dart` libraries this spec takes types from. Web-split
+  /// Dart outputs are standalone libraries, so they import these explicitly.
+  final List<ImportedSpec> importedSpecs;
+
+  /// Imported type name → the lib of the `.native.dart` file that declares it.
+  /// Kotlin puts each file's types in `nitro.<lib>_module`, so JNI class paths
+  /// for imported structs/records must name the owner's package.
+  final Map<String, String> importedTypeLibs;
+
+  /// JNI package (`nitro/<lib>_module`) of [typeName]: its owner's for an
+  /// imported type, else this spec's.
+  String jniPackageOf(String typeName) => 'nitro/${importedTypeLibs[typeName] ?? lib.replaceAll('-', '_')}_module';
+
   /// Types defined in THIS file (not imported from another `.native.dart`).
   /// Use for type DECLARATION in generators — imported types must not be
   /// redeclared because they already appear in their own bridge file.
@@ -225,6 +247,8 @@ class BridgeSpec {
     this.customTypes = const [],
     this.isTypeOnly = false,
     this.importedTypeFiles = const [],
+    this.importedSpecs = const [],
+    this.importedTypeLibs = const {},
   });
 }
 
@@ -595,6 +619,18 @@ class BridgeFunction {
   /// Wire format: `[1B tag: 0=ok, 1=err][payload]`
   final bool isResult;
 
+  /// Declared as a getter (`T get x`) rather than a method. Getters carrying a
+  /// method annotation take the method path so every annotation works on them,
+  /// but every emitter renders them in property form: Dart `get x`, Swift
+  /// `var x`, Kotlin `val x`, C++ `get_x()`.
+  final bool isGetter;
+
+  /// Dart member declaration after the return type: `get x` or `x(params)`.
+  String dartMember(String params) => isGetter ? 'get $dartName' : '$dartName($params)';
+
+  /// C++ member name: getters keep the property shape (`get_x`).
+  String get cppName => isGetter ? 'get_$dartName' : dartName;
+
   BridgeFunction({
     required this.dartName,
     required this.cSymbol,
@@ -612,6 +648,7 @@ class BridgeFunction {
     this.mainThread = false,
     this.asyncTimeout,
     this.isResult = false,
+    this.isGetter = false,
   });
 }
 
@@ -709,6 +746,14 @@ class BridgeProperty {
   final bool hasGetter;
   final bool hasSetter;
 
+  /// Per-accessor `@nitroFast` / `@mainThread` on a read/write property (a
+  /// read-only annotated getter takes the method path instead, see
+  /// [BridgeFunction.isGetter]).
+  final bool getFast;
+  final bool setFast;
+  final bool getMainThread;
+  final bool setMainThread;
+
   BridgeProperty({
     required this.dartName,
     required this.type,
@@ -716,6 +761,10 @@ class BridgeProperty {
     this.setSymbol,
     this.hasGetter = true,
     this.hasSetter = false,
+    this.getFast = false,
+    this.setFast = false,
+    this.getMainThread = false,
+    this.setMainThread = false,
   });
 }
 
@@ -835,3 +884,29 @@ List<String> splitTopLevelTypeArgs(String s) {
 }
 
 String bareTypeName(String typeName) => typeName.endsWith('?') ? typeName.substring(0, typeName.length - 1) : typeName;
+
+extension GetterCalls on BridgeSpec {
+  /// Getters on the method path ([BridgeFunction.isGetter]) take no arguments,
+  /// so every emitter's inline `impl.x()` / `_impl->x(` call is rewritten here,
+  /// once per generated file, into the property form the native side declares:
+  /// `impl.x` (Swift/Kotlin) and `_impl->get_x(` (C++).
+  String renderGetterCalls(String code) {
+    for (final f in functions) {
+      if (!f.isGetter) continue;
+      final n = f.dartName;
+      code = code.replaceAll('_impl->$n(', '_impl->get_$n(').replaceAll('impl.$n()', 'impl.$n').replaceAll('impl?.$n()', 'impl?.$n');
+    }
+    return code;
+  }
+}
+
+/// An imported `.native.dart` library ([uri] as resolved, e.g.
+/// `package:pkg/src/shared.native.dart`).
+typedef ImportedSpec = ({String uri, String lib, bool isTypeOnly, bool targetsWeb});
+
+extension ImportedSpecImports on ImportedSpec {
+  /// Its dart:ffi library when it uses the web-split layout (a type-only file
+  /// imported by a web module always does), else null — the part has it all.
+  String? ffiLibraryUriFor(BridgeSpec importer) =>
+      isTypeOnly && importer.targetsWeb || targetsWeb ? uri.replaceFirstMapped(RegExp(r'([^/]+)\.native\.dart$'), (m) => 'generated/native/${m[1]}.ffi.g.dart') : null;
+}

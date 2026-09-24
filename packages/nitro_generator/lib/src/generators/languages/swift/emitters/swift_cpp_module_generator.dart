@@ -97,7 +97,10 @@ String _generateCppModuleBridge(BridgeSpec spec) {
     // @mainThread: same @MainActor rule as the Swift-impl protocol — async
     // requirements only (see swift_protocol_registry_emitter.dart).
     final isolation = func.mainThread && (func.isAsync || func.isNativeAsync) ? '@MainActor ' : '';
-    if (func.isAsync || func.isNativeAsync) {
+    if (func.isGetter) {
+      final effects = func.isAsync || func.isNativeAsync ? ' async throws' : '';
+      nodes.add(CodeLine('    ${isolation}var ${func.dartName}: $retType { get$effects }'));
+    } else if (func.isAsync || func.isNativeAsync) {
       nodes.add(
         CodeLine('    ${isolation}func ${func.dartName}($params) async throws -> $retType'),
       );

@@ -657,8 +657,10 @@ class StructGenerator {
       // Fields use raw C types (pointer-sized, 1-byte booleans, Int32 enums)
       // so that UnsafeMutablePointer<_${Name}C> has EXACTLY the same layout
       // as the C typedef in the bridge header.
+      // Internal, not fileprivate: a struct from a shared (type-only or other
+      // module's) file is marshalled by every importing module's bridge file.
       s.writeln('// C-ABI shadow — layout matches the C typedef ${st.name}');
-      s.writeln('fileprivate struct _${st.name}C {');
+      s.writeln('struct _${st.name}C {');
       for (final f in st.fields) {
         final shadowType = _dartTypeToSwiftCShadow(f.type.name, f.zeroCopy, enumNames, structNames);
         s.writeln('  var ${f.name}: $shadowType');

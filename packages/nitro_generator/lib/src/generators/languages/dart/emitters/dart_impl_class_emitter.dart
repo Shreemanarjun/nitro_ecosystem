@@ -162,9 +162,10 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   writer.line(
     "    NitroRuntime.checkLinkChecksum('${spec.lib}', '$checksum', () => _dylib.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>('${libStem}_nitro_bridge_checksum')().toDartString());",
   );
-  // Initialise NativeFinalizer for every struct proxy.
+  // Initialise NativeFinalizer for every struct proxy this spec owns (a
+  // proxy's _init is private to its library; imported structs stream eagerly).
   // Each proxy looks up its generated release C-symbol from _dylib.
-  for (final st in spec.structs) {
+  for (final st in spec.localStructs) {
     writer.line('    ${st.name}Proxy._init(_dylib);');
   }
   // Ask native side to create an impl for this key and return the assigned instanceId.

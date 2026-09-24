@@ -1,3 +1,23 @@
+## 0.7.8
+
+Added
+- Method annotations work on getters (`@nitroFast`, `@nitroAsync`,
+  `@nitroNativeAsync`, `@mainThread`, `@zeroCopy`, `@nitroOwned`,
+  `@nitroResult`); natively they stay properties (Swift `var`, Kotlin `val`,
+  C++ `get_x()`). An unannotated `Future` return now hints at `@nitroAsync`.
+- Read/write properties take per-accessor `@nitroFast` / `@mainThread`
+  (e.g. on both `get volume` and `set volume`).
+
+Fixed
+- Shared types across modules (type-only `.native.dart` files) now work with
+  web-capable modules and on every backend: the type file takes the web-split
+  layout when a web module imports it, split libraries import it, imported
+  struct streams decode eagerly, C++ modules get the shared record structs,
+  Swift struct shadows are visible to other modules' bridge files, and Kotlin
+  imports and JNI class paths name the owning file's package.
+- Plugins with two or more C++ modules link on Apple: the per-bridge
+  `_nitro_release_instance_streams` helper is file-local (was a duplicate symbol).
+
 ## 0.7.7
 
 Fixed

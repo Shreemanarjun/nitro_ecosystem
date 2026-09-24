@@ -458,12 +458,13 @@ class SpecValidator {
           ValidationIssue(
             severity: ValidationSeverity.error,
             code: 'E010',
-            message: '${spec.dartClassName}.${func.dartName}() — unknown return type "$retName".',
-            hint:
-                'If "$retName" is a struct, annotate it with @HybridStruct. '
-                'If it is an enum, annotate it with @HybridEnum. '
-                'If it is a sealed union, annotate it with @NitroVariant. '
-                'If it is a complex/nested type (lists, nested objects), annotate it with @HybridRecord.',
+            message: '${spec.dartClassName}.${func.dartName}${func.isGetter ? '' : '()'} — unknown return type "$retName".',
+            hint: retName.startsWith('Future<') || retName.startsWith('FutureOr<')
+                ? 'Annotate it @nitroAsync (native runs off the Dart thread) or @nitroNativeAsync (native completes the future itself).'
+                : 'If "$retName" is a struct, annotate it with @HybridStruct. '
+                      'If it is an enum, annotate it with @HybridEnum. '
+                      'If it is a sealed union, annotate it with @NitroVariant. '
+                      'If it is a complex/nested type (lists, nested objects), annotate it with @HybridRecord.',
           ),
         );
       }

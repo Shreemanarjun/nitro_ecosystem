@@ -44,6 +44,10 @@ class KotlinGenerator {
       if (hasBufferedStreams) writer.line('import kotlinx.coroutines.flow.buffer');
     }
     if (hasAsyncFunctions) writer.line('import kotlinx.coroutines.runBlocking');
+    // Shared types from other .native.dart files live in their own package.
+    for (final imp in spec.importedSpecs) {
+      writer.line('import nitro.${imp.lib}_module.*');
+    }
     writer.blankLine();
 
     // ── Type declarations (enums / structs / records / variants) ──────────────────────
@@ -109,7 +113,9 @@ class KotlinGenerator {
       final retType = mapper.functionRetType(func);
       final params = func.params.map((p) => '${p.name}: ${mapper.paramType(p)}').join(', ');
       final suspend = (func.isAsync || func.isNativeAsync) ? 'suspend ' : '';
-      writer.line('    ${suspend}fun ${func.dartName}($params): $retType');
+      // Kotlin has no `suspend val`: an async getter is a plain val the bridge
+      // evaluates on its executor, like the method form's runBlocking body.
+      writer.line(func.isGetter ? '    val ${func.dartName}: $retType' : '    ${suspend}fun ${func.dartName}($params): $retType');
     }
 
     for (final prop in spec.properties) {
@@ -373,7 +379,7 @@ class KotlinGenerator {
     KotlinCallbackEmitter.emitInvokers(writer, spec, mapper);
 
     writer.line('}');
-    return writer.toString();
+    return spec.renderGetterCalls(writer.toString());
   }
 
   /// Emits Kotlin helper classes/functions needed for @NitroVariant bridge and @NitroResult.

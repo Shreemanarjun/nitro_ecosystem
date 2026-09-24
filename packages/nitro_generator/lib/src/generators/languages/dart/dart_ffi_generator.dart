@@ -71,7 +71,7 @@ class DartFfiGenerator {
     // platform-neutral codec sections (compiled into web builds too); all
     // dart:ffi content moves to the standalone library from
     // [generateFfiLibrary], reached through [generatePlatformShim].
-    if (spec.targetsWeb) return _generateWebSplitPart(spec);
+    if (spec.usesWebSplitDart) return _generateWebSplitPart(spec);
 
     final writer = CodeWriter();
     writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash));
@@ -147,7 +147,7 @@ class DartFfiGenerator {
   /// (`generated/native/<file>.ffi.g.dart`). Never compiled into a web build —
   /// the platform shim conditionally exports the web bridge there instead.
   static String generateFfiLibrary(BridgeSpec spec) {
-    if (!spec.targetsWeb) {
+    if (!spec.usesWebSplitDart) {
       return '// Web not targeted — the dart:ffi implementation lives in the .g.dart part.\n';
     }
     _assertSupportedFunctionTypes(spec);
@@ -165,6 +165,12 @@ class DartFfiGenerator {
     writer.line("import 'package:nitro/nitro.dart';");
     writer.blankLine();
     writer.line("import '../../$specFile';");
+    // Shared types from other .native.dart files, and their dart:ffi halves.
+    for (final imp in spec.importedSpecs) {
+      writer.line("import '${imp.uri}';");
+      final ffi = imp.ffiLibraryUriFor(spec);
+      if (ffi != null) writer.line("import '$ffi';");
+    }
     writer.blankLine();
 
     // FFI struct representations, zero-copy proxies, and the pointer edges of
@@ -207,7 +213,7 @@ class DartFfiGenerator {
   /// The conditional-export platform shim (`<file>.platform.g.dart`): resolves
   /// [generateFfiLibrary]'s factory on native and the web bridge's on web.
   static String generatePlatformShim(BridgeSpec spec) {
-    if (!spec.targetsWeb) {
+    if (!spec.usesWebSplitDart) {
       return '// Web not targeted — no platform shim generated.\n';
     }
     final stem = _fileStem(spec);

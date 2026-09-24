@@ -10,6 +10,37 @@ class SwiftPropertyEmitter {
     BridgeSpec spec,
     SwiftTypeMapper mapper,
   ) {
+    if (!prop.getMainThread && !prop.setMainThread) return _emit(writer, prop, spec, mapper);
+    // @mainThread accessors: run the whole @_cdecl body inside _nitroMainSync
+    // (one hop; every early return stays inside the closure), as sync methods do.
+    final raw = CodeWriter();
+    _emit(raw, prop, spec, mapper);
+    final lines = raw.toString().split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final sig = RegExp(r'^public func _\w+_call_(get|set)_\w+\(.*\)(?: -> (.+))? \{$').firstMatch(line);
+      final wrap = sig != null && (sig.group(1) == 'get' ? prop.getMainThread : prop.setMainThread);
+      if (!wrap) {
+        if (i < lines.length - 1 || line.isNotEmpty) writer.line(line);
+        continue;
+      }
+      final ret = sig.group(2) ?? 'Void';
+      writer.line(line);
+      writer.line('    ${ret == 'Void' ? '' : 'return '}_nitroMainSync { () -> $ret in');
+      for (i++; lines[i] != '}'; i++) {
+        writer.line('    ${lines[i]}');
+      }
+      writer.line('    }');
+      writer.line('}');
+    }
+  }
+
+  static void _emit(
+    CodeWriter writer,
+    BridgeProperty prop,
+    BridgeSpec spec,
+    SwiftTypeMapper mapper,
+  ) {
     final swiftType = mapper.swiftType(prop.type.name);
     final propTypeName = prop.type.name;
     final propTypeBase = bareTypeName(propTypeName);

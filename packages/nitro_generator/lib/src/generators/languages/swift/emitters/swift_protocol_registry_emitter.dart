@@ -31,7 +31,11 @@ void _emitSwiftProtocol(CodeWriter writer, BridgeSpec spec, SwiftTypeMapper mapp
     // methods are dispatched via the _nitroMainSync helper instead (an actor
     // annotation here would make the synchronous @_cdecl call site illegal).
     final isolation = func.mainThread && (func.isAsync || func.isNativeAsync) ? '@MainActor ' : '';
-    if (func.isAsync || func.isNativeAsync) {
+    if (func.isGetter) {
+      // Property form; effects go on the accessor: `{ get async throws }`.
+      final effects = func.isAsync || func.isNativeAsync ? ' async throws' : (func.isResult ? ' throws' : '');
+      writer.line('    ${isolation}var ${func.dartName}: $retType { get$effects }');
+    } else if (func.isAsync || func.isNativeAsync) {
       writer.line(
         '    ${isolation}func ${func.dartName}($params) async throws -> $retType',
       );

@@ -1,7 +1,9 @@
 import 'package:build/build.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dart_style/dart_style.dart';
+import 'package:glob/glob.dart';
 import 'package:source_gen/source_gen.dart';
+import 'src/bridge_spec.dart';
 import 'src/build_extensions.dart';
 import 'src/spec_extractor.dart';
 import 'src/spec_validator.dart';
@@ -30,6 +32,7 @@ class NitroGeneratorBuilder implements Builder {
       if (spec == null) return;
       spec.assetPackage = buildStep.inputId.package;
       spec.sourceHash = sha256.convert(await buildStep.readAsBytes(buildStep.inputId)).toString();
+      if (spec.isTypeOnly && !await _typeFileLayoutOk(buildStep, spec)) return;
 
       // ── Validate before generating (module files only) ─────────────────
       if (!spec.isTypeOnly) {
@@ -85,4 +88,40 @@ class NitroGeneratorBuilder implements Builder {
       log.severe('nitrogen: Could not process ${buildStep.inputId}:\n$e\n$st');
     }
   }
+
+  /// A type-only file's Dart layout follows its importers: split (dart:ffi in
+  /// the native-only library) when a web-targeting module imports it, so that
+  /// module's web build never compiles dart:ffi. A native-only module that
+  /// imports a split file cannot reach the moved pieces (its generated code is
+  /// a `part`), so that mix is reported instead of generating broken code.
+  static Future<bool> _typeFileLayoutOk(BuildStep buildStep, BridgeSpec spec) async {
+    final self = buildStep.inputId;
+    final web = <String>[];
+    final nativeOnly = <String>[];
+    await for (final id in buildStep.findAssets(Glob('lib/**.native.dart'))) {
+      if (id == self) continue;
+      final src = await buildStep.readAsString(id);
+      // Up to the annotated class: the arguments may hold comments with parentheses.
+      final module = RegExp(r'@NitroModule\s*\((.*?)\)\s*abstract\s+class', dotAll: true).firstMatch(src);
+      if (module == null) continue;
+      final imports = [
+        for (final m in RegExp(r"""^import\s+['"]([^'"]+)['"]""", multiLine: true).allMatches(src))
+          if (Uri.parse(m.group(1)!) case final uri when uri.scheme == 'package' || !uri.hasScheme)
+            uri.scheme == 'package' ? AssetId.resolve(uri) : AssetId.resolve(uri, from: id),
+      ];
+      if (!imports.contains(self)) continue;
+      (RegExp(r'\bweb\s*:').hasMatch(module.group(1)!) ? web : nativeOnly).add(id.path);
+    }
+    if (web.isNotEmpty && nativeOnly.isNotEmpty) {
+      log.severe(
+        'nitrogen: ${self.path} is shared by web modules (${web.join(', ')}) and '
+        'native-only modules (${nativeOnly.join(', ')}). Target web from every '
+        'module that imports it, or give the native-only modules their own type file.',
+      );
+      return false;
+    }
+    spec.typeOnlyForWeb = web.isNotEmpty;
+    return true;
+  }
 }
+

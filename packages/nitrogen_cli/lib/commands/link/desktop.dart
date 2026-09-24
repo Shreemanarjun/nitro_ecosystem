@@ -13,7 +13,7 @@ part of '../link_command.dart';
 /// hybrid plugin (`ffiPlugin: true` PLUS `pluginClass` — e.g. FFI bindings
 /// with a texture-registrar plugin class) defines it, and stripping the
 /// entry silently empties the registrant at runtime (issue #23).
-bool _desktopPluginClassIsReal(String baseDir, String platform, String pluginClass) {
+bool desktopPluginClassIsReal(String baseDir, String platform, String pluginClass) {
   final dir = Directory(p.join(baseDir, platform));
   if (!dir.existsSync()) return false;
   final symbol = platform == 'windows' ? '${pluginClass}RegisterWithRegistrar' : '${_snakeCasePluginClass(pluginClass)}_register_with_registrar';
@@ -114,7 +114,7 @@ String? _ffiStrippedFlowMapLine(
       // in the platform sources. ffiPlugin + a real pluginClass is a
       // documented hybrid configuration and user-owned (issue #23).
       final cls = entries.firstWhere((e) => e.startsWith('pluginClass:')).substring('pluginClass:'.length).trim();
-      if (!_desktopPluginClassIsReal(baseDir, flowMatch.group(2)!, cls)) {
+      if (!desktopPluginClassIsReal(baseDir, flowMatch.group(2)!, cls)) {
         entries.removeWhere((e) => e.startsWith('pluginClass:'));
         return '${flowMatch.group(1)}${flowMatch.group(2)}: { ${entries.join(', ')} }';
       }
@@ -158,7 +158,7 @@ String? _ffiStrippedFlowMapLine(
   var classIsDangling = false;
   if (hasFfi && hasClass) {
     final cls = children.firstWhere((l) => l.trim().startsWith('pluginClass:')).trim().substring('pluginClass:'.length).trim();
-    classIsDangling = !_desktopPluginClassIsReal(baseDir, blockKey.group(2)!, cls);
+    classIsDangling = !desktopPluginClassIsReal(baseDir, blockKey.group(2)!, cls);
   }
   out.add(line);
   for (final child in children) {
@@ -270,7 +270,7 @@ void linkWindowsCppImplStubs(
   String baseDir = '.',
 }) {
   final libDir = Directory(p.join(baseDir, 'lib'));
-  final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
+  final specFiles = moduleSpecFiles(libDir);
   final windowsCppLibs = specFiles.where(isWindowsCppModule).map((f) {
     final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
     return extractLibNameFromSpec(f) ?? stem;

@@ -508,7 +508,7 @@ class _LinkViewState extends State<LinkView> {
   ) async {
     await _setRunning(4);
     final libDir = Directory(p.join(Directory.current.path, 'lib'));
-    final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
+    final specFiles = moduleSpecFiles(libDir);
     String libFrom(File f) {
       final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
       return extractLibNameFromSpec(f) ?? stem;
@@ -588,7 +588,7 @@ class _LinkViewState extends State<LinkView> {
       // (android/linux cpp). A module with windows:cpp but android:kotlin still needs
       // JniBridge registration — isNativeCppModule checks android/linux only.
       final libDir = Directory(p.join(Directory.current.path, 'lib'));
-      final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
+      final specFiles = moduleSpecFiles(libDir);
       final androidCppLibs = specFiles.where(isAndroidCppModule).map((f) {
         final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
         return extractLibNameFromSpec(f) ?? stem;
@@ -950,7 +950,7 @@ List<ManagedContentIssue> detectManagedContentIssues({String baseDir = '.'}) {
 
   final libDir = Directory(p.join(baseDir, 'lib'));
   if (!libDir.existsSync()) return issues;
-  final allSpecFiles = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList();
+  final allSpecFiles = moduleSpecFiles(libDir);
   if (allSpecFiles.isEmpty) return issues;
 
   // For Android Plugin.kt: a module needs JniBridge registration when it does NOT
@@ -1164,7 +1164,7 @@ class LinkCommand extends Command {
     _headlessMacosStep(pluginName, moduleInfos, baseDir, log, logSkip);
 
     final libDir = Directory(p.join(baseDir, 'lib'));
-    final specFiles = libDir.existsSync() ? libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList() : <File>[];
+    final specFiles = moduleSpecFiles(libDir);
     String libFrom(File f) {
       final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
       return extractLibNameFromSpec(f) ?? stem;

@@ -29,7 +29,8 @@ class SpecParseException implements Exception {
 }
 
 class _ModuleMembers {
-  final List<MethodElement> functions;
+  /// Methods, plus getters that take the method path (see [_isMethodGetter]).
+  final List<ExecutableElement> functions;
   final List<MethodElement> streamMethods;
   final List<PropertyAccessorElement> propertyGetters;
   final List<PropertyAccessorElement> streamGetters;
@@ -44,7 +45,7 @@ class _ModuleMembers {
   });
 
   factory _ModuleMembers.from(ClassElement element) {
-    final functions = <MethodElement>[];
+    final functions = <ExecutableElement>[];
     final streamMethods = <MethodElement>[];
     final propertyGetters = <PropertyAccessorElement>[];
     final streamGetters = <PropertyAccessorElement>[];
@@ -59,10 +60,21 @@ class _ModuleMembers {
       }
     }
 
+    final setterNames = {
+      for (final s in element.setters)
+        if (s.isAbstract) s.displayName.replaceFirst('=', ''),
+    };
     for (final getter in element.getters) {
       if (!getter.isAbstract) continue;
       if (SpecExtractor._isStreamType(getter.returnType)) {
         streamGetters.add(getter);
+      } else if (setterNames.contains(getter.displayName)) {
+        // Read/write property: only per-accessor @nitroFast / @mainThread fit
+        // (Swift/Kotlin have no async or throwing settable property).
+        _rejectAccessorAnnotations(getter);
+        propertyGetters.add(getter);
+      } else if (_isMethodGetter(getter)) {
+        functions.add(getter);
       } else {
         propertyGetters.add(getter);
       }
@@ -70,6 +82,7 @@ class _ModuleMembers {
 
     for (final setter in element.setters) {
       if (!setter.isAbstract) continue;
+      _rejectAccessorAnnotations(setter);
       setters.add(setter);
     }
 
@@ -82,6 +95,28 @@ class _ModuleMembers {
     );
   }
 }
+
+/// Method annotations that, on a getter, route it through the method path.
+const _methodAnnotations = ['NitroAsync', 'NitroNativeAsync', 'NitroFast', 'MainThread', 'ZeroCopy', 'NitroOwned', 'NitroResult'];
+
+/// Annotations a read/write property's accessors may carry.
+const _accessorAnnotations = ['NitroFast', 'MainThread'];
+
+bool _hasAnnotation(Element e, String name) => TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#$name').hasAnnotationOf(e);
+
+void _rejectAccessorAnnotations(PropertyAccessorElement accessor) {
+  final bad = _methodAnnotations.where((a) => !_accessorAnnotations.contains(a) && _hasAnnotation(accessor, a)).toList();
+  if (bad.isEmpty) return;
+  throw InvalidGenerationSource(
+    '"${accessor.displayName.replaceFirst('=', '')}" is a read/write property: only @nitroFast and @mainThread apply to its '
+    'accessors (found @${bad.join(', @')}). Async, zero-copy, owned and result getters must be read-only.',
+    element: accessor,
+  );
+}
+
+/// A getter carrying a method annotation takes the method path, so the
+/// annotation means exactly what it means on a method.
+bool _isMethodGetter(PropertyAccessorElement getter) => _methodAnnotations.any((a) => _hasAnnotation(getter, a));
 
 class _ExtractedTypes {
   final List<BridgeEnum> enums;
@@ -275,6 +310,8 @@ class SpecExtractor {
       variants: allVariants,
       customTypes: allCustomTypes,
       importedTypeFiles: imported.cppIncludes,
+      importedSpecs: imported.dartImports,
+      importedTypeLibs: imported.typeLibs,
     );
   }
 
@@ -293,8 +330,12 @@ class SpecExtractor {
     List<BridgeRecordType> records,
     List<BridgeVariant> variants,
     List<String> cppIncludes,
+    List<ImportedSpec> dartImports,
+    Map<String, String> typeLibs,
   })
   _extractFromImports(LibraryElement libraryElement, String currentSourceUri) {
+    final dartImports = <ImportedSpec>[];
+    final typeLibs = <String, String>{};
     final enums = <BridgeEnum>[];
     final structs = <BridgeStruct>[];
     final records = <BridgeRecordType>[];
@@ -367,10 +408,19 @@ class SpecExtractor {
       // a generated bridge header file in generated/cpp/).
       if (isNativeFile) {
         cppIncludes.add(_cppIncludePath(currentSourceUri, uri));
+        // Split layout: a type-only file is split whenever a web module
+        // imports it (the builder's rule); a module file when it targets web.
+        final modules = importedReader.annotatedWith(const TypeChecker.fromUrl('package:nitro_annotations/src/annotations.dart#NitroModule'));
+        final stem = uri.split('/').last.replaceFirst('.native.dart', '');
+        final lib = modules.map((m) => m.annotation.peek('lib')?.stringValue).whereType<String>().firstOrNull ?? stem;
+        dartImports.add((uri: uri, lib: lib.replaceAll('-', '_'), isTypeOnly: modules.isEmpty, targetsWeb: modules.any((m) => m.annotation.peek('web') != null)));
+        for (final n in [...importedEnums.map((e) => e.name), ...importedStructs.map((e) => e.name), ...importedRecords.map((e) => e.name), ...importedVariants.map((e) => e.name)]) {
+          typeLibs[n] = lib.replaceAll('-', '_');
+        }
       }
     }
 
-    return (enums: enums, structs: structs, records: records, variants: variants, cppIncludes: cppIncludes);
+    return (enums: enums, structs: structs, records: records, variants: variants, cppIncludes: cppIncludes, dartImports: dartImports, typeLibs: typeLibs);
   }
 
   /// Computes the relative `#include` path from [fromUri]'s generated C++
@@ -943,7 +993,7 @@ class SpecExtractor {
   // ─── Functions ───────────────────────────────────────────────────────────────
 
   static List<BridgeFunction> _extractFunctions(
-    Iterable<MethodElement> methods,
+    Iterable<ExecutableElement> methods,
     String ns,
     Set<String> recordTypeNames,
     Set<String> knownTypeNames, {
@@ -1035,6 +1085,7 @@ class SpecExtractor {
         mainThread: mainThreadChecker.hasAnnotationOf(m),
         asyncTimeout: asyncTimeout,
         isResult: isResult,
+        isGetter: m is PropertyAccessorElement,
         params: m.formalParameters.map((p) {
           return BridgeParam(
             name: p.name!,
@@ -1220,6 +1271,8 @@ class SpecExtractor {
       final entry = propMap.putIfAbsent(name, () => {'name': name, 'getter': false, 'setter': false});
       entry['getter'] = true;
       entry['dartType'] = type;
+      entry['getFast'] = _hasAnnotation(ac, 'NitroFast');
+      entry['getMainThread'] = _hasAnnotation(ac, 'MainThread');
     }
 
     // ── Setters ──────────────────────────────────────────────────────────────
@@ -1231,6 +1284,8 @@ class SpecExtractor {
       final entry = propMap.putIfAbsent(name, () => {'name': name, 'getter': false, 'setter': false});
       entry['setter'] = true;
       entry['dartType'] ??= type;
+      entry['setFast'] = _hasAnnotation(ac, 'NitroFast');
+      entry['setMainThread'] = _hasAnnotation(ac, 'MainThread');
     }
 
     final properties = propMap.values.where((e) => e['dartType'] != null).map((e) {
@@ -1251,6 +1306,10 @@ class SpecExtractor {
         setSymbol: '${ns}_set_${_toSnakeCase(name)}',
         hasGetter: e['getter'] as bool,
         hasSetter: e['setter'] as bool,
+        getFast: e['getFast'] == true,
+        setFast: e['setFast'] == true,
+        getMainThread: e['getMainThread'] == true,
+        setMainThread: e['setMainThread'] == true,
       );
     }).toList();
 

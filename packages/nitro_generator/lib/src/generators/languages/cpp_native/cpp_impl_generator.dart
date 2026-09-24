@@ -91,7 +91,7 @@ class CppImplGenerator {
                 )
                 ..add('NitroError* _nitro_err')
                 ..add('int64_t dartPort');
-          w.writeln('    void ${func.dartName}(${params.join(', ')}) override {');
+          w.writeln('    void ${func.cppName}(${params.join(', ')}) override {');
           w.writeln('        // TODO: on error, populate _nitro_err (hasError/name/message via strdup) before posting.');
           w.writeln('        // TODO: post result via Dart_PostCObject_DL(dartPort, ...)');
           w.writeln('        // Nullable result? Post EITHER Dart_CObject_kNull OR kInt64 with');
@@ -117,7 +117,7 @@ class CppImplGenerator {
             structNames,
             recordNames,
           );
-          w.writeln('    $ret ${func.dartName}(${params.join(', ')}) override {');
+          w.writeln('    $ret ${func.cppName}(${params.join(', ')})${func.isGetter ? ' const' : ''} override {');
           w.writeln('        // TODO: implement ${func.dartName}');
           w.writeln('        throw std::runtime_error("Not implemented: ${func.dartName}");');
           final placeholder = _placeholderReturn(ret);

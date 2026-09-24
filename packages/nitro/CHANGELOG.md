@@ -1,3 +1,7 @@
+## 0.7.8
+
+- Version sync with nitro_generator 0.7.8.
+
 ## 0.7.7
 
 - `openStream(coalesced:)`: a message carries a list of items, each unpacked
