@@ -34,11 +34,20 @@ class SwiftGenerator {
     // Shared types (structs, NitroRecordWriter, NitroRecordReader) are
     // declared by the Swift module's .bridge.g.swift, which is compiled
     // in the same module. Do NOT redeclare them here.
-    final isCppModule = spec.iosImpl is CppImpl;
-    if (isCppModule) {
-      return _generateCppModuleBridge(spec);
+    // One Swift file serves iOS AND macOS. A module that is C++ on one Apple
+    // platform and Swift on the other needs the @_cdecl stubs on the Swift
+    // platform only — the C++ bridge calls them there (TARGET_OS_* dispatch).
+    final iosCpp = spec.iosImpl is CppImpl;
+    final macosCpp = spec.macosImpl == null ? iosCpp : spec.macosImpl is CppImpl;
+    if (iosCpp != macosCpp) {
+      return '${generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash)}'
+          '#if os(${iosCpp ? 'macOS' : 'iOS'})\n${_generateSwiftBridge(spec)}\n#else\n${_generateCppModuleBridge(spec)}\n#endif\n';
     }
+    return iosCpp ? _generateCppModuleBridge(spec) : _generateSwiftBridge(spec);
+  }
 
+  /// The @_cdecl bridge for a Swift-implemented module.
+  static String _generateSwiftBridge(BridgeSpec spec) {
     final writer = CodeWriter();
     final mapper = SwiftTypeMapperExtended(spec);
     writer.raw(generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash));

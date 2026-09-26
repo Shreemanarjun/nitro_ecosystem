@@ -272,7 +272,8 @@ class ${className}Plugin : FlutterPlugin, ActivityAware {
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-        ${className}JniBridge.onDetached()
+        // Instance cleanup is driven by Dart's dispose() → the destroy_instance
+        // C bridge call; the generated JniBridge has no engine-level teardown.
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
@@ -315,6 +316,15 @@ class ${className}Impl : Hybrid${className}Spec {
 ''';
 
 // ── Dart / Flutter templates ──────────────────────────────────────────────────
+
+/// The sample module's C++ impl class (desktop platforms), matching the
+/// Swift/Kotlin sample impls.
+String cppSampleImplClass(String className) =>
+    '''class Hybrid${className}Impl final : public Hybrid$className {
+public:
+    double add(double a, double b) override { return a + b; }
+    std::string getGreeting(const std::string& name) override { return "Hello, " + name + "!"; }
+};''';
 
 String nativeDartTemplate(String pluginName, String className, String annotation, {bool web = false}) =>
     '''

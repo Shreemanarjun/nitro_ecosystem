@@ -10,7 +10,7 @@ import '../templates/scaffold_templates.dart';
 import '../templates/podspec_templates.dart';
 import '../templates/build_versions.dart';
 import '../templates/forwarder_templates.dart';
-import '../templates/cpp_stubs.dart' show windowsCppStubContent, linuxCppStubContent;
+import '../templates/cpp_stubs.dart' show cppImplStubContent, windowsCppStubContent, linuxCppStubContent;
 
 // ── CMakeLists.txt updater ────────────────────────────────────────────────────
 
@@ -947,6 +947,20 @@ class ${className}WebPlugin {
     final annotation = '@NitroModule(${args.join(', ')})';
 
     File(p.join(libSrcDir.path, '$pluginName.native.dart')).writeAsStringSync(nativeDartTemplate(pluginName, className, annotation, web: web));
+
+    // Desktop C++ platforms get the sample methods implemented, like the
+    // Swift/Kotlin impls — otherwise the example app fails on Linux/Windows
+    // until the user writes C++ (link only seeds throwing starters).
+    final linux = platforms.contains('linux'), windows = platforms.contains('windows');
+    final cppImpl = File(p.join(pluginName, 'src', 'Hybrid$className.cpp'));
+    if ((linux || windows) && !cppImpl.existsSync()) {
+      final stub = cppImplStubContent(lib: pluginName, className: className, isNativeCpp: linux, iosIsCpp: false, macosIsCpp: false, windowsIsCpp: windows);
+      cppImpl
+        ..createSync(recursive: true)
+        ..writeAsStringSync(
+          stub.replaceFirst(RegExp(r'class Hybrid\w+Impl final[\s\S]*?\n\};'), cppSampleImplClass(className)),
+        );
+    }
 
     final barrel = StringBuffer("export 'src/$pluginName.native.dart';\n");
     if (web) {

@@ -10,6 +10,7 @@ import 'package:test/test.dart';
 
 void main() {
   bundledLibraries();
+  swiftModuleWithPluginCpp();
   late Directory root;
   setUp(() {
     root = Directory.systemTemp.createTempSync('nitro_shared_types_');
@@ -65,5 +66,22 @@ void bundledLibraries() {
     final text = cmake.readAsStringSync();
     expect('\$<TARGET_FILE:demo_second>'.allMatches(text), hasLength(1));
     expect(text, contains('  \$<TARGET_FILE:demo>\n  \$<TARGET_FILE:demo_second>\n  PARENT_SCOPE'));
+  });
+}
+
+void swiftModuleWithPluginCpp() {
+  // nitro_camera: Swift module + src/<plugin>.cpp. The Swift bridge calls
+  // <plugin>_nitro_post, so the SwiftPM C++ target must carry its header.
+  test('Swift module with src/<plugin>.cpp: main bridge header reaches SPM include/', () {
+    final root = Directory.systemTemp.createTempSync('nitro_swift_cpp_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    File(p.join(root.path, 'src', 'cam.cpp'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('// plugin C++');
+    File(p.join(root.path, 'lib', 'src', 'generated', 'cpp', 'cam.bridge.g.h'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('bool cam_nitro_post(long long port, void* obj);');
+    ensureIosPackageSwift('cam', baseDir: root.path, moduleInfos: [ModuleInfo(lib: 'cam', module: 'Cam', isCpp: false)]);
+    expect(File(p.join(root.path, 'ios', 'cam', 'Sources', 'CamCpp', 'include', 'cam.bridge.g.h')).existsSync(), isTrue);
   });
 }

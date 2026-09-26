@@ -1,3 +1,12 @@
+## 0.7.9
+
+Fixed
+- Modules whose language differs across platforms build and run: a module C++
+  on one Apple platform and Swift on the other gets `@_cdecl` stubs on the
+  Swift one only (`#if os(...)`); `android: NativeImpl.cpp` in an otherwise
+  Swift/Kotlin spec uses direct C++ dispatch instead of JNI; stream emit
+  helpers are file-local, so two modules may share a stream name.
+
 ## 0.7.8
 
 Added

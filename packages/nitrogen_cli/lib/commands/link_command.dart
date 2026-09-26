@@ -20,6 +20,7 @@ part 'link/apple.dart';
 part 'link/android.dart';
 part 'link/desktop.dart';
 part 'link/web.dart';
+part 'link/impl_starters.dart';
 
 // ── Package-level helpers (also used in tests) ─────────────────────────────
 
@@ -427,6 +428,7 @@ class _LinkViewState extends State<LinkView> {
 
       await _runKotlinStep(pluginName, moduleInfos, hasCpp);
       await _runAndroidStep(pluginName, moduleInfos);
+      writeImplStarters(pluginName, moduleInfos, baseDir: Directory.current.path);
 
       await _runWindowsStep(pluginName, moduleInfos, nitroNativePath);
       await _runLinuxStep(pluginName, moduleInfos, nitroNativePath);
@@ -606,13 +608,12 @@ class _LinkViewState extends State<LinkView> {
           baseDir: Directory.current.path,
         );
       }
-      // cpp modules still need System.loadLibrary to trigger __attribute__((constructor))
-      if (hasCpp) {
-        linkKotlinLoadLibraries(
-          moduleInfos.where((m) => m.isCpp).map((m) => m.lib).toList(),
-          baseDir: Directory.current.path,
-        );
-      }
+      // Every module builds its own .so with a JNI bridge: System.loadLibrary
+      // runs JNI_OnLoad (Kotlin modules) and __attribute__((constructor)) (C++).
+      linkKotlinLoadLibraries(
+        moduleInfos.map((m) => m.lib).toList(),
+        baseDir: Directory.current.path,
+      );
       // Purge stale JniBridge.register() only for modules that are actually
       // Android/Linux C++ — not for mixed modules like android:kotlin + windows:cpp.
       purgeStaleCppKotlinRegistrations(
@@ -1172,6 +1173,7 @@ class LinkCommand extends Command {
 
     _headlessSwiftStep(pluginName, moduleInfos, baseDir, specFiles, libFrom, log, logSkip);
     _headlessAndroidStep(pluginName, moduleInfos, baseDir, hasCpp, specFiles, libFrom, log, logSkip);
+    writeImplStarters(pluginName, moduleInfos, baseDir: baseDir);
     _headlessWindowsStep(pluginName, moduleInfos, nitroNativePath, baseDir, log, logSkip);
     _headlessLinuxStep(pluginName, moduleInfos, nitroNativePath, baseDir, log, logSkip);
 
@@ -1281,7 +1283,7 @@ class LinkCommand extends Command {
       final kotlinModules = moduleInfos.where((m) => !androidCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
       final androidCppModuleInfos = moduleInfos.where((m) => androidCppLibs.contains(m.lib)).toList();
       if (kotlinModules.isNotEmpty) linkKotlinPlugin(pluginName, kotlinModules, baseDir: baseDir);
-      if (hasCpp) linkKotlinLoadLibraries(moduleInfos.where((m) => m.isCpp).map((m) => m.lib).toList(), baseDir: baseDir);
+      linkKotlinLoadLibraries(moduleInfos.map((m) => m.lib).toList(), baseDir: baseDir);
       purgeStaleCppKotlinRegistrations(androidCppModuleInfos, baseDir: baseDir);
       linkAndroid(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: baseDir, moduleInfos: moduleInfos);
       linkAndroidConsumerRules(kotlinModules, baseDir: baseDir);

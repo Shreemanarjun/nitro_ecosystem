@@ -258,7 +258,7 @@ void _emitSwiftBridgeSection(
 
     if (stream.itemType.isTypedData) {
       // Swift hands over (pointer, element count); count < 0 means null.
-      writer.line('bool _emit_${stream.dartName}_to_dart(int64_t dartPort, const void* item, int64_t count) {');
+      writer.line('static bool _emit_${stream.dartName}_to_dart(int64_t dartPort, const void* item, int64_t count) {');
       writer.line('    Dart_CObject obj;');
       writer.line('    if (count < 0) {');
       writer.line('        obj.type = Dart_CObject_kNull;');
@@ -281,7 +281,7 @@ void _emitSwiftBridgeSection(
       writer.blankLine();
       continue;
     }
-    writer.line('bool _emit_${stream.dartName}_to_dart(int64_t dartPort, $itemCType item) {');
+    writer.line('static bool _emit_${stream.dartName}_to_dart(int64_t dartPort, $itemCType item) {');
     writer.line('    Dart_CObject obj;');
     switch (stream.itemType.name) {
       case _ when isNullable && (itemName == 'int' || itemName == 'DateTime' || isEnum):

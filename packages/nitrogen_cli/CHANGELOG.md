@@ -1,3 +1,27 @@
+## 0.7.9
+
+Added
+- `link` writes a starter for every registered Swift/Kotlin impl class that
+  does not exist yet (a module added after `init`), built from the generated
+  protocol/interface; new C++ stubs start from the generated `impl.g.cpp`
+  (every override) instead of an empty class. Unimplemented members fail as
+  Dart exceptions (C++/Kotlin) or `fatalError` (Swift). Existing code is
+  never touched.
+- `init` with Linux/Windows implements the sample methods in C++ too, so the
+  example app runs on desktop out of the box.
+
+Fixed
+- Android loads every module's library (`System.loadLibrary`), not only C++
+  ones: a Swift/Kotlin-only extra module never ran its `JNI_OnLoad`.
+- `init`'s Android plugin no longer calls a nonexistent `JniBridge.onDetached()`.
+- Adding a C++ platform to an existing module: `link` adds the impl source to
+  its CMake target and refreshes the stub's auto-register guard (the impl
+  otherwise never registered).
+- A Swift module with its own `src/<plugin>.cpp` gets its bridge header in the
+  SwiftPM C++ target (`<plugin>_nitro_post` not found on iOS).
+- SwiftPM `Sources/` entries that `link` adds are relative symlinks to
+  `Classes/` (a copy went stale once the `Classes/` file was edited).
+
 ## 0.7.8
 
 Fixed

@@ -1,3 +1,7 @@
+## 0.7.9
+
+- No runtime changes; released alongside nitro_generator / nitrogen_cli 0.7.9.
+
 ## 0.7.8
 
 - Version sync with nitro_generator 0.7.8.

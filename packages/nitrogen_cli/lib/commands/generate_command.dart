@@ -399,9 +399,7 @@ class GenerateCommand extends Command {
       if (kotlinModules.isNotEmpty) {
         linkKotlinPlugin(pluginName, kotlinModules, baseDir: projectRoot);
       }
-      if (hasCpp) {
-        linkKotlinLoadLibraries(moduleInfos.where((m) => m.isCpp).map((m) => m.lib).toList(), baseDir: projectRoot);
-      }
+      linkKotlinLoadLibraries(moduleInfos.map((m) => m.lib).toList(), baseDir: projectRoot);
       purgeStaleCppKotlinRegistrations(moduleInfos.where((m) => androidCppLibs.contains(m.lib)).toList(), baseDir: projectRoot);
       linkAndroid(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: projectRoot, moduleInfos: moduleInfos);
       linkAndroidConsumerRules(kotlinModules, baseDir: projectRoot);

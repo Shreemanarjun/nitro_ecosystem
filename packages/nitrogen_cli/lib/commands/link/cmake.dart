@@ -175,6 +175,16 @@ void linkCMake(
   modified = modified || mainImpl.modified;
 
   for (final lib in moduleLibs) {
+    // An existing target whose module became C++ on Android/Linux since it was
+    // written (e.g. `linux: NativeImpl.cpp` added later) has no impl source:
+    // its register_impl never runs ("No C++ implementation registered").
+    final info0 = moduleInfos?.where((m) => m.lib == lib).firstOrNull;
+    if (lib != pluginName && info0 != null && info0.isNativeCpp && content.contains('add_library($lib ') && !content.contains(ct.nitroImplSrcVar(lib))) {
+      final start = content.indexOf('add_library($lib ');
+      final end = content.indexOf('\n)\n', start) + 3;
+      content = content.substring(0, end) + ct.implSourcesBlock(lib, _toPascalCase(lib), unguarded: info0.isAndroidCpp) + content.substring(end);
+      modified = true;
+    }
     if (lib != pluginName && !content.contains('add_library($lib ')) {
       final info = moduleInfos?.firstWhere(
         (m) => m.lib == lib,
