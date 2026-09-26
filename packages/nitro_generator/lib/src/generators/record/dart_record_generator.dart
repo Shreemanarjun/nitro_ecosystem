@@ -65,6 +65,12 @@ String _generateDartRecordExtensions(BridgeSpec spec, DartCodecSlice slice) {
   for (final name in referencedStructs.toList()) {
     collectNestedDart(name);
   }
+  // Codecs live with the declaring file only. A type-only (shared) file emits
+  // one for every struct — a record in another file may embed it — and an
+  // imported struct never gets a second copy: the importer resolves the
+  // owner's public extension through its import (two would be ambiguous).
+  if (spec.isTypeOnly) referencedStructs.addAll(spec.localStructs.map((st) => st.name));
+  referencedStructs.removeWhere((n) => structMap[n]?.isImported ?? false);
 
   if (localRecords.isEmpty && localTuples.isEmpty && referencedStructs.isEmpty) return '';
 

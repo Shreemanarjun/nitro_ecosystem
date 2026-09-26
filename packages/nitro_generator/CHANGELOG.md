@@ -2,10 +2,24 @@
 
 Fixed
 - Modules whose language differs across platforms build and run: a module C++
-  on one Apple platform and Swift on the other gets `@_cdecl` stubs on the
-  Swift one only (`#if os(...)`); `android: NativeImpl.cpp` in an otherwise
+  on one Apple platform and Swift on the other gets its `@_cdecl` stubs on
+  the Swift one only (`#if os(...)`; protocol, registry and types stay on
+  both, so existing impl classes keep compiling); `android: NativeImpl.cpp` in an otherwise
   Swift/Kotlin spec uses direct C++ dispatch instead of JNI; stream emit
   helpers are file-local, so two modules may share a stream name.
+- Shared types across `.native.dart` files, in every shape: record fields
+  typed with a type from another file (enum, struct, record) encode as that
+  type (were read as `int`); a type-only file may build on another type file,
+  and owns the Dart codec of its structs (importers reuse it, never
+  duplicate), and its Kotlin imports the other file's package; C++ modules
+  get imported variants' structs and codecs.
+- Callbacks taking a `@HybridRecord` compile: Dart decodes through the
+  record's extension, and the C definition matches the header (`void*`).
+- Swift and Kotlin: a variant field named `w` no longer shadows the writer.
+  Swift: a `Map<String, T>` parameter is passed with its real label (was
+  `value:`). Kotlin: a type file declaring a variant carries its own
+  `RecordReader`/`RecordWriter`, and a module decodes/encodes an imported
+  variant with the owner package's classes.
 
 ## 0.7.8
 

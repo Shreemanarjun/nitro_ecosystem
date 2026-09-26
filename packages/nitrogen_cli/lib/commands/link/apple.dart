@@ -1012,8 +1012,12 @@ void _spmSyncOneModuleCppTarget(
   // Bridge header for every module (the Swift bridge needs <lib>_nitro_post).
   final hSrc = File(p.join(baseDir, 'lib', 'src', 'generated', 'cpp', '${m.lib}.bridge.g.h'));
   if (hSrc.existsSync()) hSrc.copySync(p.join(moduleIncludeDir.path, '${m.lib}.bridge.g.h'));
+  // Shared-type headers live ONCE, in the plugin-level target every module
+  // target depends on. A per-module copy is a second physical file with the
+  // same C typedefs: Clang modules then reject the redefinition.
   for (final h in typeOnlyBridgeHeaders(baseDir)) {
-    h.copySync(p.join(moduleIncludeDir.path, p.basename(h.path)));
+    final copy = File(p.join(moduleIncludeDir.path, p.basename(h.path)));
+    if (copy.existsSync()) copy.deleteSync();
   }
 
   // REPAIR: this module's sources used to be synced into the

@@ -21,6 +21,9 @@ Fixed
   SwiftPM C++ target (`<plugin>_nitro_post` not found on iOS).
 - SwiftPM `Sources/` entries that `link` adds are relative symlinks to
   `Classes/` (a copy went stale once the `Classes/` file was edited).
+- Shared-type headers are placed once, in the plugin-level SwiftPM C++
+  target every module target depends on; per-module copies (a second physical
+  file with the same C typedefs) made Clang modules reject the redefinition.
 
 ## 0.7.8
 

@@ -1483,10 +1483,10 @@ void main() {
       final out = KotlinGenerator.generate(spec);
       expect(out, contains('val out = java.io.ByteArrayOutputStream()'));
       expect(out, contains('val tmp = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)'));
-      expect(out, contains('w.writeBool(count != null); count?.let { w.writeInt64(it) }'));
-      expect(out, contains('w.writeBool(quality != null); quality?.let { w.writeInt64(it.nativeValue) }'));
-      expect(out, contains('w.writeBool(payload != null); payload?.let { it.writeFieldsTo(w.out, w.tmp) }'));
-      expect(out, contains('w.writeBool(samples != null); samples?.let { w.writeInt32(it.size); it.forEach { w.writeInt64(it) } }'));
+      expect(out, contains('_nitroW.writeBool(count != null); count?.let { _nitroW.writeInt64(it) }'));
+      expect(out, contains('_nitroW.writeBool(quality != null); quality?.let { _nitroW.writeInt64(it.nativeValue) }'));
+      expect(out, contains('_nitroW.writeBool(payload != null); payload?.let { it.writeFieldsTo(_nitroW.out, _nitroW.tmp) }'));
+      expect(out, contains('_nitroW.writeBool(samples != null); samples?.let { _nitroW.writeInt32(it.size); it.forEach { _nitroW.writeInt64(it) } }'));
       expect(out, isNot(contains('quality.nativeValue')), reason: 'nullable enum must use ?.let before nativeValue');
       expect(out, isNot(contains('payload.writeFields(w)')), reason: 'nullable record must use ?.let before writeFields');
       expect(out, isNot(contains('it.writeFields(w)')), reason: 'nullable record must use writeFieldsTo with RecordWriter buffers');
@@ -1500,8 +1500,8 @@ void main() {
       expect(out, contains('quality: r.readBool() ? VariantQuality(rawValue: r.readInt())! : nil'));
       expect(out, contains('payload: r.readBool() ? VariantPayload.fromReader(r) : nil'));
       expect(out, contains('samples: r.readBool() ? (0..<Int(r.readInt32())).map { _ in r.readInt() } : nil'));
-      expect(out, contains('w.writeBool(quality != nil); if let value = quality { w.writeInt(value.rawValue) }'));
-      expect(out, contains('w.writeBool(payload != nil); if let value = payload { value.writeFields(w) }'));
+      expect(out, contains('_nitroW.writeBool(quality != nil); if let value = quality { _nitroW.writeInt(value.rawValue) }'));
+      expect(out, contains('_nitroW.writeBool(payload != nil); if let value = payload { value.writeFields(_nitroW) }'));
     });
   });
 

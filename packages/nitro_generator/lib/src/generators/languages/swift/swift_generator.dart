@@ -40,10 +40,44 @@ class SwiftGenerator {
     final iosCpp = spec.iosImpl is CppImpl;
     final macosCpp = spec.macosImpl == null ? iosCpp : spec.macosImpl is CppImpl;
     if (iosCpp != macosCpp) {
-      return '${generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash)}'
-          '#if os(${iosCpp ? 'macOS' : 'iOS'})\n${_generateSwiftBridge(spec)}\n#else\n${_generateCppModuleBridge(spec)}\n#endif\n';
+      // Declarations (protocol, registry, types) stay on both OSes — impl
+      // classes keep compiling everywhere — and only the @_cdecl call stubs,
+      // which the C++ bridge would otherwise duplicate, are limited to the OS
+      // whose implementation is Swift.
+      return _guardCdeclStubs(_generateSwiftBridge(spec), iosCpp ? 'macOS' : 'iOS');
     }
     return iosCpp ? _generateCppModuleBridge(spec) : _generateSwiftBridge(spec);
+  }
+
+  /// Wraps every top-level `@_cdecl` function of [swift] in `#if os([os])`.
+  static String _guardCdeclStubs(String swift, String os) {
+    final lines = swift.split('\n');
+    final out = <String>[];
+    var i = 0;
+    while (i < lines.length) {
+      if (!lines[i].startsWith('@_cdecl(')) {
+        out.add(lines[i++]);
+        continue;
+      }
+      out.add('#if os($os)');
+      var depth = 0;
+      var seenOpen = false;
+      while (i < lines.length) {
+        out.add(lines[i]);
+        for (final ch in lines[i].codeUnits) {
+          if (ch == 0x7B) {
+            depth++;
+            seenOpen = true;
+          } else if (ch == 0x7D) {
+            depth--;
+          }
+        }
+        i++;
+        if (seenOpen && depth <= 0) break;
+      }
+      out.add('#endif');
+    }
+    return out.join('\n');
   }
 
   /// The @_cdecl bridge for a Swift-implemented module.

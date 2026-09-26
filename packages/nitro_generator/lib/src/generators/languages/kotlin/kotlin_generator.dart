@@ -13,6 +13,7 @@ import 'emitters/kotlin_variant_emitter.dart';
 
 class KotlinGenerator {
   static String generate(BridgeSpec spec) {
+    KotlinTypeMapper.importedTypeLibs = spec.importedTypeLibs;
     if (spec.isTypeOnly) return _generateTypeOnly(spec);
     if (spec.androidImpl == null) {
       return '${generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash)}\n'
@@ -559,8 +560,18 @@ class KotlinGenerator {
       CodeLine('package nitro.${spec.lib.replaceAll('-', '_')}_module'),
       const BlankLine(),
       const CodeLine('import androidx.annotation.Keep'),
+      // A type file building on another type file's types (its own package).
+      for (final imp in spec.importedSpecs) CodeLine('import nitro.${imp.lib}_module.*'),
       const BlankLine(),
     ];
+
+    // A variant declared here needs this package's RecordReader/RecordWriter
+    // (not in the runtime AAR; module files emit their own copy).
+    if (spec.localVariants.isNotEmpty) {
+      final helpers = CodeWriter();
+      _emitKotlinBridgeHelpers(helpers, hasVariantBridge: true);
+      nodes.add(CodeSnippet(helpers.toString()));
+    }
 
     final kotlinEnums = EnumGenerator.generateKotlin(spec);
     if (kotlinEnums.isNotEmpty) nodes.add(CodeSnippet(kotlinEnums));

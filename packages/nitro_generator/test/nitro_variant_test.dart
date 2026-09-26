@@ -291,17 +291,17 @@ void main() {
 
     test('emits writeFields with when block', () {
       final code = KotlinGenerator.generate(_typeOnlyVariantSpec());
-      expect(code, contains('fun writeFields(w: RecordWriter)'));
+      expect(code, contains('fun writeFields(_nitroW: RecordWriter)'));
       expect(code, contains('is FilterAccepted'));
       expect(code, contains('is FilterRejected'));
-      expect(code, contains('w.writeInt8(0)'));
-      expect(code, contains('w.writeInt8(1)'));
+      expect(code, contains('_nitroW.writeInt8(0)'));
+      expect(code, contains('_nitroW.writeInt8(1)'));
     });
 
     test('enum fields decode and encode nativeValue, not ordinal', () {
       final code = KotlinGenerator.generate(_typeOnlyVariantEnumSpec());
       expect(code, contains('quality = Quality.fromNative(r.readInt64())'));
-      expect(code, contains('w.writeInt64(quality.nativeValue)'));
+      expect(code, contains('_nitroW.writeInt64(quality.nativeValue)'));
       expect(code, isNot(contains('quality.ordinal.toLong()')));
       expect(code, isNot(contains('it.ordinal == r.readInt64().toInt()')));
     });
@@ -324,11 +324,11 @@ void main() {
 
     test('emits writeFields with switch on self', () {
       final code = SwiftGenerator.generate(_typeOnlyVariantSpec());
-      expect(code, contains('func writeFields(to w: NitroRecordWriter)'));
+      expect(code, contains('func writeFields(to _nitroW: NitroRecordWriter)'));
       expect(code, contains('case .accepted'));
       expect(code, contains('case .rejected'));
-      expect(code, contains('w.bytes.append(UInt8(0))'));
-      expect(code, contains('w.bytes.append(UInt8(1))'));
+      expect(code, contains('_nitroW.bytes.append(UInt8(0))'));
+      expect(code, contains('_nitroW.bytes.append(UInt8(1))'));
       expect(code, contains('func toNative() -> UnsafeMutablePointer<UInt8>?'));
     });
   });
@@ -430,10 +430,10 @@ void main() {
 
     test('Kotlin writes nullable fields without dereferencing nullable receivers', () {
       final code = KotlinGenerator.generate(_typeOnlyNullableVariantSpec());
-      expect(code, contains('w.writeBool(count != null); count?.let { w.writeInt64(it) }'));
-      expect(code, contains('w.writeBool(quality != null); quality?.let { w.writeInt64(it.nativeValue) }'));
-      expect(code, contains('w.writeBool(payload != null); payload?.let { it.writeFieldsTo(w.out, w.tmp) }'));
-      expect(code, contains('w.writeBool(samples != null); samples?.let { w.writeInt32(it.size); it.forEach { w.writeInt64(it) } }'));
+      expect(code, contains('_nitroW.writeBool(count != null); count?.let { _nitroW.writeInt64(it) }'));
+      expect(code, contains('_nitroW.writeBool(quality != null); quality?.let { _nitroW.writeInt64(it.nativeValue) }'));
+      expect(code, contains('_nitroW.writeBool(payload != null); payload?.let { it.writeFieldsTo(_nitroW.out, _nitroW.tmp) }'));
+      expect(code, contains('_nitroW.writeBool(samples != null); samples?.let { _nitroW.writeInt32(it.size); it.forEach { _nitroW.writeInt64(it) } }'));
       expect(code, isNot(contains('quality.nativeValue')));
       expect(code, isNot(contains('payload.writeFields(w)')));
       expect(code, isNot(contains('it.writeFields(w)')));
@@ -446,8 +446,8 @@ void main() {
       expect(code, contains('quality: r.readBool() ? Quality(rawValue: r.readInt())! : nil'));
       expect(code, contains('payload: r.readBool() ? Payload.fromReader(r) : nil'));
       expect(code, contains('samples: r.readBool() ? (0..<Int(r.readInt32())).map { _ in r.readInt() } : nil'));
-      expect(code, contains('w.writeBool(quality != nil); if let value = quality { w.writeInt(value.rawValue) }'));
-      expect(code, contains('w.writeBool(payload != nil); if let value = payload { value.writeFields(w) }'));
+      expect(code, contains('_nitroW.writeBool(quality != nil); if let value = quality { _nitroW.writeInt(value.rawValue) }'));
+      expect(code, contains('_nitroW.writeBool(payload != nil); if let value = payload { value.writeFields(_nitroW) }'));
     });
 
     test('SpecValidator allows nullable variant fields', () {

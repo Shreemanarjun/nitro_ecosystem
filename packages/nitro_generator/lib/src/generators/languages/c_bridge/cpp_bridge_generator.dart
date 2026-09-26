@@ -1976,7 +1976,9 @@ class CppBridgeGenerator {
     if (enumNames.contains(base)) return 'int64_t';
     // @HybridStruct callback params use void* — uniform across JNI and Swift paths.
     if (structNames?.contains(base) == true) return 'void*';
-    if (recordNames?.contains(base) == true) return 'const uint8_t*'; // length-prefixed buffer
+    // Length-prefixed record buffer: void* like structs/variants, so the definition
+    // matches the bridge header's declaration (bodies cast to const uint8_t*).
+    if (recordNames?.contains(base) == true) return 'void*';
     // @NitroVariant callback params: void* at the public C API level; the JNI body
     // typedef-casts to (const uint8_t*) and Swift uses @convention(c) (UnsafeMutablePointer<UInt8>?).
     // Both are ABI-compatible with void* on all Nitro target platforms.

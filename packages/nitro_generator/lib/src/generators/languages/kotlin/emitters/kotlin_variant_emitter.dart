@@ -81,18 +81,18 @@ class KotlinVariantEmitter {
       writer.blank();
 
       // ── writeFields ──────────────────────────────────────────────────────────
-      writer.line('fun writeFields(w: RecordWriter) {');
+      writer.line('fun writeFields(_nitroW: RecordWriter) {  // not `w`: a case field may be called `w`');
       writer.indent(() {
         writer.line('when (this) {');
         writer.indent(() {
           for (var i = 0; i < variant.cases.length; i++) {
             final c = variant.cases[i];
             if (c.isUnit) {
-              writer.line('is ${c.name} -> w.writeInt8($i)');
+              writer.line('is ${c.name} -> _nitroW.writeInt8($i)');
             } else {
               writer.line('is ${c.name} -> {');
               writer.indent(() {
-                writer.line('w.writeInt8($i)');
+                writer.line('_nitroW.writeInt8($i)');
                 for (final f in c.fields) {
                   writer.line(_fieldWriteStmt(f, mapper));
                 }
@@ -181,7 +181,7 @@ class KotlinVariantEmitter {
 
   static String _fieldWriteStmt(BridgeRecordField f, KotlinTypeMapper mapper) {
     if (f.isNullable) {
-      return 'w.writeBool(${f.name} != null); ${f.name}?.let { ${_fieldWriteExpr(f, mapper, 'it')} }';
+      return '_nitroW.writeBool(${f.name} != null); ${f.name}?.let { ${_fieldWriteExpr(f, mapper, 'it')} }';
     }
     return _fieldWriteExpr(f, mapper, f.name);
   }
@@ -189,26 +189,26 @@ class KotlinVariantEmitter {
   static String _fieldWriteExpr(BridgeRecordField f, KotlinTypeMapper mapper, String expr) {
     final base = bareTypeName(f.dartType);
     return switch (f.kind) {
-      RecordFieldKind.primitive when base == 'int' => 'w.writeInt64($expr)',
-      RecordFieldKind.primitive when base == 'double' => 'w.writeFloat64($expr)',
-      RecordFieldKind.primitive when base == 'bool' => 'w.writeBool($expr)',
-      RecordFieldKind.primitive => 'w.writeString($expr)',
-      RecordFieldKind.enumValue => 'w.writeInt64($expr.nativeValue)',
-      RecordFieldKind.struct || RecordFieldKind.recordObject => '$expr.writeFieldsTo(w.out, w.tmp)',
+      RecordFieldKind.primitive when base == 'int' => '_nitroW.writeInt64($expr)',
+      RecordFieldKind.primitive when base == 'double' => '_nitroW.writeFloat64($expr)',
+      RecordFieldKind.primitive when base == 'bool' => '_nitroW.writeBool($expr)',
+      RecordFieldKind.primitive => '_nitroW.writeString($expr)',
+      RecordFieldKind.enumValue => '_nitroW.writeInt64($expr.nativeValue)',
+      RecordFieldKind.struct || RecordFieldKind.recordObject => '$expr.writeFieldsTo(_nitroW.out, _nitroW.tmp)',
       RecordFieldKind.listPrimitive => () {
         final item = f.itemTypeName ?? 'int';
-        return 'w.writeInt32($expr.size); $expr.forEach { ${_primitiveWriteExpr(item, 'it')} }';
+        return '_nitroW.writeInt32($expr.size); $expr.forEach { ${_primitiveWriteExpr(item, 'it')} }';
       }(),
-      RecordFieldKind.listRecordObject => 'w.writeInt32($expr.size); $expr.forEach { it.writeFieldsTo(w.out, w.tmp) }',
-      _ => 'w.writeString($expr)',
+      RecordFieldKind.listRecordObject => '_nitroW.writeInt32($expr.size); $expr.forEach { it.writeFieldsTo(_nitroW.out, _nitroW.tmp) }',
+      _ => '_nitroW.writeString($expr)',
     };
   }
 
   static String _primitiveWriteExpr(String t, String varName) => switch (t) {
-    'int' => 'w.writeInt64($varName)',
-    'double' => 'w.writeFloat64($varName)',
-    'bool' => 'w.writeBool($varName)',
-    'String' => 'w.writeString($varName)',
-    _ => 'w.writeInt64($varName)',
+    'int' => '_nitroW.writeInt64($varName)',
+    'double' => '_nitroW.writeFloat64($varName)',
+    'bool' => '_nitroW.writeBool($varName)',
+    'String' => '_nitroW.writeString($varName)',
+    _ => '_nitroW.writeInt64($varName)',
   };
 }

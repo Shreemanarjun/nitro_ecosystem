@@ -160,16 +160,22 @@ class SpecExtractor {
 
     final sourcePath = library.element.uri.toString();
     final sourceFile = sourcePath.split('/').last.replaceFirst('.native.dart', '');
+    // Types this file builds on (another type file): needed to encode them
+    // inside local records; marked imported so they are not redeclared.
+    final imported = _extractFromImports(library.element, sourcePath);
     return BridgeSpec(
       dartClassName: '',
       lib: sourceFile.replaceAll('-', '_'),
       namespace: '',
       sourceUri: sourcePath,
-      enums: enums,
-      structs: structs,
-      recordTypes: records,
-      variants: variants,
+      enums: [...enums, ...imported.enums],
+      structs: [...structs, ...imported.structs],
+      recordTypes: [...records, ...imported.records],
+      variants: [...variants, ...imported.variants],
       isTypeOnly: true,
+      importedTypeFiles: imported.cppIncludes,
+      importedSpecs: imported.dartImports,
+      importedTypeLibs: imported.typeLibs,
     );
   }
 
@@ -720,24 +726,29 @@ class SpecExtractor {
     Set<String> enumTypeNames = const {},
   ]) {
     if (type is InterfaceType) {
+      // Name sets cover this file's types; the annotation check covers types
+      // imported from another .native.dart (shared type files, other modules).
+      bool isA(DartType t, Set<String> names, String annotation) =>
+          names.contains(t.getDisplayString(withNullability: false)) ||
+          (t.element != null && _hasAnnotation(t.element!, annotation));
       if (type.element.name == 'List' && type.typeArguments.isNotEmpty) {
-        final itemName = type.typeArguments.first.getDisplayString(withNullability: false);
-        if (recordTypeNames.contains(itemName) || structTypeNames.contains(itemName)) {
+        final item = type.typeArguments.first;
+        if (isA(item, recordTypeNames, 'HybridRecord') || isA(item, structTypeNames, 'HybridStruct')) {
           return RecordFieldKind.listRecordObject;
         }
-        if (enumTypeNames.contains(itemName)) {
+        if (isA(item, enumTypeNames, 'HybridEnum')) {
           return RecordFieldKind.listEnumValue;
         }
         return RecordFieldKind.listPrimitive;
       }
-      if (recordTypeNames.contains(type.element.name)) {
+      if (isA(type, recordTypeNames, 'HybridRecord')) {
         return RecordFieldKind.recordObject;
       }
       // @HybridStruct embedded inline in a @HybridRecord — each field written as primitives.
-      if (structTypeNames.contains(type.element.name)) {
+      if (isA(type, structTypeNames, 'HybridStruct')) {
         return RecordFieldKind.struct;
       }
-      if (enumTypeNames.contains(type.element.name)) {
+      if (isA(type, enumTypeNames, 'HybridEnum')) {
         return RecordFieldKind.enumValue;
       }
       // TypedData — binary blob encoding: [4B element_count][element_bytes]
