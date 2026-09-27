@@ -181,9 +181,13 @@ void linkCMake(
     final info0 = moduleInfos?.where((m) => m.lib == lib).firstOrNull;
     if (lib != pluginName && info0 != null && info0.isNativeCpp && content.contains('add_library($lib ') && !content.contains(ct.nitroImplSrcVar(lib))) {
       final start = content.indexOf('add_library($lib ');
-      final end = content.indexOf('\n)\n', start) + 3;
-      content = content.substring(0, end) + ct.implSourcesBlock(lib, _toPascalCase(lib), unguarded: info0.isAndroidCpp) + content.substring(end);
-      modified = true;
+      final close = content.indexOf('\n)\n', start);
+      // No `)` terminator (hand-edited add_library): leave the target alone.
+      if (close >= 0) {
+        final end = close + 3;
+        content = content.substring(0, end) + ct.implSourcesBlock(lib, _toPascalCase(lib), unguarded: info0.isAndroidCpp) + content.substring(end);
+        modified = true;
+      }
     }
     if (lib != pluginName && !content.contains('add_library($lib ')) {
       final info = moduleInfos?.firstWhere(

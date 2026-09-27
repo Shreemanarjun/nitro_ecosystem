@@ -68,6 +68,7 @@ List<String>? _blockMembers(String src, String decl) {
   final start = src.indexOf(decl);
   if (start < 0) return null;
   final end = src.indexOf('\n}', start);
+  if (end < 0) return null; // truncated file: no starter
   return src.substring(start + decl.length, end).split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty && !l.startsWith('//')).toList();
 }
 
@@ -94,8 +95,9 @@ String _swiftStarter(String module, String cls, List<String> members) {
 
 String _kotlinStarter(String pkg, String genPkg, Set<String> imports, String module, String cls, List<String> members) {
   final body = StringBuffer();
-  for (final m in members) {
-    if (m.contains('=') || m.endsWith('{}') || m.contains('{')) continue; // interface defaults
+  for (final raw in members) {
+    final m = _abstractKotlinMember(raw);
+    if (m == null) continue; // has an implementation (interface default)
     final name = RegExp(r'(?:fun|va[lr])\s+(\w+)').firstMatch(m)?.group(1);
     final todo = 'TODO("implement $cls.$name")';
     if (m.startsWith('var ')) {
@@ -120,3 +122,40 @@ void writeImplStarters(String pluginName, List<ModuleInfo> moduleInfos, {String 
   if (touched.contains('ios')) ensureIosPackageSwift(pluginName, baseDir: baseDir, moduleInfos: moduleInfos);
   if (touched.contains('macos')) ensureMacosPackageSwift(pluginName, baseDir: baseDir, moduleInfos: moduleInfos);
 }
+
+/// [m] as an overridable declaration, or null when the interface already
+/// implements it: a property with `get() =`, a function with a body after its
+/// parameter list. Default parameter values are stripped (an override may not
+/// repeat them); `=` inside defaults and `->` in function types are not bodies.
+String? _abstractKotlinMember(String m) {
+  if (!m.contains('fun ')) return m.contains('get() =') || m.contains('{') ? null : m;
+  final open = m.indexOf('(');
+  if (open < 0) return m;
+  // Walk the parameter list, dropping ` = default` segments at depth 1.
+  final params = StringBuffer();
+  var depth = 0, i = open, skipping = false, inString = false;
+  for (; i < m.length; i++) {
+    final c = m[i];
+    if (c == '"' && m[i - 1] != '\\') inString = !inString;
+    if (inString || c == '"') {
+      if (!skipping) params.write(c);
+      continue;
+    }
+    if (c == '(' || c == '<' || c == '[') depth++;
+    if (c == ')' || c == '>' && m[i - 1] != '-' || c == ']') depth--;
+    if (depth == 1 && c == '=' && m[i + 1] != '>') {
+      skipping = true;
+      continue;
+    }
+    if (depth == 1 && c == ',') skipping = false;
+    if (depth == 0) {
+      params.write(c);
+      break;
+    }
+    if (!skipping) params.write(c);
+  }
+  final tail = m.substring(i + 1);
+  if (tail.contains('=') || tail.contains('{')) return null;
+  return m.substring(0, open) + params.toString().replaceAll(RegExp(r'\s+,'), ',').replaceAll(RegExp(r'\s+\)'), ')') + tail;
+}
+

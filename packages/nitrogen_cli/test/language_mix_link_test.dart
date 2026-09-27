@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
+  group('review findings', reviewFindings);
   group('edge cases', edgeCases);
   group('starters', starters);
   late Directory root;
@@ -269,5 +270,53 @@ void edgeCases() {
       ..writeAsStringSync('class Impl {};\n#if (defined(__linux__) && !defined(__ANDROID__))\n#if defined(_WIN32)\nnamespace {\n  struct _AutoRegister {\n  };\n}\n#endif\n#endif\n');
     linkCppImplStubs([ModuleInfo(lib: 'demo_mix', module: 'DemoMix', isCpp: true, isNativeCpp: true, linuxIsCpp: true, webIsWasm: true)], baseDir: root.path);
     expect(File(p.join(root.path, 'src', 'HybridDemoMix.cpp')).readAsStringSync(), contains('#if defined(__EMSCRIPTEN__) || (defined(__linux__) && !defined(__ANDROID__))'));
+  });
+}
+
+void reviewFindings() {
+  late Directory root;
+  setUp(() => root = Directory.systemTemp.createTempSync('nitro_review_'));
+  tearDown(() => root.deleteSync(recursive: true));
+  void write(String rel, String c) => File(p.join(root.path, rel))
+    ..createSync(recursive: true)
+    ..writeAsStringSync(c);
+
+  test('an add_library without its `)` terminator is left untouched (no mid-file splice)', () {
+    const broken = 'set(NITRO_NATIVE "x")\nadd_library(demo SHARED\n  "dart_api_dl.c"\n)\n\nadd_library(demo_kt SHARED "a.cpp"';
+    write('src/CMakeLists.txt', broken);
+    linkCMake('demo', ['demo', 'demo_kt'], '/n', baseDir: root.path, moduleInfos: [
+      ModuleInfo(lib: 'demo', module: 'Demo', isCpp: false),
+      ModuleInfo(lib: 'demo_kt', module: 'DemoKt', isCpp: true, isNativeCpp: true, linuxIsCpp: true),
+    ]);
+    final out = File(p.join(root.path, 'src/CMakeLists.txt')).readAsStringSync();
+    expect(out, isNot(contains('NITRO_IMPL_SRC_demo_kt')));
+    expect(out, endsWith('add_library(demo_kt SHARED "a.cpp"'));
+  });
+
+  test('a truncated generated protocol (no closing brace) yields no starter, no throw', () {
+    write('ios/Classes/SwiftDemoPlugin.swift', 'ExtraRegistry.register(ExtraModuleImpl())\n');
+    write('lib/src/generated/swift/extra.bridge.g.swift', 'public protocol HybridExtraProtocol: AnyObject {\n    func add() -> Int64\n');
+    expect(linkNativeImplStarters(baseDir: root.path), isEmpty);
+  });
+
+  test('Kotlin starter: default params and function types stay; implemented members are skipped', () {
+    write('android/src/main/kotlin/com/ex/DemoPlugin.kt', 'package com.ex\nExtraJniBridge.registerFactory({ ExtraImpl() }, ctx)\n');
+    write('lib/src/generated/kotlin/extra.bridge.g.kt',
+        'package nitro.extra_module\n\ninterface HybridExtraSpec {\n'
+        '    val applicationContext: Context get() = ExtraJniBridge.applicationContext\n'
+        '    fun onAttached() {}\n'
+        '    fun helper(): Int = 1\n'
+        '    fun add(a: Long = 0, tag: String = "x,y)", xs: List<Long> = listOf(1, 2)): Long\n'
+        '    fun onEvent(cb: (p0: Long) -> Long): Unit\n'
+        '    var level: Long\n'
+        '}\n');
+    linkNativeImplStarters(baseDir: root.path);
+    final kt = File(p.join(root.path, 'android/src/main/kotlin/com/ex/ExtraImpl.kt')).readAsStringSync();
+    expect(kt, contains('override fun add(a: Long, tag: String, xs: List<Long>): Long = TODO('));
+    expect(kt, contains('override fun onEvent(cb: (p0: Long) -> Long): Unit = TODO('));
+    expect(kt, contains('override var level: Long'));
+    expect(kt, isNot(contains('applicationContext')));
+    expect(kt, isNot(contains('onAttached')));
+    expect(kt, isNot(contains('helper')));
   });
 }
