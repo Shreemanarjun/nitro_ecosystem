@@ -53,9 +53,10 @@ void main() {
     expect(dart, contains('Future<String> get label'));
     expect(dart, contains('Future<int> get remote'));
     expect(dart, contains('int get plain'));
-    // @nitroFast: bare call, no error-slot check in the getter body.
-    final body = dart.substring(dart.indexOf('int get level {'), dart.indexOf('}', dart.indexOf('int get level {')));
-    expect(body, isNot(contains('throwIfOutParamError')));
+    // @nitroFast: bare call (no callSync); the error slot is read in debug only.
+    final body = dart.substring(dart.indexOf('int get level {'), dart.indexOf('return res;', dart.indexOf('int get level {')));
+    expect(body, isNot(contains('callSync')));
+    expect(body, contains('assert(() { NitroRuntime.throwIfOutParamError('));
     // Defaults mixin uses getter form too.
     expect(dart, contains("int get level => throw UnimplementedError('Demo.level')"));
   });
@@ -142,7 +143,8 @@ abstract class Demo extends HybridObject {
     String body(String sig) => dart.substring(dart.indexOf(sig), dart.indexOf(' } ', dart.indexOf(sig)) + 2);
     expect(body('int get volume {'), isNot(contains('callSync')));
     expect(body('set volume(int value) {'), isNot(contains('callSync')));
-    expect(body('set volume(int value) {'), isNot(contains('throwIfOutParamError')));
+    // Debug-only check (inside an assert): profile/release keep the bare call.
+    expect(body('set volume(int value) {'), contains('assert(() { NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree); return true; }());'));
     expect(body('set label(String? value) {'), contains('withArena'));
     expect(body('set label(String? value) {'), isNot(contains('callSync')));
     expect(dart, contains("methodName: 'get label'"), reason: 'unannotated getter keeps callSync');

@@ -1009,7 +1009,7 @@ class SwiftFunctionEmitter {
         writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
         writer.line('    guard let _rawPtr = $anyMapParam else { return nil }');
         writer.line('    let inputMap = _nitroDecodeAnyMapBinary(_rawPtr.assumingMemoryBound(to: UInt8.self))');
-        writer.line('    let result = impl.${func.dartName}(value: inputMap)');
+        writer.line('    let result = impl.${func.dartName}($anyMapParam: inputMap)');
         writer.line('    guard let resultMap = result as? [String: Any] else { return nil }');
         writer.line('    return _nitroEncodeAnyMapBinary(resultMap)');
       case _ when isMap:
@@ -1053,7 +1053,7 @@ class SwiftFunctionEmitter {
         } else {
           writer.line('    let inputMap = _rawMap');
         }
-        writer.line('    let result = impl.${func.dartName}(value: inputMap)');
+        writer.line('    let result = impl.${func.dartName}($mapParam: inputMap)');
         if (isEnumMapVal) {
           // Encode typed [String: EnumName] → [String: Any] with rawValue Int64 for _nitroEncodeMapBinary
           writer.line('    let resultMap: [String: Any] = (result as? [String: $mapValType] ?? [:]).mapValues { \$0.rawValue as Any }');

@@ -1,3 +1,8 @@
+## 0.7.9
+
+- `@nitroFast` docs: the error slot is now read in debug builds (a native
+  throw surfaces during development); profile/release stay a bare call.
+
 ## 0.7.8
 
 - Version sync with nitro_generator 0.7.8.

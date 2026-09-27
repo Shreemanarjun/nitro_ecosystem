@@ -281,6 +281,20 @@ class WebBridgeGenerator {
     // A FutureOr<T> inline method returns the value itself: no async, no Future.
     w.line(func.inlineFuture ? (func.returnsFutureOr ? '  FutureOr<$rt> ${func.dartMember(params)} {' : '  Future<$rt> ${func.dartMember(params)} async {') : '  $rt ${func.dartMember(params)} {');
     w.line('    checkDisposed();');
+    if (func.isFast && !func.inlineFuture) {
+      // @nitroFast: bare call, as on native — no callSync wrapper; the error
+      // slot is read in debug builds only (the assert compiles away in
+      // profile/release).
+      _openArena(w, needsArena, '    ');
+      final fastInner = needsArena ? '      ' : '    ';
+      w.line('${fastInner}final _res = $call;');
+      w.line('${fastInner}assert(() { NitroRuntime.throwIfOutParamError(_err); return true; }());');
+      _emitReturnDecode(w, spec, func.returnType, '_res', fastInner, borrowed: true, zeroCopy: func.zeroCopyReturn, func: func);
+      _closeArena(w, needsArena, '    ');
+      w.line('  }');
+      w.blankLine();
+      return;
+    }
     w.line('    return NitroRuntime.callSync(() {');
     _openArena(w, needsArena, '      ');
     final inner = needsArena ? '        ' : '      ';
@@ -439,7 +453,17 @@ class WebBridgeGenerator {
 
   static void _emitProperty(CodeWriter w, BridgeSpec spec, BridgeProperty prop) {
     final rt = _dartTypeFor(prop.type);
-    if (prop.hasGetter) {
+    if (prop.hasGetter && prop.getFast) {
+      // @nitroFast getter: bare call + debug-only error check, as on native.
+      w.line('  @override');
+      w.line('  $rt get ${prop.dartName} {');
+      w.line('    checkDisposed();');
+      w.line("    final _res = _m.call('${prop.getSymbol}', [jsI64(_instanceId), _err.ptr.toJS]);");
+      w.line('    assert(() { NitroRuntime.throwIfOutParamError(_err); return true; }());');
+      _emitReturnDecode(w, spec, prop.type, '_res', '    ', borrowed: true, zeroCopy: false, func: null);
+      w.line('  }');
+      w.blankLine();
+    } else if (prop.hasGetter) {
       w.line('  @override');
       w.line('  $rt get ${prop.dartName} {');
       w.line('    checkDisposed();');
@@ -459,6 +483,18 @@ class WebBridgeGenerator {
       w.line('  @override');
       w.line('  set ${prop.dartName}($rt value) {');
       w.line('    checkDisposed();');
+      if (prop.setFast) {
+        // @nitroFast setter: bare call + debug-only error check, as on native.
+        // A setter cannot `return withWasmArena(...)`: plain call.
+        if (needsArena) w.line('    withWasmArena(_m, (arena) {');
+        final fastInner = needsArena ? '      ' : '    ';
+        w.line("${fastInner}_m.call('${prop.setSymbol}', [jsI64(_instanceId), $arg, _err.ptr.toJS]);");
+        w.line('${fastInner}assert(() { NitroRuntime.throwIfOutParamError(_err); return true; }());');
+        if (needsArena) w.line('    });');
+        w.line('  }');
+        w.blankLine();
+        return;
+      }
       w.line('    NitroRuntime.callSync(() {');
       _openArena(w, needsArena, '      ');
       final inner = needsArena ? '        ' : '      ';

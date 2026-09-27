@@ -709,7 +709,9 @@ class CppInterfaceGenerator {
   /// fields are written inline via `writeFields`, and `List<prim>` fields are
   /// `[4B count][items]`.
   static String _generateCppVariants(BridgeSpec spec) {
-    final localVariants = spec.localVariants;
+    // Imported variants too: a type-only file has no native.g.h of its own,
+    // and each module is its own translation unit (everything here is inline).
+    final localVariants = spec.variants;
     if (localVariants.isEmpty) return '';
 
     final enumNames = spec.enums.map((e) => e.name).toSet();

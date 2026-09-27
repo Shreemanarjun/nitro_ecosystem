@@ -10,6 +10,18 @@ import '../../../type_mapper.dart';
 /// Implements [TypeMapper] so it can be injected into any generator
 /// that accepts a generic `TypeMapper`.
 class KotlinTypeMapper implements TypeMapper {
+  /// Imported type → the lib of the `.native.dart` declaring it; set per
+  /// [KotlinGenerator.generate] call (generation is synchronous).
+  static Map<String, String> importedTypeLibs = const {};
+
+  /// The `RecordReader` / `RecordWriter` class a variant's codec takes: each
+  /// Kotlin package declares its own, so an imported variant needs its owner
+  /// package's class (fully qualified), a local one the unqualified name.
+  static String codec(String? typeName, String cls) {
+    final lib = typeName == null ? null : importedTypeLibs[bareTypeName(typeName)];
+    return lib == null ? cls : 'nitro.${lib}_module.$cls';
+  }
+
   final Set<String> enumNames;
   final Set<String> structNames;
   final Set<String> recordNames;
@@ -331,7 +343,7 @@ class KotlinTypeMapper implements TypeMapper {
       // @HybridRecord return: C JNI returns ByteArray with [4B len][payload]; skip prefix and decode.
       final t when recordNames.contains(t) => 'run { val _b = $invocation; val _bb = java.nio.ByteBuffer.wrap(_b).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bb.getInt(); $t.decodeFrom(_bb) }',
       // @NitroVariant return: same wire format; decode via fromReader.
-      final t when variantNames.contains(t) => 'run { val _b = $invocation; val _bb = java.nio.ByteBuffer.wrap(_b).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bb.getInt(); $t.fromReader(RecordReader(_bb)) }',
+      final t when variantNames.contains(t) => 'run { val _b = $invocation; val _bb = java.nio.ByteBuffer.wrap(_b).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bb.getInt(); $t.fromReader(${codec(t, 'RecordReader')}(_bb)) }',
       _ => invocation,
     };
     return '{ ${lambdaParams.isEmpty ? '' : '$lambdaParams -> '}$body }';

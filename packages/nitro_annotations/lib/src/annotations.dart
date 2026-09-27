@@ -330,12 +330,15 @@ class NitroNativeAsync {
 
 /// Marks a synchronous method as a **hot path**: the binding is `isLeaf: true`
 /// and the generated body is a bare call — no `callSync` closure, no
-/// error-slot check, no logging/slow-call/timeline diagnostics. Measured on
-/// Apple Silicon this takes a generated call from ~260 ns to ~13 ns, level
-/// with a hand-written `dart:ffi` binding.
+/// logging/slow-call/timeline diagnostics. Measured on Apple Silicon this
+/// takes a generated call from ~260 ns to ~13 ns, level with a hand-written
+/// `dart:ffi` binding. The error slot is read in debug builds only (inside an
+/// `assert`), so a native throw surfaces as a `HybridException` during
+/// development and costs nothing in profile/release.
 ///
-/// The contract the native side must keep: never throw (nothing reads the
-/// error slot), never call back into Dart, never block. Arena arguments
+/// The contract the native side must keep: never throw (in release nothing
+/// reads the error slot, so the error is lost), never call back into Dart,
+/// never block. Arena arguments
 /// (String, records, typed data) keep the arena path; scalars, enums,
 /// nullable scalars and `NativeHandle` parameters are the intended shapes.
 /// Not allowed on `Future`/`Stream`/`@nitroAsync` methods.

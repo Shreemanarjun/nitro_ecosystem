@@ -312,7 +312,7 @@ class KotlinFunctionEmitter {
         // (discard + always-null), the same bug class as the fixed record
         // return. Mirrors _emitVariantReturnBody's wire format.
         writer.line('            val _vResult = ${KotlinTypeMapper.runBlockingCall(func, "impl.${func.dartName}($callParams)")}');
-        writer.line('            val _vw = RecordWriter()');
+        writer.line('            val _vw = ${KotlinTypeMapper.codec(func.returnType.name, 'RecordWriter')}()');
         writer.line('            _vResult.writeFields(_vw)');
         writer.line('            val _vPayload = _vw.toByteArray()');
         writer.line('            val _vBuf = java.nio.ByteBuffer.allocate(4 + _vPayload.size).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
@@ -483,11 +483,11 @@ class KotlinFunctionEmitter {
     if (func.returnType.recordListItemIsNullable) {
       writer.line('            val _itemBytes = result.map { item ->');
       writer.line('                if (item == null) byteArrayOf(0)');
-      writer.line('                else { val _iw = RecordWriter(); item.writeFields(_iw); byteArrayOf(1) + _iw.toByteArray() }');
+      writer.line('                else { val _iw = ${KotlinTypeMapper.codec(func.returnType.recordListItemType, 'RecordWriter')}(); item.writeFields(_iw); byteArrayOf(1) + _iw.toByteArray() }');
       writer.line('            }');
     } else {
       writer.line('            val _itemBytes = result.map { item ->');
-      writer.line('                val _iw = RecordWriter(); item.writeFields(_iw); _iw.toByteArray()');
+      writer.line('                val _iw = ${KotlinTypeMapper.codec(func.returnType.recordListItemType, 'RecordWriter')}(); item.writeFields(_iw); _iw.toByteArray()');
       writer.line('            }');
     }
     writer.line('            val _payloadSize = 4 + _itemBytes.sumOf { it.size }');
@@ -647,7 +647,7 @@ class KotlinFunctionEmitter {
         writer.line(
           '            val _${p.name}BBuf = java.nio.ByteBuffer.wrap(_${p.name}BBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN); _${p.name}BBuf.getInt()',
         );
-        writer.line('            ${p.name}Decoded[_${p.name}K] = $mapValueBase.fromReader(RecordReader(_${p.name}BBuf))');
+        writer.line('            ${p.name}Decoded[_${p.name}K] = $mapValueBase.fromReader(${KotlinTypeMapper.codec(mapValueBase, 'RecordReader')}(_${p.name}BBuf))');
       default:
         writer.line('            val _${p.name}VLen = ${p.name}Buf.int; val _${p.name}VBytes = ByteArray(_${p.name}VLen); ${p.name}Buf.get(_${p.name}VBytes)');
         writer.line('            ${p.name}Decoded[_${p.name}K] = _${p.name}VBytes.toString(Charsets.UTF_8)');
@@ -664,7 +664,7 @@ class KotlinFunctionEmitter {
       if (mapper.variantNames.contains(bn)) {
         writer.line('        val ${p.name}Buf = java.nio.ByteBuffer.wrap(${p.name}).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
         writer.line('        ${p.name}Buf.getInt() // skip 4-byte length prefix');
-        writer.line('        val ${p.name}Decoded = $bn.fromReader(RecordReader(${p.name}Buf))');
+        writer.line('        val ${p.name}Decoded = $bn.fromReader(${KotlinTypeMapper.codec(bn, 'RecordReader')}(${p.name}Buf))');
         continue;
       }
     }
@@ -697,11 +697,11 @@ class KotlinFunctionEmitter {
         if (p.type.recordListItemIsNullable) {
           // Nullable: [1B hasValue][tag+fields (if hasValue)]×N
           writer.line('        val ${p.name}Decoded = mutableListOf<$itemType?>()');
-          writer.line('        val ${p.name}Rdr = RecordReader(${p.name}Buf)');
+          writer.line('        val ${p.name}Rdr = ${KotlinTypeMapper.codec(itemType, 'RecordReader')}(${p.name}Buf)');
           writer.line('        repeat(${p.name}Count) { val _has = ${p.name}Rdr.readBool(); ${p.name}Decoded.add(if (_has) $itemType.fromReader(${p.name}Rdr) else null) }');
         } else {
           writer.line('        val ${p.name}Decoded = mutableListOf<$itemType>()');
-          writer.line('        val ${p.name}Rdr = RecordReader(${p.name}Buf)');
+          writer.line('        val ${p.name}Rdr = ${KotlinTypeMapper.codec(itemType, 'RecordReader')}(${p.name}Buf)');
           writer.line('        repeat(${p.name}Count) { ${p.name}Decoded.add($itemType.fromReader(${p.name}Rdr)) }');
         }
         continue;
@@ -825,11 +825,11 @@ class KotlinFunctionEmitter {
       // Nullable variant list: [4B count][1B hasValue][tag+fields (if hasValue)]×N
       writer.line('        val _itemBytes = result.map { item ->');
       writer.line('            if (item == null) byteArrayOf(0)');
-      writer.line('            else { val _iw = RecordWriter(); item.writeFields(_iw); byteArrayOf(1) + _iw.toByteArray() }');
+      writer.line('            else { val _iw = ${KotlinTypeMapper.codec(func.returnType.recordListItemType, 'RecordWriter')}(); item.writeFields(_iw); byteArrayOf(1) + _iw.toByteArray() }');
       writer.line('        }');
     } else {
       writer.line('        val _itemBytes = result.map { item ->');
-      writer.line('            val _iw = RecordWriter(); item.writeFields(_iw); _iw.toByteArray()');
+      writer.line('            val _iw = ${KotlinTypeMapper.codec(func.returnType.recordListItemType, 'RecordWriter')}(); item.writeFields(_iw); _iw.toByteArray()');
       writer.line('        }');
     }
     writer.line('        val _payloadSize = 4 + _itemBytes.sumOf { it.size }');
@@ -973,7 +973,7 @@ class KotlinFunctionEmitter {
         // @NitroVariant: tag 5 + 4B blob_len + variant encode() bytes [4B payload_len][1B tag][fields].
         writer.line('            val _bLen = _mapBuf.int; val _bBytes = ByteArray(_bLen); _mapBuf.get(_bBytes)');
         writer.line('            val _bBuf = java.nio.ByteBuffer.wrap(_bBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bBuf.getInt()');
-        writer.line('            _inputMap[k] = $inputMapValueBase.fromReader(RecordReader(_bBuf))');
+        writer.line('            _inputMap[k] = $inputMapValueBase.fromReader(${KotlinTypeMapper.codec(inputMapValueBase, 'RecordReader')}(_bBuf))');
       default:
         writer.line('            val vLen = _mapBuf.int; val vBytes = ByteArray(vLen); _mapBuf.get(vBytes)');
         writer.line('            _inputMap[k] = vBytes.toString(Charsets.UTF_8)');
@@ -1242,7 +1242,7 @@ class KotlinFunctionEmitter {
     } else {
       writer.line('        val _vResult = ${KotlinTypeMapper.syncImplCall(func, "impl.${func.dartName}($callParams)")}');
     }
-    writer.line('        val _vw = RecordWriter()');
+    writer.line('        val _vw = ${KotlinTypeMapper.codec(retBaseName, 'RecordWriter')}()');
     writer.line('        _vResult.writeFields(_vw)');
     writer.line('        val _vPayload = _vw.toByteArray()');
     writer.line('        val _vBuf = java.nio.ByteBuffer.allocate(4 + _vPayload.size).order(java.nio.ByteOrder.LITTLE_ENDIAN)');

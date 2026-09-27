@@ -370,6 +370,7 @@ class CppBridgeGenerator {
     final libStem = spec.lib.replaceAll('-', '_');
     emitBackgroundTable(writer, spec, libStem);
     final libPkg = 'nitro/${libStem}_module';
+    final androidIsCpp = spec.androidImpl is CppImpl;
     final checksum = bridgeSpecChecksum(spec);
     // Pre-build O(1) lookup sets — avoids O(n×m) .any() scans inside the
     // generation loops (functions × enums, params × structs, etc.).
@@ -449,7 +450,7 @@ class CppBridgeGenerator {
       // Their release function must drop that pin: without it every delivered
       // item leaks one global reference, and ART aborts the process once the
       // global-reference table (51200 slots) fills — ~51k stream items.
-      final zeroCopyStreamStructNames = spec.streams.where((s) => structNames.contains(bareTypeName(s.itemType.name))).map((s) => bareTypeName(s.itemType.name)).where((name) {
+      final zeroCopyStreamStructNames = androidIsCpp ? const <String>{} : spec.streams.where((s) => structNames.contains(bareTypeName(s.itemType.name))).map((s) => bareTypeName(s.itemType.name)).where((name) {
         final st = spec.structByName(name);
         return st != null && st.fields.any((f) => f.zeroCopy);
       }).toSet();
@@ -515,7 +516,10 @@ class CppBridgeGenerator {
 
     // Preprocessor branch for Android JNI vs iOS Swift
     if (includeAndroid && includeIos) writer.line('#ifdef __ANDROID__');
-    if (includeAndroid) {
+    if (includeAndroid && androidIsCpp) {
+      // android: NativeImpl.cpp in a mixed spec — direct C++ dispatch, no JNI.
+      _emitAppleCppDispatch(writer, spec, libStem, enumNames, structNames);
+    } else if (includeAndroid) {
       _emitJniSwiftPrologue(writer, spec, libStem, enumNames, structNames);
 
       _emitJniMethods(writer, spec, libStem, libPkg, enumNames, structNames);
@@ -1972,7 +1976,9 @@ class CppBridgeGenerator {
     if (enumNames.contains(base)) return 'int64_t';
     // @HybridStruct callback params use void* — uniform across JNI and Swift paths.
     if (structNames?.contains(base) == true) return 'void*';
-    if (recordNames?.contains(base) == true) return 'const uint8_t*'; // length-prefixed buffer
+    // Length-prefixed record buffer: void* like structs/variants, so the definition
+    // matches the bridge header's declaration (bodies cast to const uint8_t*).
+    if (recordNames?.contains(base) == true) return 'void*';
     // @NitroVariant callback params: void* at the public C API level; the JNI body
     // typedef-casts to (const uint8_t*) and Swift uses @convention(c) (UnsafeMutablePointer<UInt8>?).
     // Both are ABI-compatible with void* on all Nitro target platforms.

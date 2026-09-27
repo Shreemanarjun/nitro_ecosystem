@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
+  perModuleImpl();
   group('PlatformTargetAnalyzer.supportsWeb', () {
     test('matches web: NativeImpl.wasm and WebNativeImpl.wasm', () {
       expect(
@@ -373,5 +374,13 @@ void main() {
       expect(out, contains('assets/images/'), reason: 'existing entries preserved');
       expect('  assets:'.allMatches(out).length, 1, reason: 'no duplicate assets key');
     });
+  });
+}
+
+void perModuleImpl() {
+  test("each module's wasm links only its own shared src/ impl (multi-module)", () {
+    final script = webBuildScriptTemplate(['demo', 'demo_two']);
+    expect(script, contains(r'"$GEN/demo.bridge.g.cpp" $(ls src/HybridDemo.cpp 2>/dev/null || echo $IMPL_SOURCES)'));
+    expect(script, contains(r'"$GEN/demo_two.bridge.g.cpp" $(ls src/HybridDemoTwo.cpp 2>/dev/null || echo $IMPL_SOURCES)'));
   });
 }

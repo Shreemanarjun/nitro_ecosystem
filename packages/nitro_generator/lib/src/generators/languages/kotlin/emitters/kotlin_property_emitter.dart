@@ -87,7 +87,7 @@ class KotlinPropertyEmitter {
         writer.line('        return NitroOptBool(impl.${prop.dartName}).encode()');
       } else if (isVariant) {
         writer.line('        val _vResult = impl.${prop.dartName}');
-        writer.line('        val _vw = RecordWriter()');
+        writer.line('        val _vw = ${KotlinTypeMapper.codec(propBaseName, 'RecordWriter')}()');
         writer.line('        _vResult.writeFields(_vw)');
         writer.line('        val _vPayload = _vw.toByteArray()');
         writer.line('        val _vBuf = java.nio.ByteBuffer.allocate(4 + _vPayload.size).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
@@ -116,7 +116,7 @@ class KotlinPropertyEmitter {
       } else if (isVariant) {
         writer.line('        val valueBuf = java.nio.ByteBuffer.wrap(value).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
         writer.line('        valueBuf.getInt() // skip 4-byte length prefix');
-        writer.line('        val valueDecoded = $propBaseName.fromReader(RecordReader(valueBuf))');
+        writer.line('        val valueDecoded = $propBaseName.fromReader(${KotlinTypeMapper.codec(propBaseName, 'RecordReader')}(valueBuf))');
         writer.line('        impl.${prop.dartName} = valueDecoded');
       } else {
         writer.line('        impl.${prop.dartName} = value');

@@ -314,10 +314,14 @@ String _callbackInvocationArgs(BridgeType callbackType, BridgeSpec spec) {
           args.add('arg$i.cast<${name}Ffi>().ref.toDart()');
         }
       case _ when spec.isRecordName(name):
+        // fromNative is an extension static: reach it through the extension
+        // (`Tag.fromNative` does not resolve). package:nitro's own records
+        // are classes with a real static.
+        final decoder = _nitroLibraryRecordTypes.contains(name) ? name : _recordDecodeExtName(spec, name);
         if (isNullable) {
-          args.add('arg$i == nullptr ? null : (() { final _r = $name.fromNative(arg$i); _nitroFree(arg$i); return _r; })()');
+          args.add('arg$i == nullptr ? null : (() { final _r = $decoder.fromNative(arg$i); _nitroFree(arg$i); return _r; })()');
         } else {
-          args.add('(() { final _r = $name.fromNative(arg$i); _nitroFree(arg$i); return _r; })()');
+          args.add('(() { final _r = $decoder.fromNative(arg$i); _nitroFree(arg$i); return _r; })()');
         }
       case _ when spec.isVariantName(name):
         // @NitroVariant callback param: native passes Pointer<Uint8> = [4B len][tag][fields].

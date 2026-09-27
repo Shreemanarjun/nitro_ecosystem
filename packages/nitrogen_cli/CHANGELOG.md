@@ -1,3 +1,37 @@
+## 0.7.9
+
+Added
+- `link` writes a starter for every registered Swift/Kotlin impl class that
+  does not exist yet (a module added after `init`), built from the generated
+  protocol/interface; new C++ stubs start from the generated `impl.g.cpp`
+  (every override) instead of an empty class. Unimplemented members fail as
+  Dart exceptions (C++/Kotlin) or `fatalError` (Swift). Existing code is
+  never touched.
+- `init` with Linux/Windows implements the sample methods in C++ too, so the
+  example app runs on desktop out of the box.
+
+Fixed
+- Android loads every module's library (`System.loadLibrary`), not only C++
+  ones: a Swift/Kotlin-only extra module never ran its `JNI_OnLoad`.
+- `init`'s Android plugin no longer calls a nonexistent `JniBridge.onDetached()`.
+- Adding a C++ platform to an existing module: `link` adds the impl source to
+  its CMake target and refreshes the stub's auto-register guard (the impl
+  otherwise never registered).
+- A Swift module with its own `src/<plugin>.cpp` gets its bridge header in the
+  SwiftPM C++ target (`<plugin>_nitro_post` not found on iOS).
+- SwiftPM `Sources/` entries that `link` adds are relative symlinks to
+  `Classes/` (a copy went stale once the `Classes/` file was edited).
+- A web (WASM) module's shared `src/` impl registers under Emscripten: the
+  stub's auto-register guard had no web case, so e.g. a Linux-only-C++
+  module compiled into its wasm but reported "No C++ implementation
+  registered" on web.
+- `web/build_web.sh` links each module's WASM against its own
+  `src/Hybrid<Module>.cpp`; every module's impl was linked into every WASM,
+  so multi-module plugins using the shared `src/` impls failed to link.
+- Shared-type headers are placed once, in the plugin-level SwiftPM C++
+  target every module target depends on; per-module copies (a second physical
+  file with the same C typedefs) made Clang modules reject the redefinition.
+
 ## 0.7.8
 
 Fixed

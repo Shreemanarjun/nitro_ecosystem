@@ -129,19 +129,56 @@ void linkCppImplStubs(List<ModuleInfo> moduleInfos, {String baseDir = '.'}) {
   )) {
     final className = _toPascalCase(m.lib);
     final stubFile = File(p.join(baseDir, 'src', 'Hybrid$className.cpp'));
-    if (stubFile.existsSync()) continue; // never overwrite user code
-    stubFile.writeAsStringSync(
-      t.cppImplStubContent(
-        lib: m.lib,
-        className: className,
-        isNativeCpp: m.isNativeCpp,
-        isAndroidCpp: m.isAndroidCpp,
-        iosIsCpp: m.iosIsCpp,
-        macosIsCpp: m.macosIsCpp,
-        windowsIsCpp: m.windowsIsCpp,
-      ),
+    if (stubFile.existsSync()) {
+      // Never overwrite user code — but keep the generated auto-register
+      // guard in step with the spec: a platform switched to C++ after the
+      // stub was written would otherwise never register its impl.
+      _refreshAutoRegisterGuard(stubFile, m);
+      continue;
+    }
+    var stub = t.cppImplStubContent(
+      lib: m.lib,
+      className: className,
+      isNativeCpp: m.isNativeCpp,
+      isAndroidCpp: m.isAndroidCpp,
+      iosIsCpp: m.iosIsCpp,
+      macosIsCpp: m.macosIsCpp,
+      windowsIsCpp: m.windowsIsCpp,
+      webIsWasm: m.webIsWasm,
     );
+    // The template's class is empty (abstract — does not compile); take the
+    // generator's full starter (every override, throwing) when it exists.
+    final starter = File(p.join(baseDir, 'lib', 'src', 'generated', 'cpp', '${m.lib}.impl.g.cpp'));
+    final cls = starter.existsSync() ? RegExp(r'^class \w+Impl final : public Hybrid\w+ \{[\s\S]*?^\};', multiLine: true).firstMatch(starter.readAsStringSync()) : null;
+    if (cls != null) {
+      final body = cls.group(0)!.replaceAll(RegExp('\\b${className}Impl\\b'), 'Hybrid${className}Impl');
+      stub = stub
+          .replaceFirst(RegExp(r'^class Hybrid\w+Impl final[\s\S]*?^\};', multiLine: true), body)
+          .replaceFirst('#include <string>\n', '#include <stdexcept>\n#include <string>\n');
+    }
+    stubFile.writeAsStringSync(stub);
   }
+}
+
+void _refreshAutoRegisterGuard(File stub, ModuleInfo m) {
+  final guard = t.autoRegisterPlatformGuard(
+    isNativeCpp: m.isNativeCpp,
+    isAndroidCpp: m.isAndroidCpp,
+    iosIsCpp: m.iosIsCpp,
+    macosIsCpp: m.macosIsCpp,
+    windowsIsCpp: m.windowsIsCpp,
+    webIsWasm: m.webIsWasm,
+  );
+  final src = stub.readAsStringSync();
+  // The line the stub template emits right before the `#if defined(_WIN32)` register block.
+  final line = RegExp(r'^#if (.+)\n(?=#if defined\(_WIN32\)\nnamespace \{\n  struct _AutoRegister)', multiLine: true).firstMatch(src);
+  final want = guard.isEmpty ? '1' : guard;
+  if (line == null || line.group(1) == want) return;
+  var out = src.replaceRange(line.start, line.end, '#if $want\n');
+  if (want.contains('TARGET_OS_') && !out.contains('TargetConditionals.h')) {
+    out = out.replaceFirst('#if $want\n', '#if defined(__APPLE__)\n  #include <TargetConditionals.h>\n#endif\n\n#if $want\n');
+  }
+  stub.writeAsStringSync(out);
 }
 
 void linkPodspec(
@@ -695,17 +732,21 @@ void _syncCppModuleSourcesToSpm(
       );
     }
 
-    // Skip module-specific C++ bridge linking when no C++ modules exist.
-    if (allCppModules.isEmpty) continue;
+    // The main module's C header, even for a Swift module: its Swift bridge
+    // calls <plugin>_nitro_post, declared there.
+    final mainHeader = File(p.join(baseDir, 'lib', 'src', 'generated', 'cpp', '$pluginName.bridge.g.h'));
+    if (mainHeader.existsSync()) mainHeader.copySync(p.join(includeDir.path, '$pluginName.bridge.g.h'));
 
-    _spmSyncMainModuleCppForwarders(
-      pluginName,
-      platform,
-      baseDir,
-      cppTargetDir,
-      includeDir,
-      allCppModules,
-    );
+    if (allCppModules.isNotEmpty) {
+      _spmSyncMainModuleCppForwarders(
+        pluginName,
+        platform,
+        baseDir,
+        cppTargetDir,
+        includeDir,
+        allCppModules,
+      );
+    }
 
     // ── Sync Swift plugin registration and impl to SPM target ────────────────
     // SPM can't see files in ios/Classes/ — copy them to Sources/<className>/
@@ -973,8 +1014,12 @@ void _spmSyncOneModuleCppTarget(
   // Bridge header for every module (the Swift bridge needs <lib>_nitro_post).
   final hSrc = File(p.join(baseDir, 'lib', 'src', 'generated', 'cpp', '${m.lib}.bridge.g.h'));
   if (hSrc.existsSync()) hSrc.copySync(p.join(moduleIncludeDir.path, '${m.lib}.bridge.g.h'));
+  // Shared-type headers live ONCE, in the plugin-level target every module
+  // target depends on. A per-module copy is a second physical file with the
+  // same C typedefs: Clang modules then reject the redefinition.
   for (final h in typeOnlyBridgeHeaders(baseDir)) {
-    h.copySync(p.join(moduleIncludeDir.path, p.basename(h.path)));
+    final copy = File(p.join(moduleIncludeDir.path, p.basename(h.path)));
+    if (copy.existsSync()) copy.deleteSync();
   }
 
   // REPAIR: this module's sources used to be synced into the
@@ -1120,7 +1165,13 @@ void _syncSwiftPluginToSpm(
   for (final srcFile in swiftFiles) {
     final dstFile = File(p.join(swiftTargetDir.path, p.basename(srcFile.path)));
     if (!dstFile.existsSync()) {
-      srcFile.copySync(dstFile.path);
+      // Relative symlink (as `init` writes): a copy would go stale the moment
+      // the Classes/ file is edited. Copy only where symlinks are refused.
+      try {
+        Link(dstFile.path).createSync(p.relative(srcFile.path, from: swiftTargetDir.path));
+      } on FileSystemException {
+        srcFile.copySync(dstFile.path);
+      }
     }
   }
 }
