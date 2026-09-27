@@ -14,11 +14,16 @@ String autoRegisterPlatformGuard({
   required bool iosIsCpp,
   required bool macosIsCpp,
   bool windowsIsCpp = false,
+  bool webIsWasm = false,
 }) {
   // All apple + android/linux + windows → no guard needed
   if (isNativeCpp && macosIsCpp && iosIsCpp && windowsIsCpp) return '';
 
-  final conditions = <String>[];
+  final conditions = <String>[
+    // web/build_web.sh compiles this shared src/ impl into the module's wasm
+    // (unless web/src has its own), so it must register under Emscripten too.
+    if (webIsWasm) 'defined(__EMSCRIPTEN__)',
+  ];
   if (windowsIsCpp) {
     // windows/CMakeLists.txt delegates to the shared src/ directory, so the
     // stub is compiled on Windows too — the guard must include _WIN32 or the
@@ -60,6 +65,7 @@ String cppImplStubContent({
   required bool iosIsCpp,
   required bool macosIsCpp,
   bool windowsIsCpp = false,
+  bool webIsWasm = false,
 }) {
   final guard = autoRegisterPlatformGuard(
     isNativeCpp: isNativeCpp,
@@ -67,6 +73,7 @@ String cppImplStubContent({
     iosIsCpp: iosIsCpp,
     macosIsCpp: macosIsCpp,
     windowsIsCpp: windowsIsCpp,
+    webIsWasm: webIsWasm,
   );
   final needsTargetConditionals = iosIsCpp || macosIsCpp;
 

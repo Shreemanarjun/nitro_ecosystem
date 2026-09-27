@@ -5,6 +5,7 @@ import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interfac
 import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:nitro_generator/src/generators/languages/kotlin/kotlin_generator.dart';
 import 'package:nitro_generator/src/generators/languages/swift/swift_generator.dart';
+import 'package:nitro_generator/src/generators/languages/web/web_bridge_generator.dart';
 import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:test/test.dart';
@@ -293,5 +294,26 @@ abstract class Mix extends HybridObject {
     expect(writer, hasLength(1));
     final before = swift.substring(0, writer.single.start);
     expect('#if os('.allMatches(before).length, '#endif'.allMatches(before).length, reason: 'not inside an OS branch');
+  });
+
+  test('web: a @nitroFast method is a bare call with a debug-only error check, like native', () {
+    final spec = SpecFromSource.parse('''
+import 'package:nitro_annotations/nitro_annotations.dart';
+part 'mix.g.dart';
+@NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp, web: WebNativeImpl.wasm)
+abstract class Mix extends HybridObject {
+  @nitroFast
+  int bump(int v);
+  int checked(int v);
+}
+''', sourceUri: 'package:demo/src/mix.native.dart');
+    final web = WebBridgeGenerator.generate(spec);
+    final fast = web.substring(web.indexOf('int bump(int v) {'), web.indexOf('int checked(int v) {'));
+    expect(fast, isNot(contains('callSync')));
+    // Debug-only check: the slot is read inside an assert (gone in release).
+    expect(fast, contains('assert(() { NitroRuntime.throwIfOutParamError(_err); return true; }());'));
+    expect('throwIfOutParamError'.allMatches(fast), hasLength(1), reason: 'no unguarded check');
+    final checked = web.substring(web.indexOf('int checked(int v) {'));
+    expect(checked, contains('throwIfOutParamError'));
   });
 }

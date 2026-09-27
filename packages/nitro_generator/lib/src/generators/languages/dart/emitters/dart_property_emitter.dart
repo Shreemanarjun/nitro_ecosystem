@@ -11,11 +11,13 @@ void _emitPropertyImpls(CodeWriter writer, BridgeSpec spec) {
     final isVariantProp = spec.isVariantName(bareTypeName(prop.type.name));
 
     if (prop.hasGetter && prop.getFast) {
-      // @nitroFast: bare call — no callSync wrapper, no error-slot check.
+      // @nitroFast: bare call — no callSync wrapper; the error slot is read in
+      // debug builds only (the assert compiles away in profile/release).
       writer.line('  @override');
       writer.line('  $rt get ${prop.dartName} {');
       writer.line('    checkDisposed();');
       writer.line('    final res = _get${cap}Ptr(_instanceId, _nitroErr);');
+      writer.line('    assert(() { ${_inlineCheckError()} return true; }());');
       _emitReturnDecode(writer, prop.type, 'res', '    ', spec, optIsBorrowed: true);
       writer.line('  }');
     } else if (prop.hasGetter) {
@@ -37,6 +39,7 @@ void _emitPropertyImpls(CodeWriter writer, BridgeSpec spec) {
       writer.line('  set ${prop.dartName}($rt value) {');
       writer.line('    checkDisposed();');
       writer.line(encoded.needsArena ? '    withArena((arena) { $call });' : '    $call');
+      writer.line('    assert(() { ${_inlineCheckError()} return true; }());');
       writer.line('  }');
     } else if (prop.hasSetter) {
       writer.line('  @override');

@@ -21,6 +21,13 @@ Fixed
   SwiftPM C++ target (`<plugin>_nitro_post` not found on iOS).
 - SwiftPM `Sources/` entries that `link` adds are relative symlinks to
   `Classes/` (a copy went stale once the `Classes/` file was edited).
+- A web (WASM) module's shared `src/` impl registers under Emscripten: the
+  stub's auto-register guard had no web case, so e.g. a Linux-only-C++
+  module compiled into its wasm but reported "No C++ implementation
+  registered" on web.
+- `web/build_web.sh` links each module's WASM against its own
+  `src/Hybrid<Module>.cpp`; every module's impl was linked into every WASM,
+  so multi-module plugins using the shared `src/` impls failed to link.
 - Shared-type headers are placed once, in the plugin-level SwiftPM C++
   target every module target depends on; per-module copies (a second physical
   file with the same C typedefs) made Clang modules reject the redefinition.

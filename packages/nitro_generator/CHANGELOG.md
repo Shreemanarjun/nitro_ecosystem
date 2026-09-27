@@ -1,6 +1,11 @@
 ## 0.7.9
 
 Fixed
+- `@nitroFast` error handling is the same everywhere: the call stays bare
+  (no `callSync`), and the error slot is read in debug builds only (inside an
+  `assert`) — a native throw surfaces as a `HybridException` in development
+  and costs nothing in profile/release. Previously native swallowed it in
+  every build mode while web always checked. Fast property accessors too.
 - Modules whose language differs across platforms build and run: a module C++
   on one Apple platform and Swift on the other gets its `@_cdecl` stubs on
   the Swift one only (`#if os(...)`; protocol, registry and types stay on

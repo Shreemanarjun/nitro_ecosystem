@@ -1,6 +1,7 @@
 ## 0.7.9
 
-- No annotation changes; released alongside nitro_generator / nitrogen_cli 0.7.9.
+- `@nitroFast` docs: the error slot is now read in debug builds (a native
+  throw surfaces during development); profile/release stay a bare call.
 
 ## 0.7.8
 

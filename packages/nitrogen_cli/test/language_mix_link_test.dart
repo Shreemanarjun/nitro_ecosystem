@@ -260,4 +260,14 @@ void edgeCases() {
       expect('NITRO_IMPL_SRC_demo_kt}'.allMatches(read('src/CMakeLists.txt')), hasLength(1));
     });
   });
+
+  test('a web (wasm) module registers its shared src/ impl under Emscripten too', () {
+    final root = Directory.systemTemp.createTempSync('nitro_web_guard_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    File(p.join(root.path, 'src', 'HybridDemoMix.cpp'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('class Impl {};\n#if (defined(__linux__) && !defined(__ANDROID__))\n#if defined(_WIN32)\nnamespace {\n  struct _AutoRegister {\n  };\n}\n#endif\n#endif\n');
+    linkCppImplStubs([ModuleInfo(lib: 'demo_mix', module: 'DemoMix', isCpp: true, isNativeCpp: true, linuxIsCpp: true, webIsWasm: true)], baseDir: root.path);
+    expect(File(p.join(root.path, 'src', 'HybridDemoMix.cpp')).readAsStringSync(), contains('#if defined(__EMSCRIPTEN__) || (defined(__linux__) && !defined(__ANDROID__))'));
+  });
 }

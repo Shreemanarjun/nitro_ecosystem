@@ -67,7 +67,10 @@ fi
     // real code replaces the shared impl for THIS module only.
     final (impl, implNote) = webSpecificImpls.contains(lib)
         ? ('web/src/Hybrid$pascal.cpp', 'web-specific impl')
-        : ('\$IMPL_SOURCES', 'shared src/ impl');
+        // This module's own shared impl — another module's Hybrid*.cpp would
+        // reference a register_impl this wasm does not contain. The plugin-wide
+        // list stays the fallback for single-impl layouts.
+        : ('\$(ls src/Hybrid$pascal.cpp 2>/dev/null || echo \$IMPL_SOURCES)', 'shared src/ impl');
     b.write('''
 
 # $lib: $implNote

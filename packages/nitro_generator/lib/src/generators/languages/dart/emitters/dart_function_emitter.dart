@@ -238,14 +238,18 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
       // bridge can write error info directly without a separate get_error() call.
       final syncArgs = '$instancedCallArgs, _nitroErr';
       final checkErr = "NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree, methodName: '${func.dartName}');";
+      // @nitroFast: the slot is read in debug builds only (the assert compiles
+      // away in profile/release, which keep the bare call) — a native throw
+      // surfaces during development instead of being lost.
+      final check = isFast ? 'assert(() { $checkErr return true; }());' : checkErr;
       void emitCall(String indent) {
         if (rt == 'void') {
           writer.line('${indent}_${func.dartName}Ptr($syncArgs);');
-          if (!isFast) writer.line('$indent$checkErr');
+          writer.line('$indent$check');
           return;
         }
         writer.line('${indent}final res = _${func.dartName}Ptr($syncArgs);');
-        if (!isFast) writer.line('$indent$checkErr');
+        writer.line('$indent$check');
         _emitReturnDecode(
           writer,
           func.returnType,
@@ -268,17 +272,21 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
         });
       } else if (isFast) {
         // ── Bare leaf body (#51) ── a `...Fast` method is the developer's
-        // contract that this is a hot path: no error-slot check, and no
-        // callSync closure either. The closure captured the arguments and
+        // contract that this is a hot path: no callSync closure. The closure captured the arguments and
         // escaped into callSync, so AOT allocated it on every call — ~20x the
         // cost of the leaf FFI call it wrapped. checkDisposed() stays: one
         // field read, and it is what keeps a use-after-dispose from reaching
         // the native registry with a stale id. Diagnostics (verbose logging,
-        // slow-call detection, timeline) are skipped for Fast methods.
+        // slow-call detection, timeline) are skipped for Fast methods. The
+        // error slot is read in debug builds only: the assert compiles away in
+        // profile/release, so a native throw surfaces during development
+        // without costing the hot path anything where it matters.
         if (rt == 'void') {
           writer.line('    _${func.dartName}Ptr($syncArgs);');
+          writer.line('    $check');
         } else {
           writer.line('    final res = _${func.dartName}Ptr($syncArgs);');
+          writer.line('    $check');
           _emitReturnDecode(
             writer,
             func.returnType,

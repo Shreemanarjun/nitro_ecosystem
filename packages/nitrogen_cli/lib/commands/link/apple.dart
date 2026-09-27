@@ -144,6 +144,7 @@ void linkCppImplStubs(List<ModuleInfo> moduleInfos, {String baseDir = '.'}) {
       iosIsCpp: m.iosIsCpp,
       macosIsCpp: m.macosIsCpp,
       windowsIsCpp: m.windowsIsCpp,
+      webIsWasm: m.webIsWasm,
     );
     // The template's class is empty (abstract — does not compile); take the
     // generator's full starter (every override, throwing) when it exists.
@@ -166,6 +167,7 @@ void _refreshAutoRegisterGuard(File stub, ModuleInfo m) {
     iosIsCpp: m.iosIsCpp,
     macosIsCpp: m.macosIsCpp,
     windowsIsCpp: m.windowsIsCpp,
+    webIsWasm: m.webIsWasm,
   );
   final src = stub.readAsStringSync();
   // The line the stub template emits right before the `#if defined(_WIN32)` register block.
