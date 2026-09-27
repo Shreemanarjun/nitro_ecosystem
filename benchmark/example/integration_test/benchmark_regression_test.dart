@@ -155,9 +155,14 @@ void main() {
         );
       }
       // Every stream is coalesced by the bridge: a dropLatest burst must cost
-      // about what a batch burst does, not one Dart wake per item.
-      final streamPerItem = optionalMin('nitro_stream_struct_burst256_percall');
-      final streamBatched = optionalMin('nitro_stream_struct_burst256_batched');
+      // about what a batch burst does, not one Dart wake per item. Median, not
+      // min: a burst's cost depends on how many flushes the coalescer splits it
+      // into, so one lucky sample is genuinely faster and the min of a handful
+      // of samples compares luck. The pair is sampled interleaved in the
+      // harness; per-item wakes would still sit several times over the bound.
+      double? median(String id) => report.caseById(id)?.stats?.medianUs;
+      final streamPerItem = median('nitro_stream_struct_burst256_percall');
+      final streamBatched = median('nitro_stream_struct_burst256_batched');
       if (!kIsWeb && streamPerItem != null && streamBatched != null) {
         expect(
           streamPerItem / streamBatched,
