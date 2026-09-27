@@ -210,8 +210,14 @@ class BenchReport {
   Map<String, double?> get derived => {
     'nitro_leaf_over_raw_ffi': _ratio('nitro_leaf_add', 'raw_ffi_add'),
     'nitro_cpp_over_raw_ffi': _ratio('nitro_cpp_add', 'raw_ffi_add'),
-    'nitro_leaf_handle_over_raw_ffi': _ratio('nitro_leaf_handle', 'raw_ffi_touch'),
-    'nitro_fast_handle_over_raw_ffi': _ratio('nitro_fast_handle', 'raw_ffi_touch'),
+    'nitro_leaf_handle_over_raw_ffi': _ratio(
+      'nitro_leaf_handle',
+      'raw_ffi_touch',
+    ),
+    'nitro_fast_handle_over_raw_ffi': _ratio(
+      'nitro_fast_handle',
+      'raw_ffi_touch',
+    ),
     'nitro_cpp_over_nitro_leaf': _ratio('nitro_cpp_add', 'nitro_leaf_add'),
     'nitro_platform_over_raw_ffi': _ratio('nitro_platform_add', 'raw_ffi_add'),
     'method_channel_over_nitro_cpp': _ratio(
@@ -409,13 +415,16 @@ class BenchHarness {
       });
     }
 
-    await latencyCase('nitro_leaf_add', 'Nitro C++ (Fast, bare leaf)', config.syncIters, (
-      n,
-    ) {
-      for (var i = 0; i < n; i++) {
-        sink += cpp.addFast(1.0, i.toDouble());
-      }
-    });
+    await latencyCase(
+      'nitro_leaf_add',
+      'Nitro C++ (Fast, bare leaf)',
+      config.syncIters,
+      (n) {
+        for (var i = 0; i < n; i++) {
+          sink += cpp.addFast(1.0, i.toDouble());
+        }
+      },
+    );
 
     await latencyCase(
       'nitro_cpp_add',
@@ -434,24 +443,39 @@ class BenchHarness {
     // `Fast` twin with the bare leaf body (GH #51).
     final rawTouch = rawTouchProbe();
     if (rawTouch != null) {
-      await latencyCase('raw_ffi_touch', 'Raw FFI pointer arg (leaf)', config.syncIters, (n) {
-        for (var i = 0; i < n; i++) {
-          sink += rawTouch.touch();
-        }
-      });
+      await latencyCase(
+        'raw_ffi_touch',
+        'Raw FFI pointer arg (leaf)',
+        config.syncIters,
+        (n) {
+          for (var i = 0; i < n; i++) {
+            sink += rawTouch.touch();
+          }
+        },
+      );
       rawTouch.free();
     }
     final handle = cpp.makeHandle();
-    await latencyCase('nitro_leaf_handle', 'Nitro C++ handle param (checked, leaf)', config.syncIters, (n) {
-      for (var i = 0; i < n; i++) {
-        sink += cpp.touchHandle(handle);
-      }
-    });
-    await latencyCase('nitro_fast_handle', 'Nitro C++ handle param (Fast, bare leaf)', config.syncIters, (n) {
-      for (var i = 0; i < n; i++) {
-        sink += cpp.touchHandleFast(handle);
-      }
-    });
+    await latencyCase(
+      'nitro_leaf_handle',
+      'Nitro C++ handle param (checked, leaf)',
+      config.syncIters,
+      (n) {
+        for (var i = 0; i < n; i++) {
+          sink += cpp.touchHandle(handle);
+        }
+      },
+    );
+    await latencyCase(
+      'nitro_fast_handle',
+      'Nitro C++ handle param (Fast, bare leaf)',
+      config.syncIters,
+      (n) {
+        for (var i = 0; i < n; i++) {
+          sink += cpp.touchHandleFast(handle);
+        }
+      },
+    );
 
     // Multi-instance dispatch (improvement A): rotate calls across 4 distinct
     // native instances so the C-bridge instance cache is exercised. A single-
@@ -647,11 +671,14 @@ class BenchHarness {
     // to its coalescer; the batch arrives here and resolves each pending call.
     final coalescer = NitroCoalescer();
     Future<int> submitCoalesced(int value) => coalescer.submit(
-        (callId, nativePort) => cpp.submitCoalesced(callId, value, nativePort));
+      (callId, nativePort) => cpp.submitCoalesced(callId, value, nativePort),
+    );
 
     // Correctness pre-check on a 64-burst: every callId resolves to its value.
     {
-      final r = await Future.wait([for (var i = 0; i < 64; i++) submitCoalesced(i)]);
+      final r = await Future.wait([
+        for (var i = 0; i < 64; i++) submitCoalesced(i),
+      ]);
       for (var i = 0; i < 64; i++) {
         if (r[i] != i) throw StateError('coalesce mismatch at $i: ${r[i]}');
       }
@@ -667,7 +694,8 @@ class BenchHarness {
         (n) async {
           for (var b = 0; b < n; b++) {
             await Future.wait([
-              for (var i = 0; i < burstSize; i++) cpp.nativeAsyncEchoFromThread(i),
+              for (var i = 0; i < burstSize; i++)
+                cpp.nativeAsyncEchoFromThread(i),
             ]);
           }
         },
@@ -690,8 +718,10 @@ class BenchHarness {
       final items = cpp.coalesceItems();
       final avgBatch = flushes == 0 ? 0.0 : items / flushes;
       // ignore: avoid_print
-      print('BENCHX|coalesce burst=$burstSize avgBatch=${avgBatch.toStringAsFixed(1)} '
-          'flushes=$flushes items=$items');
+      print(
+        'BENCHX|coalesce burst=$burstSize avgBatch=${avgBatch.toStringAsFixed(1)} '
+        'flushes=$flushes items=$items',
+      );
     }
     await coalescer.dispose();
 
@@ -703,14 +733,20 @@ class BenchHarness {
     // checks order and values, so a dropped or reordered item fails the case.
     const streamBurst = 256;
     final streamBurstIters = (config.asyncIters ~/ streamBurst).clamp(20, 2000);
-    Future<void> oneStreamBurst<T>(Stream<T> stream, void Function() fire, int Function(T) valueOf) async {
+    Future<void> oneStreamBurst<T>(
+      Stream<T> stream,
+      void Function() fire,
+      int Function(T) valueOf,
+    ) async {
       final done = Completer<void>();
       var next = 0;
       final sub = stream.listen((item) {
         if (done.isCompleted) return;
         final v = valueOf(item);
         if (v != next) {
-          done.completeError(StateError('stream burst: expected $next, got $v'));
+          done.completeError(
+            StateError('stream burst: expected $next, got $v'),
+          );
           return;
         }
         if (++next == streamBurst) done.complete();
@@ -723,38 +759,86 @@ class BenchHarness {
       }
     }
 
-    for (final batched in const [false, true]) {
-      final tag = batched ? 'batched' : 'percall';
-      final how = batched ? 'Backpressure.batch' : 'Backpressure.dropLatest';
-      await latencyCase(
-        'nitro_stream_struct_burst${streamBurst}_$tag',
-        'Nitro Stream<@HybridStruct> (burst×$streamBurst, $how)',
-        streamBurstIters,
-        (n) async {
-          for (var b = 0; b < n; b++) {
-            await oneStreamBurst(
-              batched ? cpp.pointBurstBatched : cpp.pointBurstPerItem,
-              () => cpp.burstPoints(streamBurst, batched),
-              (p) => p.x.toInt(),
-            );
+    // The two backpressure modes run the SAME code path (the bridge coalesces
+    // every stream), so they are measured INTERLEAVED — warm both, then
+    // alternate samples — instead of one case after the other. Sequential
+    // runs made the result follow position, not mode: whichever case ran
+    // first measured 2–3× slower (heap/GC state left by earlier cases), and
+    // the dropLatest-vs-batch gate compared conditions rather than code.
+    Future<void> streamPair(
+      String kind,
+      String what,
+      Future<void> Function(bool batched) oneBurst,
+    ) async {
+      String id(bool batched) =>
+          'nitro_stream_${kind}_burst${streamBurst}_${batched ? 'batched' : 'percall'}';
+      String label(bool batched) =>
+          'Nitro $what (burst×$streamBurst, ${batched ? 'Backpressure.batch' : 'Backpressure.dropLatest'})';
+      Future<void> run(bool batched, int n) async {
+        for (var b = 0; b < n; b++) {
+          await oneBurst(batched);
+        }
+      }
+
+      onCaseStart?.call(id(false));
+      try {
+        final warm = math.max(streamBurstIters ~/ 10, 50);
+        await run(false, warm);
+        await run(true, warm);
+        final perOp = {false: <double>[], true: <double>[]};
+        for (var s = 0; s < config.samples; s++) {
+          for (final batched
+              in s.isEven ? const [false, true] : const [true, false]) {
+            await Future<void>.delayed(Duration.zero);
+            final sw = Stopwatch()..start();
+            await run(batched, streamBurstIters);
+            sw.stop();
+            perOp[batched]!.add(sw.elapsedMicroseconds / streamBurstIters);
           }
-        },
-      );
-      await latencyCase(
-        'nitro_stream_int_burst${streamBurst}_$tag',
-        'Nitro Stream<int> (burst×$streamBurst, $how)',
-        streamBurstIters,
-        (n) async {
-          for (var b = 0; b < n; b++) {
-            await oneStreamBurst(
-              batched ? cpp.intBurstBatched : cpp.intBurstPerItem,
-              () => cpp.burstInts(streamBurst, batched),
-              (i) => i,
-            );
-          }
-        },
-      );
+        }
+        for (final batched in const [false, true]) {
+          results.add(
+            BenchResult(
+              id: id(batched),
+              label: label(batched),
+              kind: BenchKind.latency,
+              iterations: streamBurstIters,
+              stats: BenchStats(perOp[batched]!),
+            ),
+          );
+        }
+      } catch (e) {
+        for (final batched in const [false, true]) {
+          results.add(
+            BenchResult.skipped(
+              id: id(batched),
+              label: label(batched),
+              kind: BenchKind.latency,
+              reason: '${e.runtimeType}: $e'.split('\n').first,
+            ),
+          );
+        }
+      }
     }
+
+    await streamPair(
+      'struct',
+      'Stream<@HybridStruct>',
+      (batched) => oneStreamBurst(
+        batched ? cpp.pointBurstBatched : cpp.pointBurstPerItem,
+        () => cpp.burstPoints(streamBurst, batched),
+        (p) => p.x.toInt(),
+      ),
+    );
+    await streamPair(
+      'int',
+      'Stream<int>',
+      (batched) => oneStreamBurst(
+        batched ? cpp.intBurstBatched : cpp.intBurstPerItem,
+        () => cpp.burstInts(streamBurst, batched),
+        (i) => i,
+      ),
+    );
 
     // ── Map<String,int> codec round-trip ─────────────────────────────────────
     // Echoes a fixed map through the Nitro binary map codec (Dart encode →
@@ -979,31 +1063,40 @@ class BenchHarness {
       }
     }
 
-    await latencyCase('dart_sieve', 'Pure Dart sieve (no bridge)', config.asyncIters, (
-      n,
-    ) {
-      for (var i = 0; i < n; i++) {
-        sink += dartSievePrimes(sieveLimit).toDouble();
-      }
-    });
+    await latencyCase(
+      'dart_sieve',
+      'Pure Dart sieve (no bridge)',
+      config.asyncIters,
+      (n) {
+        for (var i = 0; i < n; i++) {
+          sink += dartSievePrimes(sieveLimit).toDouble();
+        }
+      },
+    );
 
     if (rawSieve != null) {
-      await latencyCase('raw_ffi_sieve', 'Raw FFI + sieve work', config.asyncIters, (
-        n,
-      ) {
-        for (var i = 0; i < n; i++) {
-          sink += rawSieve(sieveLimit).toDouble();
-        }
-      });
+      await latencyCase(
+        'raw_ffi_sieve',
+        'Raw FFI + sieve work',
+        config.asyncIters,
+        (n) {
+          for (var i = 0; i < n; i++) {
+            sink += rawSieve(sieveLimit).toDouble();
+          }
+        },
+      );
     }
 
-    await latencyCase('nitro_cpp_sieve', 'Nitro C++ + sieve work', config.asyncIters, (
-      n,
-    ) {
-      for (var i = 0; i < n; i++) {
-        sink += cpp.sievePrimes(sieveLimit).toDouble();
-      }
-    });
+    await latencyCase(
+      'nitro_cpp_sieve',
+      'Nitro C++ + sieve work',
+      config.asyncIters,
+      (n) {
+        for (var i = 0; i < n; i++) {
+          sink += cpp.sievePrimes(sieveLimit).toDouble();
+        }
+      },
+    );
 
     await latencyCase(
       'nitro_platform_sieve',
@@ -1105,7 +1198,10 @@ class BenchHarness {
         ) {
           for (var i = 0; i < n; i++) {
             sink += cpp
-                .sendLargeBufferUnsafe(unsafeBuf.ptr as dynamic, config.bufferBytes)
+                .sendLargeBufferUnsafe(
+                  unsafeBuf.ptr as dynamic,
+                  config.bufferBytes,
+                )
                 .toDouble();
           }
         });
