@@ -107,12 +107,12 @@ class NitroConfig {
   /// window is picked up with no port message and no OS reschedule. Measured
   /// lone-call wins: macOS 23 → 4.5 µs, Android 139 → 25 µs.
   ///
-  /// **`null` (the default) means auto**: the window is sized to roughly the OS
-  /// wake the platform would otherwise pay — about **40 µs on desktop**
-  /// (macOS/Windows/Linux, wake ~20 µs) and **100 µs on mobile** (Android/iOS,
-  /// wake ~115 µs) — so a completion faster than the wake is caught and a
-  /// slower one is left to park (catching it would cost more than it saves).
-  /// Web ignores it (no ports there). End users need set nothing.
+  /// **`null` (the default) means auto**: the window is sized to ≈ the OS wake
+  /// the platform would otherwise pay — about **20 µs desktop**
+  /// (macOS/Windows/Linux), **40 µs iOS**, **100 µs Android** — so a completion
+  /// faster than the wake is caught and a slower one is left to park (catching
+  /// it would cost more than it saves). Web ignores it (no ports there). End
+  /// users need set nothing.
   ///
   /// It is cheap to leave on: the loop breaks the instant the result lands (so
   /// the cap bounds only the *miss* path), a circuit breaker disables it when
@@ -122,14 +122,11 @@ class NitroConfig {
   /// disable — e.g. on a battery-critical path that makes many lone, slow
   /// native-async calls. [NitroSpinStats] reports whether it is paying off.
   ///
-  /// Profiling note: the spin is a **synchronous busy-wait**, so it cannot be
-  /// measured from inside a `flutter_driver` integration test — holding the
-  /// isolate in a tight spin starves the driver channel ("request_data taking a
-  /// long time"). Set this to `0` for driver/profiler runs. (The nitro
-  /// benchmark avoids this because it `await`s between calls and each hit breaks
-  /// early, so the channel is serviced between short spins — but a profiler that
-  /// never yields will hang. A normal app is like the benchmark: its event loop
-  /// runs between awaited calls, so the busy-wait never starves it.)
+  /// Profiling note: the spin is a **synchronous busy-wait**. A duty-cycle cap
+  /// bounds it to ≤25% of wall-clock over a sliding window, so a tight
+  /// native-async loop (e.g. under a profiler / `flutter_driver`) can't starve
+  /// the driver channel — you don't need to turn it off to profile. Set `0`
+  /// only if you want the busy-wait gone entirely from a measurement.
   int? nativeAsyncSpinUs;
 
   // ── Timeline tracing ─────────────────────────────────────────────────────

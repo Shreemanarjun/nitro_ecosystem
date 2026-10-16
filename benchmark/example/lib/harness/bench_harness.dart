@@ -683,12 +683,57 @@ class BenchHarness {
         }
       },
     );
+    // hitRate < 100% here is expected: this is a back-to-back tight loop, so the
+    // duty-cycle cap (≤25% of wall-clock busy-wait) throttles it — those parks
+    // are near-free (avgMissUs≈0: the completion was ready, delivered on the next
+    // loop turn with no OS wake). A real app with work between calls hits ~100%.
     final spin = NitroSpinStats.instance;
     // ignore: avoid_print
     print('BENCHX|spin hitRate=${(spin.hitRate * 100).toStringAsFixed(1)}% '
         'hits=${spin.hits} misses=${spin.misses} avgHitUs=${spin.avgHitUs.toStringAsFixed(2)} '
         'avgMissUs=${spin.avgMissUs.toStringAsFixed(2)}');
     NitroConfig.instance.nativeAsyncSpinUs = 0;
+
+    // Lone-serial, idle-isolate latency (issue #57) — the scenario the spin
+    // actually targets: ONE call in flight with the isolate parked between,
+    // not the back-to-back loop above. A real idle gap each call means the duty
+    // cap never engages, so this is the clean per-call win an end user sees on
+    // a lone request (spin off = pays the OS wake; spin auto = picks it off the
+    // slot). Compare the two ids within a device.
+    Future<void> loneCase(String id, String label, int? spinUs) async {
+      onCaseStart?.call(id);
+      NitroConfig.instance.nativeAsyncSpinUs = spinUs;
+      NitroSpinStats.instance.reset();
+      try {
+        for (var i = 0; i < 20; i++) {
+          sink += (await cpp.nativeAsyncEchoFromThread(i)).toDouble();
+          await Future<void>.delayed(const Duration(milliseconds: 1));
+        }
+        NitroSpinStats.instance.reset(); // drop warmup from the reported stats
+        const loneSamples = 150;
+        final perOp = <double>[];
+        for (var s = 0; s < loneSamples; s++) {
+          await Future<void>.delayed(const Duration(milliseconds: 1)); // isolate parks → true lone wake
+          final sw = Stopwatch()..start();
+          sink += (await cpp.nativeAsyncEchoFromThread(s)).toDouble();
+          sw.stop();
+          perOp.add(sw.elapsedMicroseconds.toDouble());
+        }
+        results.add(BenchResult(id: id, label: label, kind: BenchKind.latency, iterations: 1, stats: BenchStats(perOp)));
+        if (spinUs != 0) {
+          final st = NitroSpinStats.instance;
+          // ignore: avoid_print
+          print('BENCHX|lone-spin hitRate=${(st.hitRate * 100).toStringAsFixed(1)}% avgHitUs=${st.avgHitUs.toStringAsFixed(2)} (should be ~100% — no duty throttle when idle)');
+        }
+      } catch (e) {
+        results.add(BenchResult.skipped(id: id, label: label, kind: BenchKind.latency, reason: '${e.runtimeType}: $e'.split('\n').first));
+      } finally {
+        NitroConfig.instance.nativeAsyncSpinUs = 0;
+      }
+    }
+
+    await loneCase('nitro_native_async_lone_nospin', 'Nitro @nitroNativeAsync (lone serial, idle isolate, spin off)', 0);
+    await loneCase('nitro_native_async_lone_spin', 'Nitro @nitroNativeAsync (lone serial, idle isolate, spin auto)', null);
 
     // ── Coalesced completion experiment (issue #39) ──────────────────────────
     // Sweep burst sizes: per-call posts vs coalesced (worker batches the drained

@@ -330,5 +330,20 @@ void main() {
       batch.spinPoll(7100, 30);
       expect(pollCount, 1, reason: 'edge hits opened the breaker; the spin stops burning the loop');
     });
+
+    test('busy-wait self-limits event-loop occupancy (duty cap parks once the budget is spent)', () {
+      final batch = make(<int>[]);
+      // One ~5ms spin spends the whole 25%-of-20ms busy-wait budget. The next
+      // call must park with a single poll even though only ONE miss has
+      // happened — so it's the duty cap, not the 8-miss breaker. This is what
+      // keeps a tight native-async loop (under a profiler / flutter_driver)
+      // from starving the event loop, with no flag and no production cost.
+      batch.armSpin(8000);
+      batch.spinPoll(8000, 5001);
+      pollCount = 0;
+      batch.armSpin(8001);
+      batch.spinPoll(8001, 5001);
+      expect(pollCount, 1, reason: 'budget spent → window 0 (only 1 prior miss, far below the breaker threshold)');
+    });
   });
 }

@@ -1,44 +1,24 @@
 ## 0.7.10
 
 Added
-- Single-in-flight completion spin for `@nitroNativeAsync` (issue #57): when one
-  native-async call is outstanding, Dart briefly polls a shared completion slot
-  before parking on the port, so a lone serial completion is picked up with no
-  port message and no OS wake. Measured lone-call wins: macOS 23 → 4.5 µs (7.6×),
-  Android 139 → 25 µs (5.7×), ~97-100% hit-rate. This is a client-side
-  workaround for the `Dart_PostCObject_DL` wake latency in dart-lang/sdk#53156
-  (closed not-planned); if `Isolate.onEvent` (sdk#64229) ships it becomes the
-  principled fix and this can defer to it. Targets the idle-isolate wake; under
-  a busy isolate a lone request also bypasses the port-queue latency #53156
-  reports, and the breaker disables the spin if the worker can't keep up.
+- Single-in-flight completion spin for `@nitroNativeAsync` (issue #57): a lone
+  native-async completion is picked off a shared slot with no port message and
+  no OS wake. Measured: macOS 23→4.5 µs, Android 139→25 µs (~97-100% hit). Works
+  around `Dart_PostCObject_DL` latency (dart-lang/sdk#53156); supersedable by
+  `Isolate.onEvent` (sdk#64229). `NitroSpinStats.instance` reports
+  `hitRate`/`avgHitUs`/`avgMissUs`.
 
 Changed
-- **The spin is on by default** and auto-sized per platform — `NitroConfig
-  .nativeAsyncSpinUs` now defaults to `null` meaning "auto": ~40 µs on desktop
-  and ~100 µs on mobile, each roughly the OS isolate wake that platform pays, so
-  a completion faster than the wake is caught and a slower one parks. End users
-  set nothing. Web ignores it. It's cheap to leave on — the loop breaks the
-  instant the result lands (the cap bounds only the miss path), a circuit breaker
-  disables it when the native side is reliably slower than the cap, and it's
-  skipped entirely under concurrency (where the wake already amortizes). Set an
-  explicit µs value to override, or `0` to disable (e.g. a battery-critical path
-  making many lone, slow native-async calls). `NitroSpinStats.instance` reports
-  `hitRate` / `avgHitUs` / `avgMissUs` so you can see whether it's paying off —
-  `avgMissUs` ≫ `avgHitUs` with a low `hitRate` means a bimodal workload (a fast
-  mode the spin catches plus a slow tail it can't), the only shape where a
-  smaller cap would help. (An auto-sizing window was designed and
-  adversarially tested; it regressed on bimodal workloads versus the fixed cap,
-  so the fixed cap + breaker stays — `avgMissUs` is the signal that would
-  justify revisiting it.)
-- The circuit breaker now also counts a *near-full-window hit* (a completion
-  that spun almost the whole window before landing) toward backoff, so a worker
-  that lands right at the window edge every call can't spin near-full-window
-  indefinitely — the miss-only breaker never saw that regime before. Normal
-  fast hits (far below the window) are unaffected.
-- The spin is a synchronous busy-wait, so it can't be profiled from inside a
-  `flutter_driver` / `integration_test` (it starves the driver channel). Set
-  `NitroConfig.nativeAsyncSpinUs = 0` for such runs — a measurement constraint,
-  not a production one (a real app's event loop runs between awaited calls).
+- **Spin is on by default, auto-sized per platform**: `NitroConfig
+  .nativeAsyncSpinUs` defaults to `null` = auto (≈ the OS wake: ~20 µs desktop /
+  ~40 µs iOS / ~100 µs Android). Zero-config for end users; web ignores it. Cheap to leave on —
+  break-early (the cap bounds only misses), a circuit breaker that disables it
+  when the native side is slower than the cap (and now also trips on a
+  near-full-window hit), the single-in-flight guard, and a duty-cycle cap that
+  bounds the busy-wait to ≤25% of wall-clock — so a tight native-async loop
+  (e.g. under a profiler / `flutter_driver`) can't starve the event loop, with
+  no flag and no production cost (a lone call spins µs, far under the budget).
+  Set an explicit µs cap, or `0` to disable entirely.
 
 ## 0.7.9
 

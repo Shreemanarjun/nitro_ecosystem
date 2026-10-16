@@ -61,13 +61,19 @@ class NitroRuntime {
   static final bool useNativeBindings = Platform.isIOS || Platform.isMacOS;
 
   /// Auto spin window (issue #57) when `NitroConfig.nativeAsyncSpinUs` is null:
-  /// sized to roughly the OS wake the platform pays, so a completion faster than
-  /// the wake is caught and a slower one parks. Mobile's isolate wake (~115 µs
-  /// on an Android phone) is far larger than desktop's (~20 µs), so mobile gets
-  /// a wider window — catching the 40–115 µs band a flat desktop-sized cap would
-  /// miss. Break-early means the wider cap is free on hits; it only bounds the
-  /// rare miss, which the circuit breaker then caps.
-  static final int _defaultSpinUs = (Platform.isAndroid || Platform.isIOS) ? 100 : 40;
+  /// sized to ≈ the OS isolate wake the platform pays, so a completion faster
+  /// than the wake is caught (spending < the wake it saves) and a slower one
+  /// parks (catching it would cost more than the wake). Measured wakes differ
+  /// by ~6×: desktop ~18 µs, iOS ~29 µs, Android ~115 µs. A window much wider
+  /// than the wake is a net loss on the completions that land in the gap (they
+  /// get spun-for instead of parked) — the macOS lone-call benchmark showed a
+  /// 40 µs desktop window slightly losing to no-spin on a cold worker, which
+  /// this corrects.
+  static final int _defaultSpinUs = Platform.isAndroid
+      ? 100
+      : Platform.isIOS
+          ? 40
+          : 20;
 
   // ── Library loading ──────────────────────────────────────────────────────
 

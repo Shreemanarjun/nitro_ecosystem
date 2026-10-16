@@ -81,6 +81,20 @@ class NitroCompletionBatch {
   // trips. Purely a foot-gun guard; it is far above any sane cap.
   static const int _maxSpinUs = 10000;
 
+  // Event-loop occupancy cap. The spin is a synchronous busy-wait, so bound its
+  // aggregate CPU to [_dutyBudgetUs] per [_dutyWindowUs] of wall-clock (reusing
+  // _spinClock). This makes "the busy-wait can never starve the event loop" a
+  // property of the code regardless of call pattern — e.g. a tight native-async
+  // loop under a profiler / flutter_driver, which can't yield the driver channel
+  // otherwise — with no flag and no harness detection. A lone call spins ~µs,
+  // thousands below the budget, so production (and the measured win) is
+  // untouched; only sustained spinning is throttled, parking until the window
+  // rolls so the loop is serviced.
+  static const int _dutyWindowUs = 20000; // 20 ms (> one 60fps frame)
+  static const int _dutyBudgetUs = 5000; // ≤25% of wall-clock spinning
+  int _dutySpentUs = 0;
+  int _dutyWindowStartUs = 0;
+
   /// Arms the native spin slot for [id]. Call right before the native call,
   /// only when single-in-flight (see [spinPoll]).
   void armSpin(int id) {
@@ -115,6 +129,15 @@ class NitroCompletionBatch {
       }
     }
 
+    // Occupancy cap: once this sliding window's spin budget is spent, park at
+    // once so the event loop (and any driver/profiler channel) is serviced.
+    final nowUs = _spinClock.elapsedMicroseconds;
+    if (nowUs - _dutyWindowStartUs >= _dutyWindowUs) {
+      _dutyWindowStartUs = nowUs;
+      _dutySpentUs = 0;
+    }
+    if (_dutySpentUs >= _dutyBudgetUs) window = 0;
+
     final out = _spinOut ??= calloc<Uint8>(24);
     var state = 0; // 0 pending, 1 done, 2 parked
     final sw = Stopwatch()..start();
@@ -131,6 +154,7 @@ class NitroCompletionBatch {
       }
     }
     if (state == 0) state = poll(id, out, 1); // deadline: claim-or-park
+    _dutySpentUs += sw.elapsedMicroseconds; // charge actual busy-wait to the budget
 
     if (state != 1) {
       // Parked → the port path takes over.
