@@ -612,6 +612,9 @@ class BenchHarness {
       },
     );
 
+    // Spin is on by default (40µs) since 0.7.10; pin it off so these cases are
+    // the no-spin baseline the dedicated _spin case below is compared against.
+    NitroConfig.instance.nativeAsyncSpinUs = 0;
     await latencyCase(
       'nitro_native_async_scalar',
       'Nitro @nitroNativeAsync (scalar, inline post)',
@@ -662,6 +665,30 @@ class BenchHarness {
         }
       },
     );
+
+    // Same cross-thread call with the single-in-flight completion spin at its
+    // DEFAULT auto window (issue #57) — what an end user gets with zero config
+    // (null → ~40µs desktop / ~100µs mobile). A lone serial completion is picked
+    // up from the shared slot, skipping the isolate wake the case above pays.
+    // Baselines above pin spin off; this case uses the real default, then clears.
+    NitroConfig.instance.nativeAsyncSpinUs = null;
+    NitroSpinStats.instance.reset();
+    await latencyCase(
+      'nitro_native_async_scalar_xthread_spin',
+      'Nitro @nitroNativeAsync (scalar, cross-thread post, spin auto-default)',
+      config.asyncIters,
+      (n) async {
+        for (var i = 0; i < n; i++) {
+          sink += (await cpp.nativeAsyncEchoFromThread(i)).toDouble();
+        }
+      },
+    );
+    final spin = NitroSpinStats.instance;
+    // ignore: avoid_print
+    print('BENCHX|spin hitRate=${(spin.hitRate * 100).toStringAsFixed(1)}% '
+        'hits=${spin.hits} misses=${spin.misses} avgHitUs=${spin.avgHitUs.toStringAsFixed(2)} '
+        'avgMissUs=${spin.avgMissUs.toStringAsFixed(2)}');
+    NitroConfig.instance.nativeAsyncSpinUs = 0;
 
     // ── Coalesced completion experiment (issue #39) ──────────────────────────
     // Sweep burst sizes: per-call posts vs coalesced (worker batches the drained

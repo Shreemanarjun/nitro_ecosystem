@@ -1,3 +1,7 @@
+## 0.7.10
+
+- Version sync with nitro_generator 0.7.10 (no annotation changes).
+
 ## 0.7.9
 
 - `@nitroFast` docs: the error slot is now read in debug builds (a native

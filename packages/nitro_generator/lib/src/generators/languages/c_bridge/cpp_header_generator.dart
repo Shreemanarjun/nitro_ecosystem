@@ -167,6 +167,8 @@ class CppHeaderGenerator {
       CodeLine('NITRO_EXPORT bool ${libStem}_nitro_post(int64_t port, struct _Dart_CObject* obj);'),
       CodeLine('NITRO_EXPORT int64_t ${libStem}_nitro_bind(int64_t batchPort);'),
       CodeLine('NITRO_EXPORT void ${libStem}_nitro_ack(int64_t batchPort);'),
+      CodeLine('NITRO_EXPORT void ${libStem}_nitro_arm(int64_t id);'),
+      CodeLine('NITRO_EXPORT int32_t ${libStem}_nitro_poll(int64_t id, uint8_t* out, int32_t giveUp);'),
       CodeLine('#define Dart_PostCObject_DL(port, obj) ${libStem}_nitro_post((port), (obj))'),
       if (spec.targetsWeb) CodeLine('#endif'),
       if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) CodeLine('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr);'),

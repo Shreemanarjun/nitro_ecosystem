@@ -1,3 +1,11 @@
+## 0.7.10
+
+Added
+- Completion batcher emits two native-only exports (`<lib>_nitro_arm`,
+  `<lib>_nitro_poll`) backing the optional `@nitroNativeAsync` completion spin
+  (issue #57, `NitroConfig.nativeAsyncSpinUs`). No per-method generated code
+  changes; web binds neither symbol.
+
 ## 0.7.9
 
 Fixed

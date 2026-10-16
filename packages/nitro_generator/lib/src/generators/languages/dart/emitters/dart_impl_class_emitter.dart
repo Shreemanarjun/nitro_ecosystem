@@ -92,7 +92,11 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
     // Shared completion port for @nitroNativeAsync (see NitroCompletionBatch):
     // one message per burst instead of one per call.
     writer.line("  late final int Function(int) _nitroBindPtr = _dylib.lookupFunction<Int64 Function(Int64), int Function(int)>('${libStem}_nitro_bind', isLeaf: true);");
-    writer.line('  late final NitroCompletionBatch _nitroBatch = NitroCompletionBatch(bind: _nitroBindPtr, ack: _nitroAckPtr);');
+    // Single-in-flight completion spin (issue #57): arm the slot, then busy-poll
+    // it. Opt-in via NitroConfig.nativeAsyncSpinUs; the batch no-ops otherwise.
+    writer.line("  late final void Function(int) _nitroArmPtr = _dylib.lookupFunction<Void Function(Int64), void Function(int)>('${libStem}_nitro_arm', isLeaf: true);");
+    writer.line("  late final int Function(int, Pointer<Uint8>, int) _nitroPollPtr = _dylib.lookupFunction<Int32 Function(Int64, Pointer<Uint8>, Int32), int Function(int, Pointer<Uint8>, int)>('${libStem}_nitro_poll', isLeaf: true);");
+    writer.line('  late final NitroCompletionBatch _nitroBatch = NitroCompletionBatch(bind: _nitroBindPtr, ack: _nitroAckPtr, arm: _nitroArmPtr, poll: _nitroPollPtr);');
   }
   writer.line('  late final NitroNativeAllocator _nitroNativeAllocator = NitroNativeAllocator(_nitroAllocPtr, _nitroFreePtr);');
   writer.blankLine();

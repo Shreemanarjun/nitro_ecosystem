@@ -100,6 +100,38 @@ class NitroConfig {
   /// resilience against a misbehaving implementation.
   int nativeAsyncTimeoutMs = 0;
 
+  /// Spin window in **microseconds** for a single-in-flight `@nitroNativeAsync`
+  /// completion (issue #57), capped — not a fixed spend. When no other
+  /// native-async call is outstanding, the Dart side busy-polls a shared
+  /// completion slot before parking on the port; a result that lands inside the
+  /// window is picked up with no port message and no OS reschedule. Measured
+  /// lone-call wins: macOS 23 → 4.5 µs, Android 139 → 25 µs.
+  ///
+  /// **`null` (the default) means auto**: the window is sized to roughly the OS
+  /// wake the platform would otherwise pay — about **40 µs on desktop**
+  /// (macOS/Windows/Linux, wake ~20 µs) and **100 µs on mobile** (Android/iOS,
+  /// wake ~115 µs) — so a completion faster than the wake is caught and a
+  /// slower one is left to park (catching it would cost more than it saves).
+  /// Web ignores it (no ports there). End users need set nothing.
+  ///
+  /// It is cheap to leave on: the loop breaks the instant the result lands (so
+  /// the cap bounds only the *miss* path), a circuit breaker disables it when
+  /// the native side is reliably slower than the cap, and the single-in-flight
+  /// guard skips it entirely under concurrency (where the wake already
+  /// amortizes). Set an explicit µs value to override the auto cap, or `0` to
+  /// disable — e.g. on a battery-critical path that makes many lone, slow
+  /// native-async calls. [NitroSpinStats] reports whether it is paying off.
+  ///
+  /// Profiling note: the spin is a **synchronous busy-wait**, so it cannot be
+  /// measured from inside a `flutter_driver` integration test — holding the
+  /// isolate in a tight spin starves the driver channel ("request_data taking a
+  /// long time"). Set this to `0` for driver/profiler runs. (The nitro
+  /// benchmark avoids this because it `await`s between calls and each hit breaks
+  /// early, so the channel is serviced between short spins — but a profiler that
+  /// never yields will hang. A normal app is like the benchmark: its event loop
+  /// runs between awaited calls, so the busy-wait never starves it.)
+  int? nativeAsyncSpinUs;
+
   // ── Timeline tracing ─────────────────────────────────────────────────────
 
   /// When `true`, [NitroRuntime] wraps bridge calls in `dart:developer`
@@ -156,8 +188,75 @@ class NitroConfig {
     isolatePoolSize = 1;
     slowCallThresholdUs = 0;
     nativeAsyncTimeoutMs = 0;
+    nativeAsyncSpinUs = null;
     timelineTracingEnabled = false;
   }
+}
+
+/// Observability for the single-in-flight completion spin (issue #57).
+///
+/// The spin self-tunes per library (it sizes its window to the recent
+/// completion latency and backs off when spinning stops paying), so these
+/// aggregate counters let you confirm it is actually winning before you widen
+/// [NitroConfig.nativeAsyncSpinUs] — or notice it never helps and turn it off.
+///
+/// ```dart
+/// final s = NitroSpinStats.instance;
+/// print('spin hit-rate ${(s.hitRate * 100).toStringAsFixed(0)}% '
+///       'avg ${s.avgHitUs.toStringAsFixed(1)}µs over ${s.spins} calls');
+/// ```
+class NitroSpinStats {
+  NitroSpinStats._();
+  static final NitroSpinStats instance = NitroSpinStats._();
+
+  /// Native-async calls that attempted a spin (hits + misses).
+  int spins = 0;
+
+  /// Completions picked up from the slot — no port message, no OS wake.
+  int hits = 0;
+
+  /// Completions that parked and came back through the port instead.
+  int misses = 0;
+
+  int _sumHitUs = 0;
+  int _sumMissUs = 0;
+
+  /// Fraction of spins that landed off-port, `0` when nothing has spun yet.
+  double get hitRate => spins == 0 ? 0 : hits / spins;
+
+  /// Mean microseconds a hit took from spin start to the completion landing.
+  double get avgHitUs => hits == 0 ? 0 : _sumHitUs / hits;
+
+  /// Mean **true** completion latency of the calls that missed the window —
+  /// measured uncensored (arm → port delivery), so it reflects how slow the
+  /// missed completions really were, not the window. `avgMissUs` far above
+  /// [avgHitUs] with a low [hitRate] means the workload is bimodal (a fast mode
+  /// the spin catches plus a slow tail it can't) — the only shape where sizing
+  /// the window below the cap could help. When it's empty or ≈ [avgHitUs] the
+  /// workload is unimodal and the fixed cap is already near-optimal.
+  double get avgMissUs => misses == 0 ? 0 : _sumMissUs / misses;
+
+  /// Clears the counters (e.g. between benchmark phases or in tests).
+  void reset() {
+    spins = hits = misses = _sumHitUs = _sumMissUs = 0;
+  }
+
+  // Updated by NitroCompletionBatch.spinPoll — not part of the public surface.
+  void recordHit(int us) {
+    spins++;
+    hits++;
+    _sumHitUs += us;
+  }
+
+  void recordMiss() {
+    spins++;
+    misses++;
+  }
+
+  /// The uncensored latency of a missed completion, recorded when its port
+  /// message finally arrives (see NitroCompletionBatch). Separate from
+  /// [recordMiss] because the latency isn't known until later.
+  void recordMissLatency(int us) => _sumMissUs += us;
 }
 
 void _defaultLog(

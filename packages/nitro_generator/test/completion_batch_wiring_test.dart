@@ -29,7 +29,9 @@ void main() {
     final dart = DartFfiGenerator.generate(spec);
     expect(dart, contains("_dylib.lookupFunction<Int64 Function(Int64), int Function(int)>('demo_nitro_bind', isLeaf: true)"));
     expect(dart, contains("_dylib.lookupFunction<Void Function(Int64), void Function(int)>('demo_nitro_ack', isLeaf: true)"));
-    expect(dart, contains('late final NitroCompletionBatch _nitroBatch = NitroCompletionBatch(bind: _nitroBindPtr, ack: _nitroAckPtr);'));
+    expect(dart, contains("_dylib.lookupFunction<Void Function(Int64), void Function(int)>('demo_nitro_arm', isLeaf: true)"));
+    expect(dart, contains("_dylib.lookupFunction<Int32 Function(Int64, Pointer<Uint8>, Int32), int Function(int, Pointer<Uint8>, int)>('demo_nitro_poll', isLeaf: true)"));
+    expect(dart, contains('late final NitroCompletionBatch _nitroBatch = NitroCompletionBatch(bind: _nitroBindPtr, ack: _nitroAckPtr, arm: _nitroArmPtr, poll: _nitroPollPtr);'));
     expect(RegExp(r'batch: _nitroBatch,').allMatches(dart).length, 2);
   });
 
@@ -43,6 +45,8 @@ void main() {
     expect(h, contains('NITRO_EXPORT bool demo_nitro_post(int64_t port, struct _Dart_CObject* obj);'));
     expect(h, contains('NITRO_EXPORT int64_t demo_nitro_bind(int64_t batchPort);'));
     expect(h, contains('NITRO_EXPORT void demo_nitro_ack(int64_t batchPort);'));
+    expect(h, contains('NITRO_EXPORT void demo_nitro_arm(int64_t id);'));
+    expect(h, contains('NITRO_EXPORT int32_t demo_nitro_poll(int64_t id, uint8_t* out, int32_t giveUp);'));
     expect(h, contains('#define Dart_PostCObject_DL(port, obj) demo_nitro_post((port), (obj))'));
     expect(h.indexOf('#ifndef __EMSCRIPTEN__'), lessThan(h.indexOf('demo_nitro_post')));
   });
@@ -54,6 +58,8 @@ void main() {
       expect(cpp, contains('NITRO_EXPORT bool demo_nitro_post(int64_t port, struct _Dart_CObject* obj) { return g_nitro_batch_demo.post(port, obj); }'));
       expect(cpp, contains('NITRO_EXPORT int64_t demo_nitro_bind(int64_t batchPort) { return g_nitro_batch_demo.bind(batchPort); }'));
       expect(cpp, contains('NITRO_EXPORT void demo_nitro_ack(int64_t batchPort) { g_nitro_batch_demo.ack(batchPort); }'));
+      expect(cpp, contains('NITRO_EXPORT void demo_nitro_arm(int64_t id) { g_nitro_batch_demo.arm(id); }'));
+      expect(cpp, contains('NITRO_EXPORT int32_t demo_nitro_poll(int64_t id, uint8_t* out, int32_t giveUp) { return g_nitro_batch_demo.poll(id, out, giveUp); }'));
     }
   });
 

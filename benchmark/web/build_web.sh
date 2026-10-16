@@ -8,7 +8,7 @@
 #
 # Records the generated bridge each module was built against; `nitrogen doctor`
 # warns when a bridge has been regenerated since this script was written.
-# NITRO_BRIDGE_CHECKSUM benchmark_cpp c1788d149567213c
+# NITRO_BRIDGE_CHECKSUM benchmark_cpp 2c5a50d7bb43ad78
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -36,7 +36,7 @@ fi
 # benchmark_cpp: shared src/ impl
 em++ -O2 --no-entry -fwasm-exceptions $THREAD_FLAGS \
   -Isrc -Isrc/native -I"$GEN" \
-  "$GEN/benchmark_cpp.bridge.g.cpp" $IMPL_SOURCES \
+  "$GEN/benchmark_cpp.bridge.g.cpp" $(ls src/HybridBenchmarkCpp.cpp 2>/dev/null || echo $IMPL_SOURCES) \
   -sMODULARIZE=1 -sEXPORT_NAME=createBenchmarkCppModule \
   -sALLOW_MEMORY_GROWTH=1 -sALLOW_TABLE_GROWTH=1 \
   -sWASM_BIGINT=1 -sENVIRONMENT=web \

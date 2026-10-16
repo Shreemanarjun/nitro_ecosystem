@@ -60,6 +60,15 @@ class NitroRuntime {
   /// dart:io directly, so this bridges the Platform check.
   static final bool useNativeBindings = Platform.isIOS || Platform.isMacOS;
 
+  /// Auto spin window (issue #57) when `NitroConfig.nativeAsyncSpinUs` is null:
+  /// sized to roughly the OS wake the platform pays, so a completion faster than
+  /// the wake is caught and a slower one parks. Mobile's isolate wake (~115 µs
+  /// on an Android phone) is far larger than desktop's (~20 µs), so mobile gets
+  /// a wider window — catching the 40–115 µs band a flat desktop-sized cap would
+  /// miss. Break-early means the wider cap is free on hits; it only bounds the
+  /// rare miss, which the circuit breaker then caps.
+  static final int _defaultSpinUs = (Platform.isAndroid || Platform.isIOS) ? 100 : 40;
+
   // ── Library loading ──────────────────────────────────────────────────────
 
   static DynamicLibrary loadLib(String libName) {
@@ -647,7 +656,7 @@ class NitroRuntime {
     // Generated bridges pass a per-library [batch]: the call gets an id on the
     // shared batch port instead of a port of its own, and completions that
     // land while this isolate is busy arrive together as one message.
-    if (batch != null) return _openBatched<T>(batch, call, unpack, cleanup, tag, sw, effective, traceTimeline, timeoutMs);
+    if (batch != null) return _openBatched<T>(batch, call, unpack, cleanup, tag, sw, effective, traceTimeline, timeoutMs, cfg.nativeAsyncSpinUs ?? _defaultSpinUs);
 
     final port = ReceivePort();
 
@@ -721,17 +730,23 @@ class NitroRuntime {
     NitroLogLevel effective,
     bool traceTimeline,
     int timeoutMs,
+    int spinUs,
   ) {
     final completer = Completer<T>();
     void terminate() {
       cleanup?.call();
       if (traceTimeline) developer.Timeline.finishSync();
     }
+    // Single-in-flight completion spin (issue #57): only when enabled and no
+    // other native-async call is outstanding, so we never busy-wait while the
+    // isolate already has work to run on the next turn.
+    final spin = spinUs > 0 && batch.pendingCount == 0;
     final id = batch.register((dynamic raw) {
       if (completer.isCompleted) return;
       if (sw != null) _logCallTiming(sw, tag());
       _completeUnpacked(completer, unpack, raw, tag, effective);
     });
+    if (spin) batch.armSpin(id);
     try {
       call(id);
     } catch (e, st) {
@@ -739,6 +754,17 @@ class NitroRuntime {
       terminate();
       if (effective != NitroLogLevel.none) _log(NitroLogLevel.error, tag(), 'threw: $e', e, st);
       rethrow;
+    }
+    if (spin) {
+      final got = batch.spinPoll(id, spinUs);
+      if (got != null) {
+        // Completion landed inside the window — no port message, no OS wake.
+        if (sw != null) _logCallTiming(sw, tag());
+        _completeUnpacked(completer, unpack, got[0], tag, effective);
+        terminate();
+        return completer.future;
+      }
+      // Parked: the worker posts to the port; fall through to the port wait.
     }
     return _finish(completer, terminate, timeoutMs, () {
       batch.forget(id);

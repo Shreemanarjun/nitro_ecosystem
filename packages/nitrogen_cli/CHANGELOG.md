@@ -1,3 +1,8 @@
+## 0.7.10
+
+- `link` copies the updated `nitro_completion_batch.h` (now carrying the
+  completion-spin slot, issue #57). Version sync with nitro_generator 0.7.10.
+
 ## 0.7.9
 
 Added
