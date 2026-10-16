@@ -74,26 +74,24 @@ class NitroCompletionBatch {
   static const int _missesToBackOff = 8;
   static const int _probeEvery = 32;
 
-  // Hard ceiling on the effective window. Spinning longer than this is never
-  // useful (the completion is doing real work — park and let the wake amortize),
-  // and without the clamp a fat-fingered `nativeAsyncSpinUs` would burn a core
-  // for that long on each of the [_missesToBackOff] misses before the breaker
-  // trips. Purely a foot-gun guard; it is far above any sane cap.
+  // Foot-gun guard: a fat-fingered `nativeAsyncSpinUs` must not burn a core for
+  // its whole value on each miss before the breaker trips. Far above any sane cap.
   static const int _maxSpinUs = 10000;
 
-  // Event-loop occupancy cap. The spin is a synchronous busy-wait, so bound its
-  // aggregate CPU to [_dutyBudgetUs] per [_dutyWindowUs] of wall-clock (reusing
-  // _spinClock). This makes "the busy-wait can never starve the event loop" a
-  // property of the code regardless of call pattern — e.g. a tight native-async
-  // loop under a profiler / flutter_driver, which can't yield the driver channel
-  // otherwise — with no flag and no harness detection. A lone call spins ~µs,
-  // thousands below the budget, so production (and the measured win) is
-  // untouched; only sustained spinning is throttled, parking until the window
-  // rolls so the loop is serviced.
+  // Event-loop occupancy cap: the spin is a synchronous busy-wait, so bound it
+  // to [_dutyBudgetUs] per [_dutyWindowUs] of wall-clock (reusing _spinClock).
+  // A lone call spins ~µs (far under budget) so production is untouched; only a
+  // sustained loop — e.g. under a profiler / flutter_driver — is throttled,
+  // which keeps the busy-wait from starving the loop, with no flag or detection.
   static const int _dutyWindowUs = 20000; // 20 ms (> one 60fps frame)
   static const int _dutyBudgetUs = 5000; // ≤25% of wall-clock spinning
   int _dutySpentUs = 0;
   int _dutyWindowStartUs = 0;
+
+  // A miss, or an edge hit that barely caught: trip the breaker after a run.
+  void _countMiss() {
+    if (++_recentMisses >= _missesToBackOff) _backedOff = true;
+  }
 
   /// Arms the native spin slot for [id]. Call right before the native call,
   /// only when single-in-flight (see [spinPoll]).
@@ -158,7 +156,7 @@ class NitroCompletionBatch {
 
     if (state != 1) {
       // Parked → the port path takes over.
-      if (++_recentMisses >= _missesToBackOff) _backedOff = true;
+      _countMiss();
       NitroSpinStats.instance.recordMiss();
       // Measure this miss's true latency when its port message lands — but only
       // if we actually spun (a breaker-forced window==0 park never armed a fresh
@@ -169,15 +167,12 @@ class NitroCompletionBatch {
 
     // Hit: delivered off-port; the port callback must not fire.
     final hitUs = sw.elapsedMicroseconds;
-    // An edge hit — one that spun almost the whole window before landing — paid
-    // nearly the full miss cost to save almost nothing, and the consecutive-miss
-    // breaker can't see it (a hit would otherwise reset _recentMisses), so a
-    // worker that lands right at the window boundary every call would spin
-    // near-full-window forever and could starve the event loop. Count it toward
-    // backoff; only a comfortably-early hit (the common ~µs case — byte-for-byte
-    // the old behaviour) resumes full-window spinning.
+    // An edge hit (spun almost the whole window before landing) paid nearly the
+    // full miss cost; the miss-only breaker can't see it, so a worker that lands
+    // at the boundary every call would spin near-full-window forever. Count it
+    // toward backoff; only a comfortably-early hit (the common ~µs case) resumes.
     if (window > 0 && hitUs > window - (window >> 3)) {
-      if (++_recentMisses >= _missesToBackOff) _backedOff = true;
+      _countMiss();
     } else {
       _recentMisses = 0;
       _backedOff = false;
