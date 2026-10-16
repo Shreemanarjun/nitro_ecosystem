@@ -114,28 +114,7 @@ class NitroCompletionBatch {
   /// [_probeEvery] calls. [NitroSpinStats] reports the hit-rate so you can see
   /// whether the cap is set usefully.
   List<dynamic>? spinPoll(int id, int capUs) {
-    // Window = the cap (clamped to a sane ceiling), except while the breaker is
-    // open: then 0 (park at once) apart from an occasional probe to re-test the
-    // native speed.
-    int window = capUs < _maxSpinUs ? capUs : _maxSpinUs;
-    if (_backedOff) {
-      if (_sinceProbe >= _probeEvery) {
-        _sinceProbe = 0; // probe: has the native side got fast enough again?
-      } else {
-        _sinceProbe++;
-        window = 0;
-      }
-    }
-
-    // Occupancy cap: once this sliding window's spin budget is spent, park at
-    // once so the event loop (and any driver/profiler channel) is serviced.
-    final nowUs = _spinClock.elapsedMicroseconds;
-    if (nowUs - _dutyWindowStartUs >= _dutyWindowUs) {
-      _dutyWindowStartUs = nowUs;
-      _dutySpentUs = 0;
-    }
-    if (_dutySpentUs >= _dutyBudgetUs) window = 0;
-
+    final window = _effectiveWindow(capUs);
     final out = _spinOut ??= calloc<Uint8>(24);
     var state = 0; // 0 pending, 1 done, 2 parked
     final sw = Stopwatch()..start();
@@ -179,14 +158,38 @@ class NitroCompletionBatch {
     }
     NitroSpinStats.instance.recordHit(hitUs);
     _pending.remove(id);
-    final raw = switch (out.cast<Int32>().value) {
-      0 => null, // kTagNull
-      2 => (out + 16).cast<Double>().value, // kTagDouble
-      3 => (out + 8).cast<Int64>().value != 0, // kTagBool
-      _ => (out + 8).cast<Int64>().value, // kTagInt / int64 heap address
-    };
-    return [raw];
+    return [_decodeSlot(out)];
   }
+
+  // The window for this call: the cap (clamped to [_maxSpinUs]), 0 while the
+  // breaker is open (bar an occasional probe), and 0 once this sliding window's
+  // duty budget is spent — so the event loop (and any driver channel) is served.
+  int _effectiveWindow(int capUs) {
+    int window = capUs < _maxSpinUs ? capUs : _maxSpinUs;
+    if (_backedOff) {
+      if (_sinceProbe >= _probeEvery) {
+        _sinceProbe = 0; // probe: has the native side got fast enough again?
+      } else {
+        _sinceProbe++;
+        window = 0;
+      }
+    }
+    final nowUs = _spinClock.elapsedMicroseconds;
+    if (nowUs - _dutyWindowStartUs >= _dutyWindowUs) {
+      _dutyWindowStartUs = nowUs;
+      _dutySpentUs = 0;
+    }
+    if (_dutySpentUs >= _dutyBudgetUs) window = 0;
+    return window;
+  }
+
+  // Decode the native slot payload: int32 tag @0, then int64 @8 / double @16.
+  static Object? _decodeSlot(Pointer<Uint8> out) => switch (out.cast<Int32>().value) {
+        0 => null, // kTagNull
+        2 => (out + 16).cast<Double>().value, // kTagDouble
+        3 => (out + 8).cast<Int64>().value != 0, // kTagBool
+        _ => (out + 8).cast<Int64>().value, // kTagInt / int64 heap address
+      };
 
   void _onBatch(dynamic msg) {
     // The one deferred parked-spin latency (single-in-flight → one sample).

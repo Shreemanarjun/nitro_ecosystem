@@ -206,9 +206,6 @@ class NitroSpinStats {
   NitroSpinStats._();
   static final NitroSpinStats instance = NitroSpinStats._();
 
-  /// Native-async calls that attempted a spin (hits + misses).
-  int spins = 0;
-
   /// Completions picked up from the slot — no port message, no OS wake.
   int hits = 0;
 
@@ -217,6 +214,9 @@ class NitroSpinStats {
 
   int _sumHitUs = 0;
   int _sumMissUs = 0;
+
+  /// Native-async calls that attempted a spin.
+  int get spins => hits + misses;
 
   /// Fraction of spins that landed off-port, `0` when nothing has spun yet.
   double get hitRate => spins == 0 ? 0 : hits / spins;
@@ -235,20 +235,16 @@ class NitroSpinStats {
 
   /// Clears the counters (e.g. between benchmark phases or in tests).
   void reset() {
-    spins = hits = misses = _sumHitUs = _sumMissUs = 0;
+    hits = misses = _sumHitUs = _sumMissUs = 0;
   }
 
   // Updated by NitroCompletionBatch.spinPoll — not part of the public surface.
   void recordHit(int us) {
-    spins++;
     hits++;
     _sumHitUs += us;
   }
 
-  void recordMiss() {
-    spins++;
-    misses++;
-  }
+  void recordMiss() => misses++;
 
   /// The uncensored latency of a missed completion, recorded when its port
   /// message finally arrives (see NitroCompletionBatch). Separate from

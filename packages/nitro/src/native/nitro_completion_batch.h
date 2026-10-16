@@ -62,7 +62,7 @@ class NitroCompletionBatch {
   enum : int32_t { kTagNull = 0, kTagInt = 1, kTagDouble = 2, kTagBool = 3 };
 
   // Dart, before a spin-eligible single-in-flight call: arm the slot for [id].
-  void arm(int64_t id) {
+  void arm(int64_t id) noexcept {
     spin_.tag = kTagNull;
     spin_.i = 0;
     spin_.d = 0;
@@ -80,8 +80,7 @@ class NitroCompletionBatch {
   // worker never posts to. The worker owns spinId_ and bound_ cleanup; poll
   // only touches the flag and the payload. [id] is unused but kept for symmetry
   // with arm() and as a guard for a future multi-slot design.
-  int32_t poll(int64_t id, uint8_t* out, int32_t giveUp) {
-    (void)id;
+  int32_t poll([[maybe_unused]] int64_t id, uint8_t* out, int32_t giveUp) noexcept {
     if (giveUp) {
       int32_t expected = kPending;
       spin_.flag.compare_exchange_strong(expected, kParked, std::memory_order_acq_rel, std::memory_order_acquire);
@@ -89,9 +88,9 @@ class NitroCompletionBatch {
     const int32_t f = spin_.flag.load(std::memory_order_acquire);
     if (f == kPending) return kPending;
     if (f == kDone) {
-      *reinterpret_cast<int32_t*>(out + 0) = spin_.tag;
-      *reinterpret_cast<int64_t*>(out + 8) = spin_.i;
-      *reinterpret_cast<double*>(out + 16) = spin_.d;
+      memcpy(out + 0, &spin_.tag, sizeof(spin_.tag));
+      memcpy(out + 8, &spin_.i, sizeof(spin_.i));
+      memcpy(out + 16, &spin_.d, sizeof(spin_.d));
       return kDone;
     }
     return kParked;
@@ -293,7 +292,7 @@ class NitroCompletionBatch {
 
   // Extract a @nitroNativeAsync completion (always a scalar or an int64 heap
   // address) into the slot's plain fields. Returns false for any other shape.
-  static bool extractScalar(const Dart_CObject* o, int32_t* tag, int64_t* i, double* d) {
+  static bool extractScalar(const Dart_CObject* o, int32_t* tag, int64_t* i, double* d) noexcept {
     switch (o->type) {
       case Dart_CObject_kNull: *tag = kTagNull; return true;
       case Dart_CObject_kInt32: *tag = kTagInt; *i = o->value.as_int32; return true;
