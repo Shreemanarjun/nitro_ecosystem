@@ -20,11 +20,18 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   writer.line('  static final _instances = <String, WeakReference<_${spec.dartClassName}Impl>>{};');
   writer.blankLine();
   // GC safety net: if an instance becomes unreachable without dispose() being
-  // called, destroy the native instance + free the per-call error slot — the
-  // exact cleanup dispose() does. The token is a record capturing only the
-  // instanceId, key, error-slot pointer, and the (already-resolved) destroy
-  // closure — NOT `this` — so it never keeps the instance alive. dispose()
-  // detaches it so the two paths can't both run (no double-free).
+  // called, destroy the native instance + free the per-call error slot. The
+  // token is a record capturing only the instanceId, key, error-slot pointer,
+  // and the (already-resolved) destroy closure — NOT `this` — so it never keeps
+  // the instance alive. dispose() detaches it so the two paths can't both run
+  // (no double-free).
+  //
+  // It does NOT close the callback NativeCallables (see _nativeCallbackCache) —
+  // only dispose() can. The token can't hold the cache: a NativeCallable wraps a
+  // user closure that may capture `this`, so capturing the cache here could pin
+  // the instance and stop the finalizer ever running. Therefore an instance that
+  // registers callbacks MUST be disposed; relying on GC leaks the callback
+  // trampolines (and, for `.listener` callbacks, their ports).
   writer.line(
     '  static final _instanceFinalizer = Finalizer<({int id, String key, Pointer<NitroErrorFfi> err, void Function(int) destroy})>((t) {',
   );

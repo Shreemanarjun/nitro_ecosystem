@@ -11,6 +11,15 @@ void _noArm(int id) {}
 int _noPoll(int id, Pointer<Uint8> out, int giveUp) => 2; // always "parked"
 
 void main() {
+  // Stability invariant (B3): the batch must implement Finalizable so the
+  // calloc'd spin read-buffer is released when the batch is GC'd — it is not
+  // GC-managed memory and dispose() doesn't free it, so without the finalizer
+  // it is a permanent native leak (one per batch that ever spun).
+  test('implements Finalizable (releases the spin buffer on GC)', () {
+    final batch = NitroCompletionBatch(bind: (_) => 1, ack: (_) {}, arm: _noArm, poll: _noPoll);
+    expect(batch, isA<Finalizable>());
+  });
+
   test('ids come from bind, batches demux by id, and every batch is acked once', () async {
     var nextId = 100;
     final binds = <int>[];

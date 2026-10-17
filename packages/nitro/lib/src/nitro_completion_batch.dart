@@ -12,10 +12,16 @@ import 'nitro_config.dart';
 /// (nitro_completion_batch.h) therefore delivers completions to this one port
 /// as `[id, value, id, value, ...]` and holds any that arrive before [ack] so
 /// they travel as one message. A lone completion still goes out at once.
-class NitroCompletionBatch {
+class NitroCompletionBatch implements Finalizable {
   NitroCompletionBatch({required this.bind, required this.ack, required this.arm, required this.poll}) {
     _port = RawReceivePort(_onBatch)..keepIsolateAlive = false;
   }
+
+  // The spin read-buffer is calloc'd (not GC-managed), so release it when the
+  // batch is collected. The port closes itself on GC (RawReceivePort), but the
+  // buffer would otherwise be a permanent native leak — one per batch that ever
+  // spun. [Finalizable] keeps `this` reachable while a spin is in flight.
+  static final _spinOutFinalizer = NativeFinalizer(malloc.nativeFree);
 
   /// `<lib>_nitro_bind(batchPort) → id`, reserved per call.
   final int Function(int batchPort) bind;
@@ -115,7 +121,11 @@ class NitroCompletionBatch {
   /// whether the cap is set usefully.
   List<dynamic>? spinPoll(int id, int capUs) {
     final window = _effectiveWindow(capUs);
-    final out = _spinOut ??= calloc<Uint8>(24);
+    final out = _spinOut ??= () {
+      final buf = calloc<Uint8>(24);
+      _spinOutFinalizer.attach(this, buf.cast(), detach: this, externalSize: 24);
+      return buf;
+    }();
     var state = 0; // 0 pending, 1 done, 2 parked
     final sw = Stopwatch()..start();
     if (window > 0) {

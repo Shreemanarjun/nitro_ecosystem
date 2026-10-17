@@ -22,3 +22,20 @@ subprojects {
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }
+
+android {
+    defaultConfig {
+            consumerProguardFiles("consumer-rules.pro")
+    }
+    kotlinOptions { jvmTarget = "17" }
+    sourceSets {
+        main {
+            kotlin.srcDirs += setOf("${project.projectDir}/../lib/src/generated/kotlin")
+        }
+    }
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
+}

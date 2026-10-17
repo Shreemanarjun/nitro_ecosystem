@@ -1,3 +1,11 @@
+## 0.7.11
+
+- No change to generated output (byte-identical to 0.7.10). Pinned two
+  invariants with tests/docs: a port-posting `@nitroNativeAsync` binding is never
+  `isLeaf`, and the GC finalizer does not (cannot) close callback
+  `NativeCallable`s — callback-bearing instances must be `dispose()`d. Version
+  sync with nitro 0.7.11.
+
 ## 0.7.10
 
 Added

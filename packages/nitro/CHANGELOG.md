@@ -1,3 +1,17 @@
+## 0.7.11
+
+Fixed
+- Native leak: the single-in-flight spin's read-buffer (`calloc`'d, never freed
+  by `dispose()`) is now released on GC — `NitroCompletionBatch` is `Finalizable`
+  with a `NativeFinalizer` on the buffer.
+
+Changed
+- `NitroSpinStats.spins` is a derived getter (`hits + misses`) instead of a
+  separate counter — no behaviour change.
+- Internal spin tidy-up: `spinPoll` decomposed, and the native
+  `nitro_completion_batch.h` hot path uses `noexcept` + `memcpy` (no aliasing
+  cast). No API or wire change.
+
 ## 0.7.10
 
 Added

@@ -13,6 +13,8 @@
 extern "C" {
 #endif
 
+#ifndef NITRO_ERROR_DEFINED
+#define NITRO_ERROR_DEFINED
 typedef struct {
   int8_t hasError;
   const char* name;
@@ -20,6 +22,7 @@ typedef struct {
   const char* code;
   const char* stackTrace;
 } NitroError;
+#endif
 
 #ifdef __cplusplus
 }

@@ -1,3 +1,7 @@
+## 0.7.11
+
+- Version sync with nitro_generator 0.7.11 (no CLI changes).
+
 ## 0.7.10
 
 - `link` copies the updated `nitro_completion_batch.h` (now carrying the

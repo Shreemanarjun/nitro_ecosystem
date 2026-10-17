@@ -17,6 +17,15 @@ void main() {
       expect(h.pointer.address, 0xDEAD);
     });
 
+    // Stability invariant (B1): NativeHandle MUST implement Finalizable. An
+    // owned handle has a NativeFinalizer; a method like `touchHandle(h)` passes
+    // `h.pointer` to a native call, and only the Finalizable contract keeps `h`
+    // reachable to the end of that method — without it the finalizer could free
+    // the pointer mid-call (use-after-free). Pinned so it can't be dropped.
+    test('implements Finalizable (keeps handle reachable across native calls)', () {
+      expect(NativeHandle<Void>.fromAddress(0x1), isA<Finalizable>());
+    });
+
     test('fromAddress round-trips', () {
       final h = NativeHandle<Void>.fromAddress(0xBEEF);
       expect(h.address, 0xBEEF);

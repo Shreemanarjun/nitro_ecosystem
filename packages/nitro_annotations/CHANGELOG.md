@@ -1,3 +1,7 @@
+## 0.7.11
+
+- Version sync with nitro_generator 0.7.11 (no annotation changes).
+
 ## 0.7.10
 
 - Version sync with nitro_generator 0.7.10 (no annotation changes).

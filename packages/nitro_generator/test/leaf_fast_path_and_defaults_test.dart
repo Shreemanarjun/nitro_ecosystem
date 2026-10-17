@@ -152,6 +152,14 @@ void main() {
       expect(out, contains('_writePtr(_instanceId, writer.pointer, byte, _nitroErr)'));
       expect(out, contains('_resetFastPtr(_instanceId, writer.pointer, _nitroErr)'));
     });
+
+    // Leaf-safety invariant (A3): a port-posting @nitroNativeAsync binding hands
+    // the call off and the worker posts back into Dart later, so isLeaf would be
+    // unsound — it must never be leaf. The inline @nitroFast @nitroNativeAsync
+    // variant (synchronous, no port) stays leaf (asserted in the #51 group).
+    test('a port-posting native-async binding is never leaf', () {
+      expect(binding('demo_fetch'), isNot(contains('isLeaf: true')));
+    });
   });
 
   group('web bridge with handle parameters', () {
