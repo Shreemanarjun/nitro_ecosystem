@@ -1,3 +1,8 @@
+## 0.7.13
+
+- Version sync with nitro 0.7.13. `link` copies the updated
+  `nitro_completion_batch.h` (completion-spin contention fix, issue #58).
+
 ## 0.7.12
 
 - `link` copies the updated `nitro_completion_batch.h` (multi-isolate-safe

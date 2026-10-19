@@ -1,3 +1,8 @@
+## 0.7.13
+
+- Version sync with nitro 0.7.13 (completion-spin contention fix, issue #58). No
+  change to generated output beyond the version stamp.
+
 ## 0.7.12
 
 Changed

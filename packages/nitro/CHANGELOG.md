@@ -1,3 +1,15 @@
+## 0.7.13
+
+Fixed
+- Perf regression under concurrent load (issue #58): 0.7.12's thread-safety fix
+  made `arm()` CAS the process-global spin slot, and under a hot multi-isolate
+  workload (many concurrent native-async calls / SSE streams) that bare CAS
+  ping-ponged the shared `spinId_` cache line and serialized throughput — single-
+  call latency unchanged, but load throughput dropped sharply. `arm()` now does a
+  relaxed load before the CAS (test-then-CAS), so a contended caller bails without
+  the read-modify-write; the CAS still arbitrates the claim when the slot looks
+  free (correctness unchanged, ThreadSanitizer-verified). No ABI change.
+
 ## 0.7.12
 
 Fixed
