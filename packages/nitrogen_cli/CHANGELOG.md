@@ -1,3 +1,10 @@
+## 0.7.12
+
+- `link` copies the updated `nitro_completion_batch.h` (multi-isolate-safe
+  completion spin, issue #57) and the regenerated bridges expose the new
+  `<lib>_nitro_arm`/`<lib>_nitro_disarm` ABI. Version sync with nitro_generator
+  0.7.12.
+
 ## 0.7.11
 
 - Version sync with nitro_generator 0.7.11 (no CLI changes).

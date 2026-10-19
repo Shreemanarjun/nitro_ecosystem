@@ -119,7 +119,11 @@ class CppBridgeGenerator {
     writer.line('NITRO_EXPORT void ${libStem}_nitro_ack(int64_t batchPort) { g_nitro_batch_$libStem.ack(batchPort); }');
     // Single-in-flight completion spin (issue #57): arm the slot, then Dart
     // busy-polls poll() for a short window instead of parking on the port.
-    writer.line('NITRO_EXPORT void ${libStem}_nitro_arm(int64_t id) { g_nitro_batch_$libStem.arm(id); }');
+    // arm() returns 1 if this isolate claimed the one shared slot, 0 if another
+    // isolate owns it (caller must not spin). disarm() frees a claim whose call
+    // threw before dispatching a worker.
+    writer.line('NITRO_EXPORT int32_t ${libStem}_nitro_arm(int64_t id) { return g_nitro_batch_$libStem.arm(id) ? 1 : 0; }');
+    writer.line('NITRO_EXPORT void ${libStem}_nitro_disarm(int64_t id) { g_nitro_batch_$libStem.disarm(id); }');
     writer.line('NITRO_EXPORT int32_t ${libStem}_nitro_poll(int64_t id, uint8_t* out, int32_t giveUp) { return g_nitro_batch_$libStem.poll(id, out, giveUp); }');
     writer.line('}');
     if (spec.functions.any(spec.dispatchesAsync)) _emitWorkerDispatchInfra(writer, spec, libStem);

@@ -13,7 +13,7 @@ import 'nitro_config.dart';
 /// as `[id, value, id, value, ...]` and holds any that arrive before [ack] so
 /// they travel as one message. A lone completion still goes out at once.
 class NitroCompletionBatch implements Finalizable {
-  NitroCompletionBatch({required this.bind, required this.ack, required this.arm, required this.poll}) {
+  NitroCompletionBatch({required this.bind, required this.ack, required this.arm, required this.disarm, required this.poll}) {
     _port = RawReceivePort(_onBatch)..keepIsolateAlive = false;
   }
 
@@ -29,8 +29,15 @@ class NitroCompletionBatch implements Finalizable {
   /// `<lib>_nitro_ack(batchPort)`, sent after every handled batch.
   final void Function(int batchPort) ack;
 
-  /// `<lib>_nitro_arm(id)` — arm the single-in-flight spin slot for [spinPoll].
-  final void Function(int id) arm;
+  /// `<lib>_nitro_arm(id) → claimed` — try to claim the one shared spin slot.
+  /// Returns 1 if this isolate claimed it, 0 if another isolate owns it (the
+  /// one process-global batch has a single slot). A non-claiming caller must
+  /// NOT spin — see [armSpin]/[spinPoll].
+  final int Function(int id) arm;
+
+  /// `<lib>_nitro_disarm(id)` — release a claim whose native call threw before
+  /// dispatching a worker (no completion will ever free it otherwise).
+  final void Function(int id) disarm;
 
   /// `<lib>_nitro_poll(id, out, giveUp) → state` — one spin iteration.
   final int Function(int id, Pointer<Uint8> out, int giveUp) poll;
@@ -99,12 +106,19 @@ class NitroCompletionBatch implements Finalizable {
     if (++_recentMisses >= _missesToBackOff) _backedOff = true;
   }
 
-  /// Arms the native spin slot for [id]. Call right before the native call,
-  /// only when single-in-flight (see [spinPoll]).
-  void armSpin(int id) {
+  /// Tries to claim the native spin slot for [id]. Call right before the native
+  /// call, only when single-in-flight (see [spinPoll]). Returns false if another
+  /// isolate already owns the one shared slot — the caller must then NOT spin
+  /// (go straight to the port wait), or it would read the owner's payload.
+  bool armSpin(int id) {
+    if (arm(id) == 0) return false;
     _armMicros = _spinClock.elapsedMicroseconds;
-    arm(id);
+    return true;
   }
+
+  /// Releases a claim taken by [armSpin] when the native call threw before it
+  /// could dispatch a worker (so no completion will ever free the slot).
+  void disarmSpin(int id) => disarm(id);
 
   /// Busy-polls the armed slot (issue #57), capped at [capUs] µs. Returns a
   /// one-element `[raw]` when the completion lands off-port — no port message,

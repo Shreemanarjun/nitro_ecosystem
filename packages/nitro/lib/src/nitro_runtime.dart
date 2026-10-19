@@ -745,17 +745,20 @@ class NitroRuntime {
     }
     // Single-in-flight completion spin (issue #57): only when enabled and no
     // other native-async call is outstanding, so we never busy-wait while the
-    // isolate already has work to run on the next turn.
-    final spin = spinUs > 0 && batch.pendingCount == 0;
+    // isolate already has work to run on the next turn. armSpin may still
+    // decline (false) if another isolate already owns the one shared slot — then
+    // we don't spin and fall through to the port wait.
+    var spin = spinUs > 0 && batch.pendingCount == 0;
     final id = batch.register((dynamic raw) {
       if (completer.isCompleted) return;
       if (sw != null) _logCallTiming(sw, tag());
       _completeUnpacked(completer, unpack, raw, tag, effective);
     });
-    if (spin) batch.armSpin(id);
+    if (spin) spin = batch.armSpin(id);
     try {
       call(id);
     } catch (e, st) {
+      if (spin) batch.disarmSpin(id); // claimed but no worker will ever free it
       batch.forget(id);
       terminate();
       if (effective != NitroLogLevel.none) _log(NitroLogLevel.error, tag(), 'threw: $e', e, st);

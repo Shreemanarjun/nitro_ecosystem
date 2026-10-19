@@ -119,6 +119,7 @@ void main() {
       'par_nitro_bind', // completion batching: native ports only
       'par_nitro_ack',
       'par_nitro_arm', // single-in-flight completion spin: native slot only
+      'par_nitro_disarm',
       'par_nitro_poll',
       // Bound by the web RUNTIME by convention — NitroWasmModule builds
       // '<lib>_nitro_free' / '<lib>_nitro_alloc' from the lib name, so the

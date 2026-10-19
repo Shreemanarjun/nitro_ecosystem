@@ -1,3 +1,13 @@
+## 0.7.12
+
+Changed
+- Completion-spin ABI hardened for multi-isolate safety (see nitro 0.7.12):
+  `<lib>_nitro_arm` now returns `int32_t` (1 = claimed the shared slot, 0 = not),
+  and a new `<lib>_nitro_disarm` export releases a claim whose call threw. The
+  Dart binding looks up `arm` as `int Function(int)` and passes `disarm:` to
+  `NitroCompletionBatch`. Regenerate native projects (`nitrogen generate` +
+  `nitrogen link`) to pick up the new exports.
+
 ## 0.7.11
 
 - No change to generated output (byte-identical to 0.7.10). Pinned two

@@ -6,8 +6,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:nitro/nitro.dart';
 
 // No-op spin hooks for the tests that don't exercise the spin (spin is off by
-// default, so arm/poll are never invoked on those paths).
-void _noArm(int id) {}
+// default, so arm/poll are never invoked on those paths). arm returns 1 =
+// "claimed the slot" (the native CAS-claim); 0 would mean another isolate owns
+// it and the caller must not spin.
+int _noArm(int id) => 1;
+void _noDisarm(int id) {}
 int _noPoll(int id, Pointer<Uint8> out, int giveUp) => 2; // always "parked"
 
 void main() {
@@ -16,7 +19,7 @@ void main() {
   // GC-managed memory and dispose() doesn't free it, so without the finalizer
   // it is a permanent native leak (one per batch that ever spun).
   test('implements Finalizable (releases the spin buffer on GC)', () {
-    final batch = NitroCompletionBatch(bind: (_) => 1, ack: (_) {}, arm: _noArm, poll: _noPoll);
+    final batch = NitroCompletionBatch(bind: (_) => 1, ack: (_) {}, arm: _noArm, disarm: _noDisarm, poll: _noPoll);
     expect(batch, isA<Finalizable>());
   });
 
@@ -24,7 +27,7 @@ void main() {
     var nextId = 100;
     final binds = <int>[];
     final acks = <int>[];
-    final batch = NitroCompletionBatch(bind: (port) { binds.add(port); return nextId++; }, ack: acks.add, arm: _noArm, poll: _noPoll);
+    final batch = NitroCompletionBatch(bind: (port) { binds.add(port); return nextId++; }, ack: acks.add, arm: _noArm, disarm: _noDisarm, poll: _noPoll);
     final got = <int, dynamic>{};
     final a = batch.register((raw) => got[100] = raw);
     final b = batch.register((raw) => got[101] = raw);
@@ -43,7 +46,7 @@ void main() {
 
   test('a forgotten (timed-out) id is ignored but still acked; unknown ids never throw', () async {
     final acks = <int>[];
-    final batch = NitroCompletionBatch(bind: (_) => 7, ack: acks.add, arm: _noArm, poll: _noPoll);
+    final batch = NitroCompletionBatch(bind: (_) => 7, ack: acks.add, arm: _noArm, disarm: _noDisarm, poll: _noPoll);
     var called = false;
     batch.register((_) => called = true);
     batch.forget(7);
@@ -56,7 +59,7 @@ void main() {
   test('openNativeAsync with a batch resolves through it, keeps unpack errors as future errors, and honours the timeout', () async {
     var seq = 0;
     final acks = <int>[];
-    final batch = NitroCompletionBatch(bind: (_) => ++seq, ack: acks.add, arm: _noArm, poll: _noPoll);
+    final batch = NitroCompletionBatch(bind: (_) => ++seq, ack: acks.add, arm: _noArm, disarm: _noDisarm, poll: _noPoll);
     final send = batch.sendPort;
     final ok = NitroRuntime.openNativeAsync<int>(call: (id) => send.send([id, 41]), unpack: (raw) => (raw as int) + 1, batch: batch);
     expect(await ok, 42);
@@ -82,9 +85,10 @@ void main() {
     late int tag, ival;
     late double dval;
     late int pollCount;
-    void arm(int id) {
+    int arm(int id) {
       armedId = id;
       flag = 0;
+      return 1; // claimed the slot (single-isolate stand-in)
     }
 
     int poll(int id, Pointer<Uint8> out, int giveUp) {
@@ -111,7 +115,7 @@ void main() {
     }
 
     NitroCompletionBatch make(List<int> acks) =>
-        NitroCompletionBatch(bind: (_) => 1, ack: acks.add, arm: arm, poll: poll);
+        NitroCompletionBatch(bind: (_) => 1, ack: acks.add, arm: arm, disarm: _noDisarm, poll: poll);
 
     setUp(() {
       armedId = 0;
@@ -195,6 +199,7 @@ void main() {
         bind: (_) => ++seq,
         ack: (_) {},
         arm: arm,
+        disarm: _noDisarm,
         poll: (id, out, giveUp) { polls++; return poll(id, out, giveUp); },
       );
       // First call: single-in-flight → spins, misses, parks. Stays pending.
@@ -292,6 +297,7 @@ void main() {
         bind: (_) => 1,
         ack: (_) {},
         arm: (_) => armed++,
+        disarm: (_) {},
         poll: (i, o, g) {
           polled++;
           return 2;
@@ -326,7 +332,7 @@ void main() {
         return 0; // pending through the whole burst
       }
 
-      final batch = NitroCompletionBatch(bind: (_) => 1, ack: (_) {}, arm: arm, poll: edgePoll);
+      final batch = NitroCompletionBatch(bind: (_) => 1, ack: (_) {}, arm: arm, disarm: _noDisarm, poll: edgePoll);
       for (var i = 0; i < 8; i++) {
         batch.armSpin(7000 + i);
         batch.spinPoll(7000 + i, 30); // each spins ~30µs then edge-hits
@@ -353,6 +359,50 @@ void main() {
       batch.armSpin(8001);
       batch.spinPoll(8001, 5001);
       expect(pollCount, 1, reason: 'budget spent → window 0 (only 1 prior miss, far below the breaker threshold)');
+    });
+
+    // Thread-safety (multi-isolate): the one process-global batch has a single
+    // native slot. arm() CAS-claims it; if another isolate already owns it,
+    // native arm returns 0 and armSpin must decline so this isolate never reads
+    // the owner's slot (it falls back to the port). Mirrors the C++ CAS-claim.
+    test('armSpin declines and the call does not spin when another isolate owns the slot', () async {
+      var polls = 0;
+      final batch = NitroCompletionBatch(
+        bind: (_) => 1,
+        ack: (_) {},
+        arm: (_) => 0, // native CAS-claim lost: another isolate owns the slot
+        disarm: _noDisarm,
+        poll: (i, o, g) { polls++; return 2; },
+      );
+      expect(batch.armSpin(1), isFalse, reason: 'arm()==0 → not claimed');
+      final f = NitroRuntime.openNativeAsync<int>(
+        call: (id) => batch.sendPort.send([id, 5]),
+        unpack: (raw) => raw as int,
+        batch: batch,
+      );
+      expect(await f, 5);
+      expect(polls, 0, reason: 'a non-owning isolate must not poll the shared slot');
+    });
+
+    // A call that claims the slot but throws before dispatching a worker must
+    // release the claim (disarm), or no completion would ever free the one
+    // shared slot and spin would be wedged for the whole library.
+    test('a throwing call disarms its claim', () {
+      final disarmed = <int>[];
+      final batch = NitroCompletionBatch(
+        bind: (_) => 42,
+        ack: (_) {},
+        arm: (_) => 1, // claimed
+        disarm: disarmed.add,
+        poll: _noPoll,
+      );
+      // A synchronous throw in call() rethrows out of openNativeAsync.
+      expect(
+        () => NitroRuntime.openNativeAsync<int>(call: (_) => throw StateError('boom'), unpack: (raw) => raw as int, batch: batch),
+        throwsA(isA<StateError>()),
+      );
+      expect(disarmed, [42], reason: 'claimed slot released on the throw path');
+      expect(batch.pendingCount, 0, reason: 'id forgotten');
     });
   });
 }

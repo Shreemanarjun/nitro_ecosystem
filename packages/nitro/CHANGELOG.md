@@ -1,3 +1,18 @@
+## 0.7.12
+
+Fixed
+- Thread safety: the single-in-flight spin (issue #57) shared one native slot
+  across every isolate using a library (the batch is one process-global), but
+  the single-in-flight guard is per-isolate — two isolates could drive the slot
+  at once, a data race that could deliver one isolate's result to another
+  (confirmed with ThreadSanitizer). `arm()` now CAS-claims the slot and returns
+  whether it won; an isolate that doesn't claim never spins (it uses the port).
+  The reader (`poll`) releases the claim after copying the payload — not the
+  worker — so the next isolate can't overwrite the slot mid-read. A call that
+  throws before dispatching a worker releases its claim via `disarm()`.
+  Single-isolate behaviour and performance are unchanged. Requires regenerating
+  native projects (new `<lib>_nitro_arm`/`disarm` ABI — see nitro_generator).
+
 ## 0.7.11
 
 Fixed
