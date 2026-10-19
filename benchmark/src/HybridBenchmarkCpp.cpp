@@ -276,6 +276,14 @@ public:
         Dart_PostCObject_DL(dartPort, &obj);
     }
 
+    // Fire-and-forget (issue #58): a bare `void` @nitroNativeAsync. The bridge's
+    // `_fnf` wrapper already ran us on the pool with dart_port=0, so we do the
+    // work and DON'T post — no completion, no wake. Accumulate into an atomic so
+    // the call isn't optimized away and the benchmark can confirm all ran.
+    void nativeAsyncFnf(int64_t value, NitroError* /*_nitro_err*/, int64_t /*dartPort*/) override {
+        _fnfSum.fetch_add(value, std::memory_order_relaxed);
+    }
+
     // Cross-thread variant of nativeAsyncEcho: the worker thread does the post,
     // so it pays the OS isolate wake the inline version skips (issue #39).
     void nativeAsyncEchoFromThread(int64_t value, NitroError* /*_nitro_err*/, int64_t dartPort) override {
@@ -418,6 +426,7 @@ private:
     // drains. Guarded by _asyncQueueMtx: several pool workers push and any of
     // them may flush.
     std::vector<std::pair<int64_t, int64_t>> _coalesceBuf;
+    std::atomic<int64_t> _fnfSum{0};  // issue #58: fire-and-forget accumulator (anti-DCE)
     std::atomic<int64_t> _coalescePort{0};
     // Instrumentation: how many flushes (posts) and how many total items, so the
     // harness can report the AVERAGE batch size a burst achieved (items/flushes).

@@ -126,7 +126,7 @@ class CppBridgeGenerator {
     writer.line('NITRO_EXPORT void ${libStem}_nitro_disarm(int64_t id) { g_nitro_batch_$libStem.disarm(id); }');
     writer.line('NITRO_EXPORT int32_t ${libStem}_nitro_poll(int64_t id, uint8_t* out, int32_t giveUp) { return g_nitro_batch_$libStem.poll(id, out, giveUp); }');
     writer.line('}');
-    if (spec.functions.any(spec.dispatchesAsync)) _emitWorkerDispatchInfra(writer, spec, libStem);
+    if (spec.functions.any((f) => spec.dispatchesAsync(f) || spec.fireAndForget(f))) _emitWorkerDispatchInfra(writer, spec, libStem);
     if (spec.targetsWeb) writer.line('#endif');
     writer.blankLine();
   }
@@ -203,7 +203,8 @@ class CppBridgeGenerator {
   /// read it). Emitted by both C++ dispatch paths after the sync functions.
   static void emitCppWorkerDispatch(CodeWriter w, BridgeSpec spec, String libStem) {
     final funcs = spec.functions.where(spec.dispatchesAsync).toList();
-    if (funcs.isEmpty) return;
+    final fnf = spec.functions.where(spec.fireAndForget).toList();
+    if (funcs.isEmpty && fnf.isEmpty) return;
     if (spec.targetsWeb) w.line('#ifndef __EMSCRIPTEN__');
     for (final st in spec.structs) {
       w.line('void ${libStem}_release_${st.name}(void* ptr);');
@@ -211,7 +212,45 @@ class CppBridgeGenerator {
     for (final func in funcs) {
       _emitDispatchFunction(w, spec, libStem, func);
     }
+    for (final func in fnf) {
+      _emitFnfFunction(w, spec, libStem, func);
+    }
     if (spec.targetsWeb) w.line('#endif');
+  }
+
+  /// Fire-and-forget bound: outstanding jobs allowed before a call blocks the
+  /// caller for pool space (issue #58 backpressure). A hot streaming loop stays
+  /// well under this; a runaway producer is throttled instead of OOMing.
+  static const int _fnfMaxQueued = 1024;
+
+  /// One `<sym>_fnf` export: a `void` `@nitroNativeAsync` (see [BridgeSpec.fireAndForget]).
+  /// Copies its args, enqueues the sync impl on the pool (bounded) and returns —
+  /// no dart_port, no post, no error slot. Many calls dispatch concurrently, so a
+  /// stream of small void calls isn't serialized by the single-in-flight slot.
+  static void _emitFnfFunction(CodeWriter w, BridgeSpec spec, String libStem, BridgeFunction func) {
+    final sym = func.cSymbol;
+    final pieces = [for (final p in func.params) _dispatchParam(spec, libStem, p)];
+    final params = ['int64_t instanceId', for (final x in pieces) ...x.params];
+    final args = ['instanceId', for (final x in pieces) ...x.args];
+    w.line('NITRO_EXPORT void ${sym}_fnf(${params.join(', ')}) {');
+    for (final c in pieces.map((x) => x.copy).nonNulls) {
+      w.line(c);
+    }
+    // Reuse the normal native-async posting <sym>, but with dart_port = 0 so
+    // nothing is posted (fire-and-forget: no completion). A fresh error slot per
+    // call absorbs any error the impl reports; it's dropped (best-effort — the
+    // contract is that fire-and-forget impls don't need to surface errors).
+    // block policy (dropOldest=0): under sustained overload the caller waits for
+    // pool space rather than dropping work or growing the queue unbounded.
+    w.line('    g_nitro_pool_$libStem.enqueueBounded([=]() mutable {');
+    w.line('        NitroError _fnf_err = {};');
+    w.line('        $sym(${args.join(', ')}, &_fnf_err, 0);');
+    for (final r in pieces.map((x) => x.release).nonNulls) {
+      w.line(r);
+    }
+    w.line('    }, $_fnfMaxQueued, 0);');
+    w.line('}');
+    w.blankLine();
   }
 
   /// One `<sym>_dispatch` export (see [emitCppWorkerDispatch]).

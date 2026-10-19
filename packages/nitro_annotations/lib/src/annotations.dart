@@ -288,7 +288,7 @@ class NitroAsync {
   const NitroAsync({this.timeout});
 }
 
-// Makes a method use the zero-hop native-async path. Return type must be Future<T>.
+// Makes a method use the zero-hop native-async path.
 //
 // Unlike @nitroAsync, no Dart isolate is ever spawned. Instead, Dart opens a
 // ReceivePort and passes its native port ID to the C/Swift/Kotlin bridge. The
@@ -300,6 +300,18 @@ class NitroAsync {
 // ~27 µs since there's no isolate to dispatch to — the win is architectural,
 // not a fixed-cost difference between the two mechanisms).
 // Cannot be combined with @nitroAsync on the same method.
+//
+// The RETURN TYPE selects the mode — no extra annotation (issue #58):
+//   • Future<T>  — awaited: Dart waits for the native completion (port post),
+//                  errors propagate. Single-in-flight per process.
+//   • void       — FIRE-AND-FORGET: the call copies its args, enqueues the work
+//                  on the pool and returns immediately — no port, no wake, no
+//                  await. Many calls (one isolate or many) dispatch concurrently,
+//                  so a hot loop of small void calls (stream chunks, log lines)
+//                  isn't gated by the single-in-flight slot. Trade-offs: no
+//                  result; errors are best-effort (logged native-side, not
+//                  surfaced); work is bounded by NitroConfig.fireAndForgetMaxQueued
+//                  (full → block the caller, or drop-oldest); FIFO within the pool.
 const nitroNativeAsync = NitroNativeAsync();
 
 /// Marks a top-level `Future<String> Function(String)` (or `String Function(String)`)
@@ -362,6 +374,7 @@ const nitroFast = NitroFast();
 class NitroFast {
   const NitroFast();
 }
+
 
 /// Runs the Kotlin/Swift implementation of this method on the platform's
 /// main/UI thread instead of the calling thread.

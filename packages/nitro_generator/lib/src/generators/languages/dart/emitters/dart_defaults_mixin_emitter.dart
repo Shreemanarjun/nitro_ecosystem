@@ -53,6 +53,9 @@ String _defaultsReturnType(BridgeFunction func) {
       : func.returnType.isNativeHandle
       ? 'NativeHandle<$handleParam>'
       : func.returnType.name;
+  // Fire-and-forget (issue #58): the impl is a bare `void`, so the default must
+  // match — not Future<void>, or the override wouldn't compile.
+  if (func.isFireAndForget) return 'void';
   final wrapper = func.returnsFutureOr ? 'FutureOr' : 'Future';
   return (func.isAsync || func.isNativeAsync || func.inlineFuture) ? '$wrapper<$inner>' : inner;
 }

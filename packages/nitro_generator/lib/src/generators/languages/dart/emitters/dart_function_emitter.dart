@@ -100,7 +100,10 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
         ? 'NativeHandle<$nativeHandleTypeParam>'
         : func.returnType.name;
     final wrapper = func.returnsFutureOr ? 'FutureOr' : 'Future';
-    final returnType = (func.isAsync || func.isNativeAsync || func.inlineFuture) ? '$wrapper<$effectiveDartReturnName>' : effectiveDartReturnName;
+    // Fire-and-forget (issue #58): a bare `void` method — not Future-wrapped.
+    final returnType = spec.fireAndForget(func)
+        ? 'void'
+        : (func.isAsync || func.isNativeAsync || func.inlineFuture) ? '$wrapper<$effectiveDartReturnName>' : effectiveDartReturnName;
     // inlineFuture: the sync body runs inside an `async` function; the future
     // completes inline (no port, no isolate wake). Measured: Future.sync,
     // Future.value and a sync Completer are no cheaper in a Flutter build —
@@ -120,7 +123,16 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
     // Classify once — avoids repeated spec.structs.any() / spec.enums.any() calls.
     final returnKind = classifyReturn(func.returnType, spec);
 
-    if (spec.bridgeAsync(func)) {
+    if (spec.fireAndForget(func)) {
+      // Fire-and-forget (issue #58): copy/marshal args, call the `_fnf` pointer
+      // (which enqueues on the pool and returns), done — no port, no await, no
+      // result. The native <sym>_fnf has signature void(instanceId, params).
+      if (needsArena) {
+        writer.line('    withArena((arena) { _${func.dartName}Ptr($instancedCallArgs); });');
+      } else {
+        writer.line('    _${func.dartName}Ptr($instancedCallArgs);');
+      }
+    } else if (spec.bridgeAsync(func)) {
       _emitNativeAsyncBody(writer, func, spec, instancedCallArgs, needsArena);
     } else if (func.isAsync) {
       // plainCallArgs: used when no arena is needed. Apply the same optional-primitive

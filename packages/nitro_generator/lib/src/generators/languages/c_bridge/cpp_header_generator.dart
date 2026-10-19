@@ -215,10 +215,18 @@ class CppHeaderGenerator {
         // (fresh-per-call, unlike sync's instance-owned slot — see NitroRuntime.
         // throwIfOutParamErrorAndFree) followed by the extra dart_port param.
         if (func.isNativeAsync) {
+          // Fire-and-forget (void @nitroNativeAsync, issue #58) reuses the normal
+          // native-async posting <sym>; its `_fnf` wrapper (declared here, with
+          // no NitroError*/dart_port — just instanceId + params) enqueues <sym>
+          // with dart_port=0 so nothing is posted. The impl is the same shape and
+          // simply doesn't post.
+          final fnfParamStr = paramParts.join(', ');
           paramParts.add('NitroError* _nitro_err');
           paramParts.add('int64_t dart_port');
-          final paramStr = paramParts.join(', ');
-          nodes.add(CodeLine('NITRO_EXPORT void ${func.cSymbol}($paramStr);'));
+          nodes.add(CodeLine('NITRO_EXPORT void ${func.cSymbol}(${paramParts.join(', ')});'));
+          if (spec.fireAndForget(func)) {
+            nodes.add(CodeLine('NITRO_EXPORT void ${func.cSymbol}_fnf($fnfParamStr);'));
+          }
         } else {
           // S8: only SYNC functions take NitroError* out-param.
           // @nitroAsync functions use TLS get_error/clear_error — no NitroError* in signature.

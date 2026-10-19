@@ -120,8 +120,16 @@ class BridgeSpec {
     });
   }
 
+  /// Fire-and-forget (issue #58): a `void`-returning `@nitroNativeAsync` method.
+  /// Inferred from the return type — no extra annotation. The bridge copies the
+  /// args, enqueues the work on the pool and returns immediately (`<sym>_fnf`);
+  /// no completion port, no wake, no await, so a hot loop of such calls isn't
+  /// gated by the single-in-flight completion slot. Errors are best-effort.
+  bool fireAndForget(BridgeFunction f) => f.isFireAndForget;
+
   /// The C symbol the Dart FFI part binds for [f] on native targets.
-  String nativeSymbol(BridgeFunction f) => dispatchesAsync(f) ? '${f.cSymbol}_dispatch' : f.cSymbol;
+  String nativeSymbol(BridgeFunction f) =>
+      fireAndForget(f) ? '${f.cSymbol}_fnf' : dispatchesAsync(f) ? '${f.cSymbol}_dispatch' : f.cSymbol;
 
   /// True when the iOS platform uses a direct C++ implementation.
   bool get iosIsCpp => iosImpl is CppImpl;
@@ -625,6 +633,12 @@ class BridgeFunction {
   /// `var x`, Kotlin `val x`, C++ `get_x()`.
   final bool isGetter;
 
+  /// Fire-and-forget (issue #58): the method is `@nitroNativeAsync` and its
+  /// DECLARED return type is bare `void` (not `Future<void>`). Set by the
+  /// extractor from the declared type, since `Future<void>` is unwrapped to
+  /// `void` and would otherwise be indistinguishable. See [BridgeSpec.fireAndForget].
+  final bool isFireAndForget;
+
   /// Dart member declaration after the return type: `get x` or `x(params)`.
   String dartMember(String params) => isGetter ? 'get $dartName' : '$dartName($params)';
 
@@ -636,6 +650,7 @@ class BridgeFunction {
     required this.cSymbol,
     required this.isAsync,
     this.isNativeAsync = false,
+    this.isFireAndForget = false,
     required this.returnType,
     required this.params,
     this.zeroCopyReturn = false,
