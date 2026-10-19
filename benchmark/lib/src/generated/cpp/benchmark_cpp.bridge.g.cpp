@@ -698,7 +698,7 @@ void benchmark_cpp_native_async_fnf(int64_t instanceId, int64_t value, NitroErro
         return;
     }
     try {
-        _impl->nativeAsyncFnf(value, _nitro_err, dart_port);
+        _impl->nativeAsyncFnf(value);
     } catch (const std::exception& e) {
         _nitro_out_err(_nitro_err, "CppException", e.what());
         Dart_CObject _err = { Dart_CObject_kNull };

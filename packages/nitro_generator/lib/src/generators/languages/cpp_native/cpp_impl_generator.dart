@@ -81,6 +81,16 @@ class CppImplGenerator {
       w.writeln('    // ── Methods ──────────────────────────────────────────────────────────────');
       for (final func in spec.functions) {
         w.writeln('');
+        if (func.isFireAndForget) {
+          // Fire-and-forget (void @nitroNativeAsync, issue #58): a plain sync
+          // void — no NitroError*/dart_port, no post. Runs on the pool via the
+          // bridge's <sym>_fnf wrapper; errors are best-effort (not surfaced).
+          final params = CppInterfaceGenerator.cppMethodParamsFor(func.params, enumNames, structNames, recordNames);
+          w.writeln('    void ${func.cppName}(${params.join(', ')}) override {');
+          w.writeln('        // TODO: do the work; fire-and-forget returns no result.');
+          w.writeln('    }');
+          continue;
+        }
         if (func.isNativeAsync) {
           final params =
               CppInterfaceGenerator.cppMethodParamsFor(

@@ -164,13 +164,8 @@ public:
         throw std::runtime_error("Not implemented: nativeAsyncEchoFromThread");
     }
 
-    void nativeAsyncFnf(int64_t value, NitroError* _nitro_err, int64_t dartPort) override {
-        // TODO: on error, populate _nitro_err (hasError/name/message via strdup) before posting.
-        // TODO: post result via Dart_PostCObject_DL(dartPort, ...)
-        // Nullable result? Post EITHER Dart_CObject_kNull OR kInt64 with
-        // value 0 — both decode to Dart null. Non-nullable results must
-        // always post a real encoded value.
-        throw std::runtime_error("Not implemented: nativeAsyncFnf");
+    void nativeAsyncFnf(int64_t value) override {
+        // TODO: do the work; fire-and-forget returns no result.
     }
 
     void submitCoalesced(int64_t callId, int64_t value, int64_t dartPort) override {

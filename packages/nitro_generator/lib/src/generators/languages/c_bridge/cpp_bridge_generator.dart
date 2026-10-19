@@ -868,8 +868,15 @@ class CppBridgeGenerator {
               callArgs.add(p.name);
           }
         }
-        callArgs.add('_nitro_err');
-        callArgs.add('dart_port');
+        // Fire-and-forget (void @nitroNativeAsync, issue #58): the impl is a
+        // plain `void method(params)` — no NitroError*/dart_port. The <sym> keeps
+        // its posting signature (so <sym>_fnf's ABI is unchanged) but hands the
+        // impl only its real params; any error/no-impl post targets dart_port=0
+        // (a harmless no-op, since _fnf always passes 0).
+        if (!spec.fireAndForget(func)) {
+          callArgs.add('_nitro_err');
+          callArgs.add('dart_port');
+        }
         writer.line('        _impl->${func.dartName}(${callArgs.join(', ')});');
         writer.line('    } catch (const std::exception& e) {');
         writer.line('        _nitro_desktop_err(_nitro_err, "CppException", e.what());');

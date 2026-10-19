@@ -280,7 +280,7 @@ public:
     // `_fnf` wrapper already ran us on the pool with dart_port=0, so we do the
     // work and DON'T post — no completion, no wake. Accumulate into an atomic so
     // the call isn't optimized away and the benchmark can confirm all ran.
-    void nativeAsyncFnf(int64_t value, NitroError* /*_nitro_err*/, int64_t /*dartPort*/) override {
+    void nativeAsyncFnf(int64_t value) override {
         _fnfSum.fetch_add(value, std::memory_order_relaxed);
     }
 

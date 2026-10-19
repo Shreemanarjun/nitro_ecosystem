@@ -367,7 +367,7 @@ public:
     // source: benchmark_cpp.native.dart:249
     virtual void nativeAsyncEchoFromThread(int64_t value, NitroError* _nitro_err, int64_t dartPort) = 0;
     // source: benchmark_cpp.native.dart:256
-    virtual void nativeAsyncFnf(int64_t value, NitroError* _nitro_err, int64_t dartPort) = 0;
+    virtual void nativeAsyncFnf(int64_t value) = 0;
     // source: benchmark_cpp.native.dart:260
     virtual void submitCoalesced(int64_t callId, int64_t value, int64_t dartPort) = 0;
     // source: benchmark_cpp.native.dart:263

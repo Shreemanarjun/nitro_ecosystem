@@ -296,8 +296,14 @@ String _generateCppDirect(BridgeSpec spec) {
           callArgs.add(p.name);
         }
       }
-      callArgs.add('_nitro_err');
-      callArgs.add('dart_port');
+      // Fire-and-forget (void @nitroNativeAsync, issue #58): the impl is a plain
+      // `void method(params)` — no NitroError*/dart_port. The <sym> keeps its
+      // posting signature so <sym>_fnf's ABI is unchanged; _fnf passes dart_port=0,
+      // so the error/no-impl posts below are harmless no-ops.
+      if (!spec.fireAndForget(func)) {
+        callArgs.add('_nitro_err');
+        callArgs.add('dart_port');
+      }
       final callArgStr = callArgs.join(', ');
 
       writer.line('void ${func.cSymbol}($paramsDecl) {');
