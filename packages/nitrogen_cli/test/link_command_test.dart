@@ -3429,6 +3429,36 @@ android {
       );
       expect(gradle.readAsStringSync(), isNot(contains('consumerProguardFiles')));
     });
+
+    // Regression: a root-project gradle (an app's android/build.gradle[.kts],
+    // with allprojects/subprojects and NO android {} block) must be left
+    // untouched — fabricating a module-level android {} / dependencies {} there
+    // is invalid Gradle DSL and breaks the build. (Hit as a CI failure when an
+    // example app was linked; the generated Kotlin is compiled by the plugin
+    // module, not the consuming app.)
+    test('leaves a root-project build.gradle.kts (no android {}) untouched', () {
+      Directory(p.join(tmp.path, 'android')).createSync(recursive: true);
+      final gradle = File(p.join(tmp.path, 'android', 'build.gradle.kts'));
+      const rootProject = '''
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+tasks.register<Delete>("clean") {
+    delete(rootProject.layout.buildDirectory)
+}
+''';
+      gradle.writeAsStringSync(rootProject);
+      linkAndroid('math', ['math'], baseDir: tmp.path);
+      final content = gradle.readAsStringSync();
+      expect(content, equals(rootProject), reason: 'no android {}/dependencies {}/srcDirs fabricated in a root-project gradle');
+      expect(content, isNot(contains('android {')));
+      expect(content, isNot(contains('kotlin.srcDirs')));
+      expect(content, isNot(contains('kotlinx-coroutines')));
+    });
   });
 
   // ── linkAndroidConsumerRules ─────────────────────────────────────────────

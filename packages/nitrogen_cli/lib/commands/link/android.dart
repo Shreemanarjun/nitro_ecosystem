@@ -312,8 +312,12 @@ void linkAndroid(
     }
   }
 
-  // 3. Ensure kotlinx-coroutines (required for generated Kotlin suspend bridge functions).
-  if (!content.contains('kotlinx-coroutines')) {
+  // 3. Ensure kotlinx-coroutines (required for generated Kotlin suspend bridge
+  //    functions) — only in a library MODULE (one with an android {} block).
+  //    A root-project gradle (an app's android/build.gradle[.kts]) has no
+  //    android {} and no dependencies {}; fabricating a top-level dependencies {}
+  //    there is wrong — the generated Kotlin is compiled by the plugin module.
+  if (RegExp(r'\bandroid\s*\{').hasMatch(content) && !content.contains('kotlinx-coroutines')) {
     final depsMatch = RegExp(r'\bdependencies\s*\{').firstMatch(content);
     if (depsMatch != null) {
       content = content.replaceRange(
@@ -415,6 +419,16 @@ void linkAndroid(
 /// `sourceSets { main {} }`, adds `main {}` to a bare `sourceSets`, or injects
 /// the whole block into `android {}` (creating it if absent). [isKts] selects
 /// the Groovy vs Kotlin-DSL srcDirs syntax.
+/// Whether [content] is an Android library/application MODULE gradle (one that
+/// compiles Kotlin), as opposed to a root-project gradle (an app's
+/// `android/build.gradle[.kts]` with allprojects/subprojects). A module either
+/// already has an `android {}` block or applies the Android library/application
+/// plugin; only a module should have `android {}`/`dependencies {}` fabricated.
+bool _looksLikeAndroidModule(String content) =>
+    RegExp(r'\bandroid\s*\{').hasMatch(content) ||
+    content.contains('com.android.library') ||
+    content.contains('com.android.application');
+
 ({String content, bool modified}) _gradleEnsureKotlinSrcDirs(
   String content,
   bool isKts,
@@ -466,18 +480,26 @@ void linkAndroid(
         }
       }
     } else {
-      // No sourceSets block — inject one inside android {}
       final androidMatch = RegExp(r'\bandroid\s*\{').firstMatch(content);
       if (androidMatch != null) {
+        // Inject sourceSets into the existing android {} block.
         content = content.replaceRange(
           androidMatch.end,
           androidMatch.end,
           '\n    sourceSets {\n        main {\n$srcDirsLine\n        }\n    }',
         );
-      } else {
+        modified = true;
+      } else if (_looksLikeAndroidModule(content)) {
+        // A library module that applies the Android plugin but has no android {}
+        // block yet (legacy apply-plugin scaffold) — fabricate it with sourceSets.
         content += '\nandroid {\n    sourceSets {\n        main {\n$srcDirsLine\n        }\n    }\n}\n';
+        modified = true;
       }
-      modified = true;
+      // else: no android {} block and no android plugin → this is a root-project
+      // gradle (an app's android/build.gradle[.kts] with allprojects/subprojects),
+      // not a library module. Fabricating a module-level android {} here is
+      // invalid Gradle DSL and breaks the build; the generated Kotlin is compiled
+      // by the plugin module, not the consuming app. Leave the file untouched.
     }
   }
   return (content: content, modified: modified);
@@ -500,7 +522,13 @@ void linkAndroid(
   //    linkAndroidConsumerRules's generated keep rules are never actually
   //    applied to a consuming app's release build (silently a no-op).
   final hasKotlinModule = moduleInfos?.any((m) => !m.isAndroidCpp) ?? true;
-  if (hasKotlinModule && !content.contains('consumerProguardFiles')) {
+  // Only a library MODULE (one with an android {} block) gets
+  // consumerProguardFiles. A root-project gradle (an app's
+  // android/build.gradle[.kts]) has no android {} and must be left untouched —
+  // fabricating a module-level android {}/defaultConfig there is invalid Gradle
+  // DSL and breaks the build.
+  final androidMatch = RegExp(r'\bandroid\s*\{').firstMatch(content);
+  if (hasKotlinModule && androidMatch != null && !content.contains('consumerProguardFiles')) {
     final consumerRulesLine = isKts ? '            consumerProguardFiles("consumer-rules.pro")' : '            consumerProguardFiles "consumer-rules.pro"';
     final defaultConfigMatch = RegExp(r'\bdefaultConfig\s*\{').firstMatch(content);
     if (defaultConfigMatch != null) {
@@ -516,13 +544,8 @@ void linkAndroid(
         '\n$consumerRulesLine\n',
       );
     } else {
-      final androidMatch = RegExp(r'\bandroid\s*\{').firstMatch(content);
-      final block = '\n    defaultConfig {\n$consumerRulesLine\n    }';
-      if (androidMatch != null) {
-        content = content.replaceRange(androidMatch.end, androidMatch.end, block);
-      } else {
-        content += '\nandroid {$block\n}\n';
-      }
+      // No defaultConfig, but android {} exists → add defaultConfig inside it.
+      content = content.replaceRange(androidMatch.end, androidMatch.end, '\n    defaultConfig {\n$consumerRulesLine\n    }');
     }
     modified = true;
     // Safety net: consumerProguardFiles pointing at a missing file is a

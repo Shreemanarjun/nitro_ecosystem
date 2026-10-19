@@ -61,25 +61,21 @@ class NitroCompletionBatch {
   enum : int32_t { kPending = 0, kDone = 1, kParked = 2 };
   enum : int32_t { kTagNull = 0, kTagInt = 1, kTagDouble = 2, kTagBool = 3 };
 
-  // Dart, before a spin-eligible single-in-flight call: try to claim the one
-  // slot for [id]. Returns false if another isolate already owns it.
+  // Dart, before a spin-eligible single-in-flight call: CAS-claim the one slot
+  // for [id]. Returns false if another isolate already owns it — the caller must
+  // then NOT spin (poll() reads the owner's slot; a non-owner would see the
+  // owner's payload).
   //
-  // There is ONE process-global batch per library (see the generated bridge),
-  // so the single slot is shared by every isolate that calls this library's
-  // @nitroNativeAsync. The single-in-flight contract is enforced *per isolate*
-  // (Dart's pendingCount==0), so two isolates could each think they may spin.
-  // A CAS on spinId_ (0→id) arbitrates: exactly one isolate owns the slot; the
-  // loser must NOT spin (poll() reads the owner's slot — a non-owner would see
-  // the owner's payload, see poll()'s id note). The claim is released when the
-  // owner's completion is delivered: post() resets spinId_ on every delivery
-  // path, and only *after* its flag-CAS resolves, so no other isolate can claim
-  // (and touch the slot) until this call's worker is done — collapsing the
-  // N-isolate case to the single-owner case the slot is written for. A call
-  // that throws before dispatching a worker frees its claim via disarm().
+  // The batch is one process-global per library, so its single slot is shared
+  // across isolates, yet the single-in-flight guard is only per-isolate. The CAS
+  // picks one owner. The claim is freed only after the owner's result is
+  // consumed — poll() releases on a slot hit (after copying), post() on the
+  // park/non-scalar paths — so no other isolate touches the slot until this call
+  // is done. disarm() frees it if the call threw before dispatching a worker.
   bool arm(int64_t id) noexcept {
     int64_t expected = 0;
     if (!spinId_.compare_exchange_strong(expected, id, std::memory_order_acq_rel, std::memory_order_relaxed)) {
-      return false;  // another isolate owns the single slot; caller must not spin
+      return false;
     }
     spin_.tag = kTagNull;
     spin_.i = 0;
