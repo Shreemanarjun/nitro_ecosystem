@@ -23,7 +23,10 @@ typedef void* DartApiEntry_function;
 DartApiEntry_function FindFunctionPointer(const DartApiEntry* entries,
                                           const char* name) {
   while (entries->name != NULL) {
-    if (strcmp(entries->name, name) == 0) return entries->function;
+    // Cast the function pointer to void* explicitly: implicit in C, but an
+    // error in C++ (where this TU is compiled under the native-assets
+    // CBuilder `-x c++` path, lever 1). Valid in both languages.
+    if (strcmp(entries->name, name) == 0) return (DartApiEntry_function)entries->function;
     entries++;
   }
   return NULL;

@@ -18,6 +18,7 @@ import 'link_command.dart'
         findPodfileDirs,
         discoverModuleInfos,
         ModuleInfo,
+        linkNativeAssetsHook,
         linkCMake,
         linkPodspec,
         linkMacosPodspec,
@@ -61,6 +62,13 @@ class GenerateCommand extends Command {
       ..addOption(
         'targets',
         help: 'Comma-separated output targets: dart,kotlin,swift,cpp,cmake,native,test. Platform aliases are also supported.',
+      )
+      ..addFlag(
+        'native-assets',
+        negatable: false,
+        help: 'Experimental (perf lever 1): emit the Dart FFI impl as top-level @Native '
+            'externals bound to a native-assets code asset, and write hook/build.dart + '
+            'vendor the nitro C runtime. All-C++ modules only.',
       )
       ..addFlag(
         'verbose',
@@ -298,6 +306,8 @@ class GenerateCommand extends Command {
       'build_runner',
       'build',
       '--delete-conflicting-outputs',
+      // Perf lever 1: turn on the generator's @Native/native-assets Dart emit.
+      if (argResults!['native-assets'] as bool) '--define=nitro_generator:nitro_generator=native_assets=true',
       ...targets.buildFilterArgs(projectRoot, incrementalPlan.changedSpecs),
     ];
     final buildResult = await runStreamingInspected(
@@ -352,6 +362,18 @@ class GenerateCommand extends Command {
     final moduleInfos = discoverModuleInfos(pluginName, baseDir: projectRoot);
     final hasCpp = moduleInfos.any((m) => m.isCpp);
     final hasNonCpp = moduleInfos.any((m) => !m.isCpp);
+
+    // Perf lever 1: native-assets is all-C++ only (its precondition), and the
+    // hook builds every module's code asset — so the CMake/podspec/gradle
+    // NATIVE linking is redundant and its output goes unused (the generated
+    // Dart resolves @Native symbols against the code asset). Skip those steps
+    // and run ONLY the hook (+ clangd for IDE). This also avoids building a
+    // second, unused library per module.
+    if (argResults!['native-assets'] as bool) {
+      linkNativeAssetsHook(moduleInfos, nitroNativePath, baseDir: projectRoot);
+      linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: projectRoot);
+      return;
+    }
 
     // Patch CMake and C++ stubs
     linkCMake(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: projectRoot, moduleInfos: moduleInfos);

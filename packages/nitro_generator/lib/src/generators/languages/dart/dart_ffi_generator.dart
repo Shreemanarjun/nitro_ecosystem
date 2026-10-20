@@ -103,7 +103,16 @@ class DartFfiGenerator {
     // Type-only files have no bridge implementation — only type declarations.
     if (spec.isTypeOnly) return writer.toString();
 
-    _emitImplClassSetup(writer, spec);
+    // Perf lever 1 (opt-in): scalar all-C++ modules resolve symbols via
+    // top-level @Native externals bound to the hook-built code asset instead
+    // of DynamicLibrary + lookupFunction. Only the symbol-resolution setup
+    // differs; the method/property/stream bodies (and the class-closing brace
+    // in _emitStreamImpls) are emitted identically.
+    if (_nativeAssetsEligible(spec)) {
+      _emitNativeAssetsImplSetup(writer, spec);
+    } else {
+      _emitImplClassSetup(writer, spec);
+    }
     _emitFunctionImpls(writer, spec);
     _emitPropertyImpls(writer, spec);
     _emitStreamImpls(writer, spec);

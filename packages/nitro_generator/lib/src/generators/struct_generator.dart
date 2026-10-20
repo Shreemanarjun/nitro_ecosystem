@@ -215,21 +215,37 @@ class StructGenerator {
       s.writeln('/// field buffers remain owned by the native implementation and must');
       s.writeln('/// stay valid until this proxy is released by the finalizer or');
       s.writeln('/// [toDartAndRelease].');
+      // Native-assets: a top-level @Native external for the release symbol; the
+      // proxy's _init() binds the finalizer from its address (no DynamicLibrary).
+      if (spec.useNativeAssets) {
+        final assetId = 'package:${spec.assetPackage ?? spec.lib}/$libStem';
+        s.writeln("@Native<Void Function(Pointer<Void>)>(symbol: '$releaseSym', assetId: '$assetId', isLeaf: true)");
+        s.writeln('external void _${releaseSym}Ptr(Pointer<Void> _p);');
+      }
       s.writeln('final class ${st.name}Proxy extends ${st.name} implements Finalizable {');
       s.writeln('  final Pointer<${st.name}Ffi> _native;');
       s.writeln();
       s.writeln('  static NativeFinalizer? _finalizer;');
       s.writeln('  static void Function(Pointer<Void>)? _releaseFn;');
       s.writeln();
-      s.writeln('  /// Binds the generated release symbol from [dylib].');
+      s.writeln('  /// Binds the generated release symbol.');
       s.writeln('  /// Must be called once — typically in the impl class constructor.');
       s.writeln('  /// Idempotent: subsequent calls are a no-op.');
-      s.writeln('  static void _init(DynamicLibrary dylib) {');
-      s.writeln('    _finalizer ??= NativeFinalizer(');
-      s.writeln("      dylib.lookup<NativeFunction<Void Function(Pointer<Void>)>>('$releaseSym'),");
-      s.writeln('    );');
-      s.writeln("    _releaseFn ??= dylib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('$releaseSym');");
-      s.writeln('  }');
+      if (spec.useNativeAssets) {
+        // Native-assets: resolve the release pointer from the @Native external
+        // via Native.addressOf — no DynamicLibrary.
+        s.writeln('  static void _init() {');
+        s.writeln('    _finalizer ??= NativeFinalizer(Native.addressOf<NativeFunction<Void Function(Pointer<Void>)>>(_${releaseSym}Ptr).cast());');
+        s.writeln('    _releaseFn ??= _${releaseSym}Ptr;');
+        s.writeln('  }');
+      } else {
+        s.writeln('  static void _init(DynamicLibrary dylib) {');
+        s.writeln('    _finalizer ??= NativeFinalizer(');
+        s.writeln("      dylib.lookup<NativeFunction<Void Function(Pointer<Void>)>>('$releaseSym'),");
+        s.writeln('    );');
+        s.writeln("    _releaseFn ??= dylib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('$releaseSym');");
+        s.writeln('  }');
+      }
       s.writeln();
       s.writeln('  /// Takes ownership of [native]. Super fields are zeroed and never read;');
       s.writeln('  /// all getters below are overridden to read from native memory instead.');

@@ -90,6 +90,20 @@ class BridgeSpec {
   /// Every targeted native platform is implemented in C++ (direct dispatch).
   bool get allNativeCpp => [iosImpl, androidImpl, macosImpl, windowsImpl, linuxImpl].every((i) => i == null || i is CppImpl);
 
+  /// Opt-in (build.yaml `native_assets: true`): emit the Dart FFI impl using
+  /// top-level `@Native` externals resolved against a native-assets code asset
+  /// (built by the generated `hook/build.dart`) instead of a runtime
+  /// `DynamicLibrary.open`/`process` + `lookupFunction`. This is what makes
+  /// `@Native` work on Android (the `RTLD_LOCAL` wall blocks `lookupFunction`
+  /// there). Set by the builder from BuilderOptions; false in hand-built specs.
+  bool nativeAssets = false;
+
+  /// The native-assets path only applies to an all-C++ module on native
+  /// targets — CBuilder compiles C/C++, not the Swift/Kotlin bridges, and the
+  /// web build has no dart:ffi. Finer shape guards (streams/callbacks) live in
+  /// the Dart emitter where the callback scan is available.
+  bool get useNativeAssets => nativeAssets && allNativeCpp && !targetsWeb;
+
   /// True when the bridge runs [f] on its own thread and posts the result
   /// back (native-async transport): every `@nitroNativeAsync` method, plus
   /// the `@nitroAsync` methods of [dispatchesAsync].

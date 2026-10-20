@@ -10,10 +10,17 @@ import 'src/spec_validator.dart';
 import 'src/generators/native_generator_facade.dart';
 
 Builder nitroGeneratorBuilder(BuilderOptions options) {
-  return NitroGeneratorBuilder();
+  // Opt-in native-assets path (perf lever 1): build.yaml →
+  //   targets: { $default: { builders: { nitro_generator: {
+  //     options: { native_assets: true } } } } }
+  return NitroGeneratorBuilder(nativeAssets: options.config['native_assets'] == true);
 }
 
 class NitroGeneratorBuilder implements Builder {
+  NitroGeneratorBuilder({this.nativeAssets = false});
+
+  final bool nativeAssets;
+
   static final _formatter = DartFormatter(languageVersion: DartFormatter.latestLanguageVersion);
   static final _nativeGenerators = NativeGeneratorFacade.defaults();
 
@@ -31,6 +38,7 @@ class NitroGeneratorBuilder implements Builder {
       final spec = SpecExtractor.extractAny(library);
       if (spec == null) return;
       spec.assetPackage = buildStep.inputId.package;
+      spec.nativeAssets = nativeAssets;
       spec.sourceHash = sha256.convert(await buildStep.readAsBytes(buildStep.inputId)).toString();
       if (spec.isTypeOnly && !await _typeFileLayoutOk(buildStep, spec)) return;
 
