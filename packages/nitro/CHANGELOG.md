@@ -1,14 +1,12 @@
-## 0.7.13
+## 0.8.0
 
-Fixed
-- Perf regression under concurrent load (issue #58): 0.7.12's thread-safety fix
-  made `arm()` CAS the process-global spin slot, and under a hot multi-isolate
-  workload (many concurrent native-async calls / SSE streams) that bare CAS
-  ping-ponged the shared `spinId_` cache line and serialized throughput — single-
-  call latency unchanged, but load throughput dropped sharply. `arm()` now does a
-  relaxed load before the CAS (test-then-CAS), so a contended caller bails without
-  the read-modify-write; the CAS still arbitrates the claim when the slot looks
-  free (correctness unchanged, ThreadSanitizer-verified). No ABI change.
+- Now a pure-Dart package: dropped the `flutter` SDK constraint and the
+  `flutter.plugin` (ffiPlugin) block, so `dart pub add nitro` works in
+  non-Flutter projects. nitro ships no native build of its own; consumers vendor
+  its `src/` headers via `nitrogen link` (unchanged for existing plugins).
+- Fix (#58): a relaxed load before the completion-spin CAS (test-then-CAS)
+  removes a concurrent-load throughput regression from 0.7.12 (ThreadSanitizer-
+  verified, no ABI change).
 
 ## 0.7.12
 

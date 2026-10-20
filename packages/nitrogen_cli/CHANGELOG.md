@@ -1,40 +1,16 @@
-## 0.8.0 (unreleased — experimental)
+## 0.8.0
 
-Added — perf lever 1: `nitrogen generate --native-assets` wires the `@Native` /
-native-assets build path (see nitro_generator 0.8.0). Opt-in; without the flag the
-standard CMake/podspec/gradle linking is unchanged.
+Experimental — `nitrogen generate --native-assets` wires the `@Native` path (see
+nitro_generator 0.8.0). Opt-in; without the flag the standard
+CMake/podspec/gradle linking is unchanged.
 
-- Writes `hook/build.dart` (a native-assets build hook) and injects its build-time
-  deps into `pubspec.yaml`; the generated Dart binds to the hook's code asset via
-  `@Native`. Two hook modes, auto-detected:
-  - **CBuilder** — vendors nitro's C runtime into `src/nitro_native/` and compiles
-    the bridge + impl. Cross-compiles every platform via the Dart native-assets
-    toolchain (xcrun / NDK / clang / cl).
-  - **external cmake** — when the plugin owns `src/CMakeLists.txt` (an engine + its
-    own deps), drives that cmake and declares the built library as the code asset.
-    Cross-compiles for Android (NDK `android.toolchain.cmake` + `ANDROID_ABI`/
-    `ANDROID_PLATFORM`), iOS (`CMAKE_SYSTEM_NAME=iOS` + sysroot + arch), and macOS
-    (arch). `NITRO_CMAKE_ARGS` (a `;`-delimited env var) forwards extra configure
-    args for pointing the plugin's `find_package`/`CMAKE_PREFIX_PATH` at prebuilt
-    external-dep roots.
-- Safety gates — refuses (writes nothing, keeps the standard build) when a
-  hand-written `hook/build.dart` exists, when any generated `*.g.dart` is still on
-  the `_dylib` path (an ineligible module), or for a multi-module external-cmake
-  build.
-- Double-bundle guard — when a code-asset hook is written, warns that the plugin's
-  platform native build (`ffiPlugin` / `pluginClass` / podspec / gradle / CMake)
-  must not ALSO bundle the engine, naming the affected platforms (both bundling →
-  two C++ runtimes → split-brain double-free). `nitrogen doctor` fails on the same
-  condition.
-- Opt-out safety — `clean` and a plain `generate` (no `--native-assets`) now remove
-  a stale nitrogen-generated hook (+ vendored `src/nitro_native/`), so backing out
-  of `--native-assets` can't leave a hook that double-bundles against the `_dylib`
-  build. Hand-written hooks are never touched.
-
-## 0.7.13
-
-- Version sync with nitro 0.7.13. `link` copies the updated
-  `nitro_completion_batch.h` (completion-spin contention fix, issue #58).
+- Writes `hook/build.dart`: **CBuilder** (vendors nitro's C runtime), or
+  **external cmake** when the plugin owns `src/CMakeLists.txt`. Cross-compiles
+  Android/iOS/macOS; `NITRO_CMAKE_ARGS` forwards configure args for prebuilt deps.
+- Safety: refuses on a hand-written hook, an ineligible `_dylib` module, or a
+  multi-module external-cmake build; double-bundle guard (+ `nitrogen doctor`);
+  `clean`/plain `generate` remove a stale generated hook.
+- `link` copies the updated `nitro_completion_batch.h` (completion-spin fix, #58).
 
 ## 0.7.12
 

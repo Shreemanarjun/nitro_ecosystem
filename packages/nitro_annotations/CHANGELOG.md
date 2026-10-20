@@ -1,6 +1,6 @@
-## 0.7.13
+## 0.8.0
 
-- Version sync with nitro_generator 0.7.13 (no annotation changes).
+- Coordinated 0.8.0 release (no annotation API changes).
 
 ## 0.7.12
 
