@@ -104,6 +104,15 @@ class BridgeSpec {
   /// the Dart emitter where the callback scan is available.
   bool get useNativeAssets => nativeAssets && allNativeCpp && !targetsWeb;
 
+  /// THE single source of truth for "does this spec actually emit the @Native
+  /// impl?". Set once by [DartFfiGenerator] (= [useNativeAssets] AND the shape
+  /// guard `_nativeAssetsEligible`), and read by BOTH the impl-class dispatch
+  /// AND the struct-proxy emitter so they can never disagree. Must be false on
+  /// the web-split path. A coarse check ([useNativeAssets]) in one emitter and
+  /// the fine shape check in the other caused the proxy `_init()` arity desync
+  /// (proxy emitted 0-arg `_init()` while the _dylib impl called `_init(dylib)`).
+  bool nativeAssetsEmit = false;
+
   /// True when the bridge runs [f] on its own thread and posts the result
   /// back (native-async transport): every `@nitroNativeAsync` method, plus
   /// the `@nitroAsync` methods of [dispatchesAsync].

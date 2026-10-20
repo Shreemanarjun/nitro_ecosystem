@@ -2,7 +2,7 @@
 // The "native" side is simulated by sending [id, value, ...] arrays to the
 // batch port and recording bind/ack calls.
 import 'dart:async';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:nitro/nitro.dart';
 
 // No-op spin hooks for the tests that don't exercise the spin (spin is off by

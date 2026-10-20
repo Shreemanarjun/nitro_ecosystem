@@ -1,3 +1,27 @@
+## 0.8.0 (unreleased — experimental)
+
+Added — perf lever 1: opt-in `@Native` / native-assets Dart FFI path (`--native-assets`
+/ build option `native_assets: true`). Off by default; the `_dylib` path is unchanged.
+
+- An all-C++ module's generated Dart resolves its C symbols via top-level
+  `@Native` externals bound to a code asset (built by `hook/build.dart`), instead
+  of `DynamicLibrary` + `lookupFunction`. This is the only form that resolves on
+  Android, where `RTLD_LOCAL` hides the symbols from `lookupFunction`.
+- Eligible shapes: scalars incl. **nullable `int`/`double`/`bool`/`uint64`/`DateTime`**,
+  `String`, **enum**, `@HybridStruct`, `@HybridRecord`, **`@NitroVariant`**,
+  **`@NitroAnyMap`**, **`AnyNativeObject`**, **`NativeHandle` params**, `TypedData`,
+  callbacks, and async/stream call modes. Ineligible modules stay fully on the
+  `_dylib` path: `@NitroOwned` returns, non-`TypedData` `@zeroCopy` returns,
+  `@NitroCustomType`, Swift/Kotlin modules, and web.
+- Zero-copy `TypedData` params: a leaf method passes `list.address` (GC-pinned, no
+  `memcpy`) instead of an arena copy. A **non-leaf** method (a `String`/record param,
+  or a non-primitive return, de-leafs the call) emits a comment naming the
+  `TypedData` param(s) that fall back to a copy, so the copy on a hot path is not
+  silent.
+- An ineligible module that opted into `--native-assets` emits a comment in the
+  generated file naming the first disqualifying construct, instead of silently
+  staying on `_dylib`.
+
 ## 0.7.13
 
 - Version sync with nitro 0.7.13 (completion-spin contention fix, issue #58). No

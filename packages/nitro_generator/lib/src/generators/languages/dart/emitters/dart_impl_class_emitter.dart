@@ -373,48 +373,62 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
 // opened here and closed by [_emitStreamImpls], exactly like
 // [_emitImplClassSetup].
 
-/// True when [spec] is a tractable native-assets shape: opt-in + all-C++ +
-/// non-web, with only scalar (`int`/`double`/`bool`) or `String`/`String?`
-/// sync methods and properties — no records, structs, typed-data, nullable
-/// primitives, async, streams, callbacks, or owned handles. Those richer
-/// shapes stay on the `_dylib` path for now (they need struct/variant codecs,
-/// NativeFinalizers, or the async batch wiring). Strings work because the
-/// per-call `arena` (body-local) + the emitted `_nitroAllocPtr`/`_nitroFreePtr`
-/// externals cover UTF-8 marshalling and native-owned return frees.
-bool _nativeAssetsEligible(BridgeSpec spec) {
-  if (!spec.useNativeAssets) return false;
-  // All stream item kinds supported: scalar/String/record via _nitroFree, LOCAL
-  // struct via the zero-copy proxy (_init()'d in the ctor), IMPORTED struct via
-  // the per-struct release @Native external (_release<Item>StructPtr).
-  // @HybridRecord (binary-blob codec), @HybridStruct (zero-copy proxy — the
-  // release symbol resolves via Native.addressOf, no _dylib), callback
-  // (NativeCallable, runtime — no _dylib), String (incl. nullable), OR
-  // non-nullable int/double/bool.
-  bool ok(BridgeType t) {
-    if (t.isRecord) return true;
-    if (t.isFunction) return true; // callback param → NativeCallable
+/// True when [spec] can use the native-assets (@Native) path: opt-in, all-C++,
+/// non-web, and every shape in [_nativeAssetsIneligibility]'s allow-set.
+bool _nativeAssetsEligible(BridgeSpec spec) =>
+    spec.useNativeAssets && _nativeAssetsIneligibility(spec) == null;
+
+/// Null if eligible; else the first disqualifying construct (for the N6
+/// generated-file fallback note). The @Native path shares marshalling with the
+/// `_dylib` path (only symbol resolution differs), so any shape `_dylib` encodes
+/// is emittable: scalars (incl. nullable `int`/`double`/`bool`/`uint64`/
+/// `DateTime`), `String`, enum, struct, record, variant, anyMap, AnyNativeObject,
+/// NativeHandle params, TypedData, callback params. Excluded: @NitroOwned returns
+/// and non-TypedData @zeroCopy returns.
+String? _nativeAssetsIneligibility(BridgeSpec spec) {
+  // null = this type is fine; a string = why it isn't.
+  String? bad(BridgeType t, String where) {
+    if (t.isRecord ||
+        t.isFunction || // callback param → NativeCallable (runtime, no _dylib)
+        t.isTypedData || // lever 2: static @Native external for the hot entrypoint
+        t.isAnyMap ||
+        t.isAnyNativeObject || // opaque int64 instance id
+        t.isNativeHandle) { // opaque raw pointer (leaf-safe)
+      return null;
+    }
     final base = bareTypeName(t.name);
-    if (spec.isStructName(base)) return true;
-    if (base == 'String') return true;
-    return !t.isNullable && const {'int', 'double', 'bool'}.contains(base);
+    if (spec.isStructName(base) || spec.isEnumName(base) || spec.isVariantName(base)) return null;
+    if (base == 'String') return null; // incl. String?
+    // Scalars incl. their nullable forms (arena-packed NitroOpt*, non-leaf).
+    if (const {'int', 'double', 'bool', 'uint64', 'DateTime'}.contains(base)) return null;
+    return "$where has unsupported type '${t.name}' (stays on the _dylib path)";
   }
-  bool okRet(BridgeType t) => ok(t) || bareTypeName(t.name) == 'void';
+
   for (final f in spec.functions) {
-    if (f.isOwned || f.zeroCopyReturn) return false;
-    // Allowed call modes: plain sync, native-async (@nitroNativeAsync incl.
-    // fire-and-forget), native-dispatched @nitroAsync, plain isolate-pool
-    // @nitroAsync (callAsync + get/clear error native pointers), and
-    // @NitroResult (tagged-buffer decode via RecordReader + _nitroFree).
+    // @NitroOwned handles still excluded (NativeHandle wrapper + finalizer).
+    if (f.isOwned) return "method '${f.dartName}' returns an @NitroOwned handle";
+    // @zeroCopy TypedData RETURNS are supported (release via Native.addressOf,
+    // the `_typedDataReturnFinalizer`); a non-TypedData @zeroCopy return is not.
+    if (f.zeroCopyReturn && !f.returnType.isTypedData) {
+      return "method '${f.dartName}' has a non-TypedData @zeroCopy return";
+    }
     // @NitroResult's wire return is a Pointer<Uint8> tag buffer — validate its
     // INNER value type, not the NitroResult wrapper.
-    final retOk = f.isResult ? ok(_nitroResultInnerType(f.returnType)) : okRet(f.returnType);
-    if (!retOk) return false;
-    if (!f.params.every((p) => ok(p.type))) return false;
+    final ret = f.isResult ? _nitroResultInnerType(f.returnType) : f.returnType;
+    if (bareTypeName(ret.name) != 'void') {
+      final r = bad(ret, "method '${f.dartName}' return");
+      if (r != null) return r;
+    }
+    for (final p in f.params) {
+      final r = bad(p.type, "method '${f.dartName}' param '${p.name}'");
+      if (r != null) return r;
+    }
   }
   for (final p in spec.properties) {
-    if (!ok(p.type)) return false;
+    final r = bad(p.type, "property '${p.dartName}'");
+    if (r != null) return r;
   }
-  return true;
+  return null;
 }
 
 /// Splits a Dart type-argument list on TOP-LEVEL commas only, so a nested
@@ -456,6 +470,9 @@ void _emitNativeAssetsImplSetup(CodeWriter writer, BridgeSpec spec) {
   // Plain isolate-pool @nitroAsync (callAsync) uses the get/clear error symbols
   // as native pointers (portable across the pool isolate).
   final hasCallAsync = spec.functions.any((f) => f.isAsync && !spec.bridgeAsync(f) && !f.isFireAndForget);
+  // @zeroCopy TypedData returns are freed by a NativeFinalizer backed by the
+  // module's <lib>_release_typed_data_return symbol.
+  final hasZcTdReturn = spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData);
   String native(String type, String symbol, {bool leaf = false}) =>
       "@Native<$type>(symbol: '$symbol', assetId: '$assetId'${leaf ? ', isLeaf: true' : ''})";
 
@@ -474,6 +491,10 @@ void _emitNativeAssetsImplSetup(CodeWriter writer, BridgeSpec spec) {
   writer.line('external int _createInstancePtr(Pointer<Utf8> _key);');
   writer.line(native('Void Function(Int64)', '${libStem}_destroy_instance'));
   writer.line('external void _destroyInstancePtr(int _id);');
+  if (hasZcTdReturn) {
+    writer.line(native('Void Function(Pointer<Void>)', '${libStem}_release_typed_data_return', leaf: true));
+    writer.line('external void _releaseTypedDataReturnPtr(Pointer<Void> _p);');
+  }
 
   // Method externals — same names the bodies call (_<name>Ptr).
   for (final func in spec.functions) {
@@ -576,6 +597,10 @@ void _emitNativeAssetsImplSetup(CodeWriter writer, BridgeSpec spec) {
   // external — the native-assets equivalent of _dylib.lookup<...>.
   writer.line('  // ignore: unused_field');
   writer.line('  late final Pointer<NativeFinalizerFunction> _nitroFreeFinalizer = Native.addressOf<NativeFunction<Void Function(Pointer<Void>)>>(_nitroFreePtr).cast();');
+  if (hasZcTdReturn) {
+    writer.line('  // ignore: unused_field');
+    writer.line('  late final Pointer<NativeFinalizerFunction> _typedDataReturnFinalizer = Native.addressOf<NativeFunction<Void Function(Pointer<Void>)>>(_releaseTypedDataReturnPtr).cast();');
+  }
   if (hasCallbacks) {
     // One NativeCallable slot per "methodName.paramName", replaced (not
     // accumulated) on every re-registration — see _emitCallbackHelpers.

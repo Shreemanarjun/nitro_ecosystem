@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
+  _nativeBuildPlatformsTests();
   group('native-assets build-hook template (perf lever 1 / v0.8.0)', () {
     final hook = buildHookDart(
       modules: [
@@ -89,11 +90,12 @@ void main() {
     tearDown(() => plugin.deleteSync(recursive: true));
 
     test('writes hook, vendors nitro C runtime, injects pubspec deps', () {
-      linkNativeAssetsHook(
+      final wrote = linkNativeAssetsHook(
         [ModuleInfo(lib: 'calc', module: 'Calc', isCpp: true)],
         fakeNitroNative.path,
         baseDir: plugin.path,
       );
+      expect(wrote, isTrue);
       // hook written, compiling the real bridge + impl
       final hook = File(p.join(plugin.path, 'hook', 'build.dart'));
       expect(hook.existsSync(), isTrue);
@@ -117,13 +119,275 @@ void main() {
       expect(injectNativeAssetsPubspecDeps(pubspec), isFalse, reason: 'second run is a no-op');
     });
 
-    test('no C++ module → no-op (hook not written)', () {
-      linkNativeAssetsHook(
+    // Phase 2: a plugin with src/CMakeLists.txt → external cmake hook (drives
+    // the plugin's own build + declares CodeAsset(name: libStem)); no CBuilder
+    // source list, no nitro_native vendoring.
+    test('external build: src/CMakeLists.txt → cmake-driven hook, name = libStem', () {
+      File(p.join(plugin.path, 'src', 'CMakeLists.txt')).writeAsStringSync('add_library(calc SHARED foo.c)');
+      final wrote = linkNativeAssetsHook(
+        [ModuleInfo(lib: 'calc', module: 'Calc', isCpp: true)],
+        fakeNitroNative.path,
+        baseDir: plugin.path,
+      );
+      expect(wrote, isTrue);
+      final hook = File(p.join(plugin.path, 'hook', 'build.dart')).readAsStringSync();
+      expect(hook, contains("Process.run('cmake'"), reason: 'drives cmake, not CBuilder');
+      expect(hook, isNot(contains('CBuilder')));
+      // Bug C contract: asset name is the OS-independent lib stem
+      expect(hook, contains("name: 'calc'"));
+      expect(hook, contains("package: 'calc'"));
+      expect(hook, contains('DynamicLoadingBundled()'));
+      // external build does NOT vendor the nitro C runtime (cmake owns includes)
+      expect(Directory(p.join(plugin.path, 'src', 'nitro_native')).existsSync(), isFalse);
+    });
+
+    // Mobile cross-compile: the external hook must emit cmake's own cross vars
+    // per target OS (derived from the native-assets build config), not a
+    // host-only configure. Device-validated (iOS dev/sim arm64, macOS x86_64
+    // cross-arch, Android arm64-v8a) against calc_cli's self-contained cmake.
+    test('external build: emits per-target cross-compile flags', () {
+      final hook = buildExternalCmakeHookDart(libStem: 'calc', pkg: 'calc_cli');
+      // Android: NDK toolchain file + ABI + platform
+      expect(hook, contains('CMAKE_TOOLCHAIN_FILE'));
+      expect(hook, contains('ANDROID_ABI'));
+      expect(hook, contains('ANDROID_PLATFORM'));
+      expect(hook, contains('arm64-v8a'));
+      expect(hook, contains('_androidToolchainFile'));
+      expect(hook, contains('ANDROID_NDK_HOME'));
+      // iOS: system name + sysroot (device/sim) + arch + deployment target
+      expect(hook, contains('CMAKE_SYSTEM_NAME=iOS'));
+      expect(hook, contains('CMAKE_OSX_SYSROOT'));
+      expect(hook, contains('iphonesimulator'));
+      expect(hook, contains('CMAKE_OSX_ARCHITECTURES'));
+      // iOS/macOS produce a .dylib (not the default .so)
+      expect(hook, contains('OS.macOS || OS.iOS => '));
+      // the configure call threads the cross flags through
+      expect(hook, contains('...cross'));
+    });
+
+    // External-dep escape hatch: the hook forwards NITRO_CMAKE_ARGS (a `;`-list,
+    // so paths with spaces survive) to the cmake configure call, spliced BEFORE
+    // the cross flags so a stray user arg can't clobber the toolchain/arch.
+    test('external build: forwards NITRO_CMAKE_ARGS before the cross flags', () {
+      final hook = buildExternalCmakeHookDart(libStem: 'calc', pkg: 'calc_cli');
+      expect(hook, contains("Platform.environment['NITRO_CMAKE_ARGS']"));
+      expect(hook, contains(".split(';')"), reason: 'semicolon list, not whitespace (paths with spaces)');
+      // precedence invariant: ...extra must precede ...cross in the configure args
+      final cfg = hook.indexOf("'-DCMAKE_BUILD_TYPE=Release', ...extra, ...cross");
+      expect(cfg, greaterThanOrEqualTo(0), reason: 'extra spliced before cross in the configure call');
+    });
+
+    // Double-bundle hazard: whenever a code-asset hook is WRITTEN, warn that the
+    // plugin's platform native build (ffiPlugin / podspec / gradle / CMake) must
+    // not ALSO bundle the engine (→ split-brain double-free). The warning rides
+    // the write path; it must NOT leak onto a refuse path.
+    test('external build write path prints the double-bundle WARNING', () {
+      File(p.join(plugin.path, 'src', 'CMakeLists.txt')).writeAsStringSync('add_library(calc SHARED foo.c)');
+      bool wrote = false;
+      final out = _captureStdout(() {
+        wrote = linkNativeAssetsHook([ModuleInfo(lib: 'calc', module: 'Calc', isCpp: true)], fakeNitroNative.path, baseDir: plugin.path);
+      });
+      expect(wrote, isTrue);
+      expect(out, contains('WARNING'));
+      expect(out, contains('split-brain'));
+      expect(out, contains('double-free/abort'));
+      expect(out, contains('calc'), reason: 'names the code asset that double-bundles');
+    });
+
+    test('CBuilder write path prints the double-bundle WARNING', () {
+      bool wrote = false;
+      final out = _captureStdout(() {
+        wrote = linkNativeAssetsHook([ModuleInfo(lib: 'calc', module: 'Calc', isCpp: true)], fakeNitroNative.path, baseDir: plugin.path);
+      });
+      expect(wrote, isTrue);
+      expect(out, contains('WARNING'));
+      expect(out, contains('split-brain'));
+    });
+
+    test('refuse path (ineligible _dylib module) prints NO double-bundle warning', () {
+      File(p.join(plugin.path, 'lib', 'src', 'calc.g.dart'))
+          .writeAsStringSync('class _CalcImpl { final DynamicLibrary _dylib; }');
+      bool wrote = true;
+      final out = _captureStdout(() {
+        wrote = linkNativeAssetsHook([ModuleInfo(lib: 'calc', module: 'Calc', isCpp: true)], fakeNitroNative.path, baseDir: plugin.path);
+      });
+      expect(wrote, isFalse);
+      expect(out, isNot(contains('split-brain')), reason: 'warning must not leak onto the fall-through path');
+    });
+
+    // W5: the multi-module external-cmake refuse branch (native_assets.dart:71-77)
+    // — one src/CMakeLists.txt → one lib → one assetId; >1 module is ambiguous,
+    // so it must REFUSE (and write nothing), falling through to standard linking.
+    test('external cmake + multiple C++ modules → refuses (no hook)', () {
+      File(p.join(plugin.path, 'src', 'CMakeLists.txt')).writeAsStringSync('add_library(calc SHARED foo.c)');
+      final wrote = linkNativeAssetsHook(
+        [ModuleInfo(lib: 'calc', module: 'Calc', isCpp: true), ModuleInfo(lib: 'calc2', module: 'Calc2', isCpp: true)],
+        fakeNitroNative.path,
+        baseDir: plugin.path,
+      );
+      expect(wrote, isFalse);
+      expect(File(p.join(plugin.path, 'hook', 'build.dart')).existsSync(), isFalse);
+    });
+
+    // W6: when the pubspec declares native-build platforms, the warning NAMES
+    // them (actionable) instead of generic prose.
+    test('double-bundle warning names the concrete platforms to fix (W6)', () {
+      File(p.join(plugin.path, 'pubspec.yaml')).writeAsStringSync(
+        'name: calc\n'
+        'dependencies:\n  flutter:\n    sdk: flutter\n'
+        'flutter:\n  plugin:\n    platforms:\n'
+        '      android:\n        ffiPlugin: true\n'
+        '      ios:\n        pluginClass: CalcPlugin\n'
+        '      web:\n        pluginClass: CalcWeb\n',
+      );
+      final out = _captureStdout(() {
+        linkNativeAssetsHook([ModuleInfo(lib: 'calc', module: 'Calc', isCpp: true)], fakeNitroNative.path, baseDir: plugin.path);
+      });
+      expect(out, contains('WARNING'));
+      expect(out, contains('android'));
+      expect(out, contains('ios'));
+      expect(out, isNot(contains('web')), reason: 'web has no native build → never double-bundles');
+    });
+
+    // C1: a stale generated hook (+ vendored runtime) is removed on opt-out; a
+    // hand-written hook is never touched (sentinel-gated).
+    test('removeStaleNativeAssetsHook deletes a generated hook + vendored runtime', () {
+      Directory(p.join(plugin.path, 'hook')).createSync();
+      File(p.join(plugin.path, 'hook', 'build.dart')).writeAsStringSync('// GENERATED BY nitrogen\nvoid main() {}');
+      Directory(p.join(plugin.path, 'src', 'nitro_native')).createSync(recursive: true);
+      File(p.join(plugin.path, 'src', 'nitro_native', 'nitro.h')).writeAsStringSync('// h');
+      final removed = removeStaleNativeAssetsHook(plugin.path);
+      expect(removed, containsAll([p.join('hook', 'build.dart'), p.join('src', 'nitro_native')]));
+      expect(File(p.join(plugin.path, 'hook', 'build.dart')).existsSync(), isFalse);
+      expect(Directory(p.join(plugin.path, 'src', 'nitro_native')).existsSync(), isFalse);
+    });
+
+    test('removeStaleNativeAssetsHook never touches a HAND-WRITTEN hook', () {
+      Directory(p.join(plugin.path, 'hook')).createSync();
+      const handWritten = '// my own engine downloader\nvoid main() {}';
+      File(p.join(plugin.path, 'hook', 'build.dart')).writeAsStringSync(handWritten);
+      final removed = removeStaleNativeAssetsHook(plugin.path);
+      expect(removed, isEmpty);
+      expect(File(p.join(plugin.path, 'hook', 'build.dart')).readAsStringSync(), handWritten);
+    });
+
+    test('removeStaleNativeAssetsHook is a no-op when no hook exists', () {
+      expect(removeStaleNativeAssetsHook(plugin.path), isEmpty);
+    });
+
+    test('no C++ module → no-op (hook not written), returns false', () {
+      final wrote = linkNativeAssetsHook(
         [ModuleInfo(lib: 'calc', module: 'Calc', isCpp: false)],
         fakeNitroNative.path,
         baseDir: plugin.path,
       );
+      expect(wrote, isFalse);
       expect(File(p.join(plugin.path, 'hook', 'build.dart')).existsSync(), isFalse);
     });
+
+    // SAFETY GATE (a): a plugin with its OWN hand-written hook (e.g.
+    // nitro_server's engine downloader) must never be clobbered.
+    test('refuses + preserves a hand-written hook (no nitrogen marker)', () {
+      final hook = File(p.join(plugin.path, 'hook', 'build.dart'))..createSync(recursive: true);
+      const handWritten = '// my engine build hook\nvoid main() {}\n';
+      hook.writeAsStringSync(handWritten);
+      final wrote = linkNativeAssetsHook(
+        [ModuleInfo(lib: 'calc', module: 'Calc', isCpp: true)],
+        fakeNitroNative.path,
+        baseDir: plugin.path,
+      );
+      expect(wrote, isFalse, reason: 'must refuse');
+      expect(hook.readAsStringSync(), handWritten, reason: 'hand-written hook untouched');
+      // did NOT vendor or touch pubspec either
+      expect(Directory(p.join(plugin.path, 'src', 'nitro_native')).existsSync(), isFalse);
+    });
+
+    // SAFETY GATE (b): a module that fell back to the _dylib path (ineligible —
+    // TypedData/@zeroCopy/Stream/mixed) → the hook would mismatch; refuse.
+    test('refuses when a generated .g.dart is still on the _dylib path', () {
+      File(p.join(plugin.path, 'lib', 'src', 'calc.g.dart'))
+          .writeAsStringSync('class _CalcImpl { final DynamicLibrary _dylib; }');
+      final wrote = linkNativeAssetsHook(
+        [ModuleInfo(lib: 'calc', module: 'Calc', isCpp: true)],
+        fakeNitroNative.path,
+        baseDir: plugin.path,
+      );
+      expect(wrote, isFalse, reason: 'ineligible module → refuse');
+      expect(File(p.join(plugin.path, 'hook', 'build.dart')).existsSync(), isFalse);
+      expect(Directory(p.join(plugin.path, 'src', 'nitro_native')).existsSync(), isFalse);
+    });
   });
+}
+
+void _nativeBuildPlatformsTests() {
+  group('nativeBuildPlatforms (double-bundle detector)', () {
+    test('detects ffiPlugin:true and real pluginClass; excludes web', () {
+      const pub = 'name: p\n'
+          'flutter:\n  plugin:\n    platforms:\n'
+          '      android:\n        ffiPlugin: true\n'
+          '      ios:\n        pluginClass: PPlugin\n'
+          '      web:\n        pluginClass: PWeb\n        fileName: p_web.dart\n';
+      expect(nativeBuildPlatforms(pub), equals(['android', 'ios']));
+    });
+
+    test('ignores commented-out ffiPlugin lines', () {
+      const pub = 'name: p\n'
+          'flutter:\n  plugin:\n    platforms:\n'
+          '      android:\n        # ffiPlugin: true\n        pluginClass: PPlugin\n'
+          '      ios:\n        # ffiPlugin: true\n';
+      // android has a real pluginClass → counted; ios only has a comment → not.
+      expect(nativeBuildPlatforms(pub), equals(['android']));
+    });
+
+    test('handles the inline flow-map platform form', () {
+      const pub = 'name: p\n'
+          'flutter:\n  plugin:\n    platforms:\n'
+          '      windows: { ffiPlugin: true }\n';
+      expect(nativeBuildPlatforms(pub), equals(['windows']));
+    });
+
+    test('empty when no platforms declare a native build', () {
+      expect(nativeBuildPlatforms('name: p\ndependencies:\n  flutter:\n    sdk: flutter\n'), isEmpty);
+    });
+  });
+
+  group('hasGeneratedNativeAssetsHook', () {
+    late Directory dir;
+    setUp(() => dir = Directory.systemTemp.createTempSync('na_hook'));
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    test('true only for a nitrogen-generated hook', () {
+      expect(hasGeneratedNativeAssetsHook(dir.path), isFalse, reason: 'no hook');
+      Directory(p.join(dir.path, 'hook')).createSync();
+      File(p.join(dir.path, 'hook', 'build.dart')).writeAsStringSync('// hand-written\nvoid main() {}');
+      expect(hasGeneratedNativeAssetsHook(dir.path), isFalse, reason: 'hand-written → not ours');
+      File(p.join(dir.path, 'hook', 'build.dart')).writeAsStringSync('// GENERATED BY nitrogen\nvoid main() {}');
+      expect(hasGeneratedNativeAssetsHook(dir.path), isTrue);
+    });
+  });
+}
+
+/// Runs [body] with `stdout` redirected to a buffer and returns what was
+/// written — lets a test assert on the CLI's `stdout.writeln` output.
+String _captureStdout(void Function() body) {
+  final buf = StringBuffer();
+  IOOverrides.runZoned(body, stdout: () => _BufferStdout(buf));
+  return buf.toString();
+}
+
+/// Minimal [Stdout] that collects writes into [buf]; every other member is a
+/// no-op via [noSuchMethod] (the CLI only uses write/writeln/writeCharCode).
+class _BufferStdout implements Stdout {
+  _BufferStdout(this.buf);
+  final StringBuffer buf;
+  @override
+  void write(Object? o) => buf.write(o);
+  @override
+  void writeln([Object? o = '']) => buf.writeln(o);
+  @override
+  void writeAll(Iterable<dynamic> objects, [String sep = '']) => buf.writeAll(objects, sep);
+  @override
+  void writeCharCode(int c) => buf.writeCharCode(c);
+  @override
+  dynamic noSuchMethod(Invocation i) => null;
 }

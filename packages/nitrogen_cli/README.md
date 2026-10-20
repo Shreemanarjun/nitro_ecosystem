@@ -129,6 +129,7 @@ nitrogen generate --verbose                # show per-phase timing
 | `--check` | — | `false` | Verify outputs are up to date; exits 3 if any file is stale |
 | `--targets` | — | _(all)_ | Comma-separated list of output targets to generate (see table below) |
 | `--verbose` | `-v` | `false` | Show per-phase timing: pub get duration, build_runner duration, total |
+| `--native-assets` | — | `false` | **Experimental.** Emit the `@Native` code-asset path instead of `DynamicLibrary` (see below) |
 
 **`--targets` aliases:**
 
@@ -172,6 +173,29 @@ nitrogen generate --verbose                # show per-phase timing
 **Direct C++ awareness:** `.bridge.g.swift` files that contain only a "Not applicable" placeholder are never copied to `ios/Classes/`. Instead, the generated `.native.g.h` headers are synced there so Clang can resolve them during iOS builds.
 
 After generation, `nitrogen generate` runs the full `nitrogen link` patching logic inline (CMake, Podspec, Swift, Kotlin, Windows, Linux, `.clangd`), then runs `pod install` in every Podfile directory found.
+
+#### `--native-assets` (experimental)
+
+A perf/portability lever that changes **how the Dart side loads the native library**. With `--native-assets`, an all-C++ module's generated Dart resolves its C symbols through top-level `@Native` externals bound to a **code asset** (built by a generated `hook/build.dart`) instead of `DynamicLibrary` + `lookupFunction`. The call sites are identical; only the symbol resolution changes.
+
+Why it exists:
+- **Android:** `@Native` is the only form that resolves the bridge symbols on Android, where `RTLD_LOCAL` hides them from `lookupFunction`.
+- **Zero-copy:** on a **leaf** method, a `TypedData` param is passed as `list.address` (a GC-pinned pointer) with no `toPointer` + `memcpy`. A non-leaf method (a `String`/record param, or a non-primitive return) keeps copying — the generated code emits a comment where that happens.
+
+```sh
+nitrogen generate --native-assets          # emit the @Native path + write hook/build.dart
+nitrogen generate                           # (no flag) back to the standard _dylib path; removes a stale hook
+```
+
+Eligibility (per module, opt-in): all-C++ modules whose methods use scalars (incl. nullable `int`/`double`/`bool`/`uint64`/`DateTime`), `String`, enums, `@HybridStruct`, `@HybridRecord`, `@NitroVariant`, `@NitroAnyMap`, `AnyNativeObject`, `NativeHandle` params, `TypedData`, callbacks, and async/streams. A module using `@NitroOwned` returns, a non-`TypedData` `@zeroCopy` return, `@NitroCustomType`, a Swift/Kotlin impl, or web stays on the `_dylib` path — the generated file says which construct disqualified it.
+
+Hook modes (auto-detected):
+- **CBuilder** (default): vendors nitro's C runtime into `src/nitro_native/` and compiles the bridge + your impl; cross-compiles every platform via the Dart native-assets toolchain.
+- **external cmake**: if the plugin owns `src/CMakeLists.txt` (an engine with its own deps), `nitrogen` drives that cmake and declares the built library as the code asset. Cross-compiles for Android (NDK), iOS, and macOS. Set `NITRO_CMAKE_ARGS` (a `;`-delimited list, e.g. `-DCMAKE_PREFIX_PATH=/opt/prebuilts`) to point the plugin's `find_package` at prebuilt external-dep roots.
+
+> ⚠️ **Double-bundle hazard.** The code asset is ONE copy of your native library. If the plugin ALSO builds it the classic way (`ffiPlugin: true` / a `pluginClass` native project / podspec / gradle / CMake), `flutter build` bundles it **twice** → two C++ runtimes → split-brain global state → a double-free/abort at runtime. To adopt native-assets, remove the platform native engine build for the covered platforms so only the hook bundles the library. `nitrogen generate` warns about this (naming the platforms) and `nitrogen doctor` fails on it.
+
+> External dependencies are the plugin's responsibility: `nitrogen` supplies only the cross-compile toolchain. OpenSSL/libuv/etc. must be available **pre-cross-compiled for each target ABI** via the plugin's own cmake (as any manual mobile cmake build requires).
 
 **CI examples:**
 

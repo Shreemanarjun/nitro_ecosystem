@@ -223,6 +223,36 @@ extension _DoctorToolchainChecks on DoctorCommand {
         ctx.ok(pubSec, '$desktop ffiPlugin: true (FFI-only, no pluginClass)');
       }
     }
+
+    // C3: a code-asset hook + a platform that also builds the engine double-
+    // bundle → split-brain abort. Generated hook → ERROR (user owns --native-
+    // assets); hand-written code-asset hook → WARN (Dart consumers ignore
+    // ffiPlugin, only Flutter double-bundles).
+    final generatedHook = hasGeneratedNativeAssetsHook(ctx.root.path);
+    final codeAssetHook = generatedHook || hookDeclaresCodeAsset(ctx.root.path);
+    if (codeAssetHook) {
+      final plats = nativeBuildPlatforms(pubspec);
+      if (plats.isEmpty) {
+        ctx.ok(pubSec, 'native-assets hook present with no platform native build (single-bundle)');
+      } else if (generatedHook) {
+        ctx.err(
+          pubSec,
+          'native-assets hook double-bundles the engine with the platform native build on: ${plats.join(', ')}',
+          hint: 'hook/build.dart emits a code asset AND those platforms build+bundle the engine (ffiPlugin / pluginClass) '
+              '→ two copies → double-free/abort. Remove the native engine build under flutter.plugin.platforms for '
+              '${plats.join(', ')}, or delete hook/build.dart to stay on the _dylib build.',
+        );
+      } else {
+        ctx.warn(
+          pubSec,
+          'hand-written code-asset hook may double-bundle the engine with the platform native build on: ${plats.join(', ')}',
+          hint: 'hook/build.dart delivers the engine as a code asset AND those platforms build+bundle it (ffiPlugin / '
+              'pluginClass). Dart consumers (dart pub / dart compile) are fine — ffiPlugin is ignored there — but a '
+              'Flutter app would bundle TWO copies → split-brain double-free. If Flutter support is intended, disable '
+              'the platform engine build for ${plats.join(', ')}.',
+        );
+      }
+    }
   }
 }
 

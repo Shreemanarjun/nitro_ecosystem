@@ -18,20 +18,18 @@ topics:
 
 environment:
   sdk: ^3.11.3
-  flutter: '>=3.3.0'
 resolution: workspace
 
+# Pure-Dart runtime: no `flutter` SDK dependency, so `dart pub add nitro` works
+# in a non-Flutter project (dart compile exe / dart run / dart test). The
+# `flutter.plugin` block below is ignored by the Dart tool; it only tells
+# Flutter apps to build+bundle the native code (the nitro_server pattern).
 dependencies:
-  flutter:
-    sdk: flutter
   ffi: ^2.2.0
-  plugin_platform_interface: ^2.0.2
   nitro_annotations: ^0.7.13
   meta: ^1.17.0
 
 dev_dependencies:
-  flutter_test:
-    sdk: flutter
   flutter_lints: ^6.0.0
   build_runner: ^2.15.0
   nitro_generator: ^0.7.13

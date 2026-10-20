@@ -127,6 +127,44 @@ abstract class Pool extends HybridObject {
 // bare annotation, so it can't be unit-exercised here (needs real build_runner,
 // like List<record>). The guard safely falls back when isResult is unset.
 
+// Lever 2: a TypedData-param method must now be @Native-ELIGIBLE (the hot
+// entrypoint becomes a static @Native external instead of staying lookupFunction
+// on _dylib — Bug B's core floor win).
+const _typedDataCpp = '''
+import 'dart:typed_data';
+import 'package:nitro_annotations/nitro_annotations.dart';
+part 'buf.g.dart';
+@NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp)
+abstract class Buf extends HybridObject {
+  int sumBytes(Uint8List data);
+  double dot(Float32List a, Float32List b);
+}
+''';
+
+// Bug A regression: all-C++, flag ON, HAS a @HybridStruct (→ proxy emitted),
+// but SHAPE-INELIGIBLE (TypedData param) → must go FULLY _dylib. The proxy
+// _init() arity must match the impl's _init call site (the desync that made
+// nitro_server.g.dart fail to compile: 0-arg _init() def vs _init(_dylib) call).
+const _ineligibleWithStructCpp = '''
+import 'package:nitro_annotations/nitro_annotations.dart';
+part 'mix.g.dart';
+@HybridStruct(packed: true)
+class Pt {
+  final double x;
+  final double y;
+  const Pt({required this.x, required this.y});
+}
+@NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp)
+abstract class Mix extends HybridObject {
+  Pt echo(Pt p);
+  // @NitroOwned handle return → still ineligible (needs a per-handle finalizer);
+  // disqualifies the whole module so it stays on the _dylib path. (Nullable
+  // scalars/enums/variant/etc. are now eligible — see the N1/N2 widening.)
+  @nitroOwned
+  NativeHandle<Void> grab();
+}
+''';
+
 // Not eligible: Swift/Kotlin bridges aren't compiled by CBuilder, so the flag
 // must be ignored for a non-all-C++ module.
 const _swiftKotlin = '''
@@ -391,6 +429,177 @@ void main() {
 
     test('braces balanced', () {
       expect('{'.allMatches(out).length, '}'.allMatches(out).length);
+    });
+  });
+
+  group('Lever 2: TypedData params are @Native-eligible (static hot path)', () {
+    final spec = SpecFromSource.parse(_typedDataCpp, sourceUri: 'package:buf/src/buf.native.dart')
+      ..assetPackage = 'buf'
+      ..nativeAssets = true;
+    final out = DartFfiGenerator.generate(spec);
+
+    test('TypedData-param methods bind via @Native (no _dylib / lookupFunction)', () {
+      expect(out, contains('@Native<'));
+      expect(out, isNot(contains('_dylib')));
+      expect(out, isNot(contains('.lookupFunction')));
+      // the hot entrypoint is now a static external taking a Pointer + Size
+      expect(out, contains('external int _sumBytesPtr(int _a0, Pointer<Uint8> _a1, int _a2'));
+      expect(out, contains('_sumBytesPtr(_instanceId,'));
+    });
+
+    test('lever-2 TRUE zero-copy: leaf @Native + list.address (no arena copy)', () {
+      // sumBytes(Uint8List)->int is fully leaf → bound isLeaf + called with
+      // `data.address` (GC-pinned), not `data.toPointer(arena)`.
+      expect(out, matches(RegExp(r"symbol: 'buf_sum_bytes'[^\n]*isLeaf: true")));
+      expect(out, contains('_sumBytesPtr(_instanceId, data.address, data.length'));
+      expect(out, isNot(contains('data.toPointer(arena)')));
+    });
+
+    test('every _xxxPtr called has a matching external', () {
+      final declared = RegExp(r'external [^;]*?\b(_\w+Ptr)\(').allMatches(out).map((m) => m.group(1)!).toSet();
+      final called = RegExp(r'\b(_\w+Ptr)\(').allMatches(out).map((m) => m.group(1)!).toSet();
+      expect(called.difference(declared), isEmpty, reason: 'undeclared @Native: ${called.difference(declared)}');
+    });
+
+    test('braces balanced', () {
+      expect('{'.allMatches(out).length, '}'.allMatches(out).length);
+    });
+  });
+
+  group('Bug A regression: proxy _init arity stays in sync with the impl', () {
+    final spec = SpecFromSource.parse(_ineligibleWithStructCpp, sourceUri: 'package:mix/src/mix.native.dart')
+      ..assetPackage = 'mix'
+      ..nativeAssets = true;
+    final out = DartFfiGenerator.generate(spec);
+
+    test('ineligible (TypedData) module with a struct goes FULLY _dylib', () {
+      // impl fell back to _dylib (TypedData param disqualifies it)
+      expect(out, contains('_dylib'));
+      expect(out, isNot(contains('@Native<')), reason: 'no stray @Native when ineligible');
+    });
+
+    test('proxy _init definition arity matches the call site (no desync)', () {
+      // _dylib mode: proxy defines _init(DynamicLibrary dylib) and the impl
+      // calls PtProxy._init(_dylib). The broken state was a 0-arg `_init()`
+      // definition paired with an `_init(_dylib)` call.
+      expect(out, contains('static void _init(DynamicLibrary'), reason: '_dylib proxy init def');
+      expect(out, contains('PtProxy._init(_dylib)'), reason: '_dylib call site');
+      expect(out, isNot(contains('static void _init() {')), reason: 'no 0-arg native-assets init in _dylib mode');
+    });
+  });
+
+  // N1/N2: the widened eligibility — scalar-equivalent + handle shapes that
+  // previously forced the whole module back to _dylib now emit static @Native.
+  // (enum/@NitroVariant/@NitroAnyMap get compile-level coverage in the W2
+  // analyze tool; these cover the shapes that need no companion declaration.)
+  group('N1/N2: widened eligibility (nullable prims, uint64, DateTime, NativeHandle)', () {
+    const widenedCpp = '''
+import 'package:nitro_annotations/nitro_annotations.dart';
+part 'wide.g.dart';
+@NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp)
+abstract class Wide extends HybridObject {
+  int clamp(int? a, double? b, bool? c); // nullable-prim PARAMS (the headline win)
+  uint64 bigOne(uint64 x);
+  DateTime when(DateTime t);
+  int useHandle(NativeHandle<Void> h); // leaf-safe opaque pointer param
+}
+''';
+    late String out;
+    setUp(() {
+      final spec = SpecFromSource.parse(widenedCpp, sourceUri: 'package:wide/src/wide.native.dart')
+        ..assetPackage = 'wide'
+        ..nativeAssets = true;
+      out = DartFfiGenerator.generate(spec);
+    });
+
+    test('emits @Native externals and NOT the _dylib path', () {
+      expect(out, contains('@Native<'));
+      expect(out, isNot(contains('_dylib')));
+    });
+    test('fully eligible → no fallback comment', () {
+      expect(out, isNot(contains('native-assets: NOT applied')));
+    });
+    test('every _xxxPtr called has a matching @Native external (arity in sync)', () {
+      final declared = RegExp(r'external [^;]*? _(\w+)Ptr\(').allMatches(out).map((m) => m.group(1)).toSet();
+      final called = RegExp(r'_(\w+)Ptr\(').allMatches(out).map((m) => m.group(1)).toSet();
+      expect(called.difference(declared), isEmpty, reason: 'every called _xxxPtr must be declared');
+    });
+  });
+
+  // N6: an ineligible opt-in explains itself AT THE CODE (not silently _dylib).
+  group('N6: ineligible opt-in self-documents the fallback reason', () {
+    test('fallback comment names the first disqualifying construct', () {
+      final spec = SpecFromSource.parse(_ineligibleWithStructCpp, sourceUri: 'package:mix/src/mix.native.dart')
+        ..assetPackage = 'mix'
+        ..nativeAssets = true;
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, contains('native-assets: NOT applied'));
+      expect(out, contains('@NitroOwned handle'), reason: 'names the owned-handle disqualifier');
+      expect(out, contains('_dylib'), reason: 'and states it stays on the _dylib path');
+    });
+
+    test('no fallback comment when --native-assets was not requested', () {
+      final spec = SpecFromSource.parse(_ineligibleWithStructCpp, sourceUri: 'package:mix/src/mix.native.dart')
+        ..assetPackage = 'mix'; // nativeAssets stays false
+      final out = DartFfiGenerator.generate(spec);
+      expect(out, isNot(contains('native-assets: NOT applied')));
+    });
+  });
+
+  // W1 (leaf-gate split): a sync method stays leaf — and zero-copies its
+  // TypedData params via `.address` — EVEN with a String/record param alongside.
+  // The dart:ffi contract materializes `.address` just before the call (after
+  // sibling args evaluate), so the String's arena marshalling in the same arg
+  // list is safe. A method is only forced to COPY (and warned) when it is
+  // genuinely non-leaf: a callback param, async/stream, or a non-primitive
+  // return. Device-validated end-to-end (lever_app `blend(Uint8List, String)`).
+  group('W1: per-param zero-copy — a String sibling no longer de-leafs TypedData', () {
+    String gen(String src) => DartFfiGenerator.generate(
+          SpecFromSource.parse(src, sourceUri: 'package:zc/src/zc.native.dart')
+            ..assetPackage = 'zc'
+            ..nativeAssets = true);
+
+    test('TypedData + String param → pixels.address (zero-copy) AND label via arena, same call', () {
+      final out = gen('''
+import 'package:nitro_annotations/nitro_annotations.dart';
+import 'dart:typed_data';
+part 'zc.g.dart';
+@NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp)
+abstract class Zc extends HybridObject {
+  int writeFrame(Uint8List pixels, String label);
+}
+''');
+      expect(out, contains('pixels.address'), reason: 'TypedData zero-copy even beside a String');
+      expect(out, contains('label.toNitroUtf8('), reason: 'String still marshals through the arena');
+      expect(out, isNot(contains('are COPIED')), reason: 'no fallback — it IS zero-copy now');
+    });
+
+    test('leaf method (TypedData + scalar) → zero-copy .address, no COPIED note', () {
+      final out = gen('''
+import 'package:nitro_annotations/nitro_annotations.dart';
+import 'dart:typed_data';
+part 'zc.g.dart';
+@NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp)
+abstract class Zc extends HybridObject {
+  int sumBytes(Uint8List data, int scale); // all leaf-safe
+}
+''');
+      expect(out, contains('data.address'), reason: 'zero-copy');
+      expect(out, isNot(contains('are COPIED')));
+    });
+
+    test('genuinely non-leaf (TypedData + callback param) → COPIED note, arena copy', () {
+      final out = gen('''
+import 'package:nitro_annotations/nitro_annotations.dart';
+import 'dart:typed_data';
+part 'zc.g.dart';
+@NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp)
+abstract class Zc extends HybridObject {
+  int process(Uint8List data, void Function(int n) cb); // callback → native re-enters Dart → not leaf
+}
+''');
+      expect(out, contains('TypedData param(s) data are COPIED'), reason: 'callback de-leafs → copy');
+      expect(out, isNot(contains('data.address')));
     });
   });
 
