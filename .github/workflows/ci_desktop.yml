@@ -73,6 +73,9 @@ jobs:
         with:
           cmake-version: '3.28.x'
 
+      - name: Install Ninja
+        run: choco install ninja -y
+
       - name: Get workspace dependencies
         run: flutter pub get
 
@@ -80,19 +83,26 @@ jobs:
         run: flutter test
         working-directory: packages/nitro_generator
 
+      # A compile failure here must fail the job — the only skip is when the
+      # benchmark example is genuinely absent from the checkout.
       - name: Build Windows desktop (Flutter build)
+        if: hashFiles('benchmark/example/windows/**') != ''
         run: flutter build windows --no-pub
         working-directory: benchmark/example
-        continue-on-error: true  # requires full Flutter Windows toolchain
 
+      # Ninja + cl (from the msvc-dev-cmd environment above), matching the Linux
+      # leg. The "Visual Studio 17 2022" generator needs CMake to discover a VS
+      # instance, which is brittle on the hosted image; Ninja uses cl directly.
       - name: Verify MSVC compile with CMake (unit compile check)
+        if: hashFiles('benchmark/src/CMakeLists.txt') != ''
         shell: cmd
         run: |
-          cmake -S src -B build_win -G "Visual Studio 17 2022" -A x64 ^
-            -DCMAKE_BUILD_TYPE=Release
-          cmake --build build_win --config Release
+          cmake -S src -B build_win -G Ninja ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DCMAKE_C_COMPILER=cl ^
+            -DCMAKE_CXX_COMPILER=cl
+          cmake --build build_win
         working-directory: benchmark
-        continue-on-error: true  # benchmark/ may not have src/CMakeLists.txt
 
   # ── Linux GCC build ───────────────────────────────────────────────────────
   linux-build:
@@ -129,12 +139,15 @@ jobs:
         run: flutter test
         working-directory: packages/nitro
 
+      # A compile failure here must fail the job — the only skip is when the
+      # benchmark example is genuinely absent from the checkout.
       - name: Build Linux desktop (Flutter build)
+        if: hashFiles('benchmark/example/linux/**') != ''
         run: flutter build linux --no-pub
         working-directory: benchmark/example
-        continue-on-error: true  # benchmark may not always be present
 
       - name: Verify GCC compile with CMake (unit compile check)
+        if: hashFiles('benchmark/src/CMakeLists.txt') != ''
         run: |
           cmake -S src -B build_linux -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -142,4 +155,3 @@ jobs:
             -DCMAKE_CXX_COMPILER=g++-12
           cmake --build build_linux
         working-directory: benchmark
-        continue-on-error: true  # benchmark/ may not have src/CMakeLists.txt
