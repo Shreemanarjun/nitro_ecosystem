@@ -360,6 +360,327 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   }
 }
 
+// ── Native-assets (@Native) impl setup ─────────────────────────────────────
+// Perf lever 1: when `native_assets: true` (opt-in) AND the module is an
+// all-C++ scalar-only shape, resolve the C symbols via top-level `@Native`
+// externals bound to the hook-built code asset instead of a runtime
+// `DynamicLibrary.open`/`process` + `lookupFunction`. This is the only form
+// that works on Android (RTLD_LOCAL hides the symbols from `lookupFunction`).
+//
+// Call sites are UNCHANGED: the method bodies still call `_fooPtr(...)`, which
+// now resolves to a top-level `@Native` function of the same name. Only the
+// DECLARATIONS move (instance field → top-level external); the class is still
+// opened here and closed by [_emitStreamImpls], exactly like
+// [_emitImplClassSetup].
+
+/// True when [spec] can use the native-assets (@Native) path: opt-in, all-C++,
+/// non-web, and every shape in [_nativeAssetsIneligibility]'s allow-set.
+bool _nativeAssetsEligible(BridgeSpec spec) =>
+    spec.useNativeAssets && _nativeAssetsIneligibility(spec) == null;
+
+/// Null if eligible; else the first disqualifying construct (for the N6
+/// generated-file fallback note). The @Native path shares marshalling with the
+/// `_dylib` path (only symbol resolution differs), so any shape `_dylib` encodes
+/// is emittable: scalars (incl. nullable `int`/`double`/`bool`/`uint64`/
+/// `DateTime`), `String`, enum, struct, record, variant, anyMap, AnyNativeObject,
+/// NativeHandle params, TypedData, callback params. Excluded: @NitroOwned returns
+/// and non-TypedData @zeroCopy returns.
+String? _nativeAssetsIneligibility(BridgeSpec spec) {
+  // null = this type is fine; a string = why it isn't.
+  String? bad(BridgeType t, String where) {
+    if (t.isRecord ||
+        t.isFunction || // callback param → NativeCallable (runtime, no _dylib)
+        t.isTypedData || // lever 2: static @Native external for the hot entrypoint
+        t.isAnyMap ||
+        t.isAnyNativeObject || // opaque int64 instance id
+        t.isNativeHandle) { // opaque raw pointer (leaf-safe)
+      return null;
+    }
+    final base = bareTypeName(t.name);
+    if (spec.isStructName(base) || spec.isEnumName(base) || spec.isVariantName(base)) return null;
+    if (base == 'String') return null; // incl. String?
+    // Scalars incl. their nullable forms (arena-packed NitroOpt*, non-leaf).
+    if (const {'int', 'double', 'bool', 'uint64', 'DateTime'}.contains(base)) return null;
+    return "$where has unsupported type '${t.name}' (stays on the _dylib path)";
+  }
+
+  for (final f in spec.functions) {
+    // @NitroOwned handles still excluded (NativeHandle wrapper + finalizer).
+    if (f.isOwned) return "method '${f.dartName}' returns an @NitroOwned handle";
+    // @zeroCopy TypedData RETURNS are supported (release via Native.addressOf,
+    // the `_typedDataReturnFinalizer`); a non-TypedData @zeroCopy return is not.
+    if (f.zeroCopyReturn && !f.returnType.isTypedData) {
+      return "method '${f.dartName}' has a non-TypedData @zeroCopy return";
+    }
+    // @NitroResult's wire return is a Pointer<Uint8> tag buffer — validate its
+    // INNER value type, not the NitroResult wrapper.
+    final ret = f.isResult ? _nitroResultInnerType(f.returnType) : f.returnType;
+    if (bareTypeName(ret.name) != 'void') {
+      final r = bad(ret, "method '${f.dartName}' return");
+      if (r != null) return r;
+    }
+    for (final p in f.params) {
+      final r = bad(p.type, "method '${f.dartName}' param '${p.name}'");
+      if (r != null) return r;
+    }
+  }
+  for (final p in spec.properties) {
+    final r = bad(p.type, "property '${p.dartName}'");
+    if (r != null) return r;
+  }
+  return null;
+}
+
+/// Splits a Dart type-argument list on TOP-LEVEL commas only, so a nested
+/// generic / function type (e.g. `Pointer<NativeFunction<Int64 Function(Int64,
+/// Int64)>>`) stays one element. Returns [] for an empty string.
+List<String> _splitTopLevelCommas(String s) {
+  if (s.isEmpty) return const [];
+  final out = <String>[];
+  var depth = 0, start = 0;
+  for (var i = 0; i < s.length; i++) {
+    final c = s[i];
+    if (c == '<' || c == '(' || c == '[') {
+      depth++;
+    } else if (c == '>' || c == ')' || c == ']') {
+      depth--;
+    } else if (c == ',' && depth == 0) {
+      out.add(s.substring(start, i).trim());
+      start = i + 1;
+    }
+  }
+  out.add(s.substring(start).trim());
+  return out;
+}
+
+void _emitNativeAssetsImplSetup(CodeWriter writer, BridgeSpec spec) {
+  final libStem = spec.lib.replaceAll('-', '_');
+  final checksum = bridgeSpecChecksum(spec);
+  // Code-asset id the hook's CBuilder produces: package:<pkg>/<libStem>.
+  final assetId = 'package:${spec.assetPackage ?? spec.lib}/$libStem';
+  // Native-async (@nitroNativeAsync / native-dispatched @nitroAsync) needs the
+  // completion-batch externals + Dart DL API init for Dart_PostCObject.
+  final hasAsync = spec.functions.any(spec.bridgeAsync);
+  // Callbacks (function-type params) → one NativeCallable per param, cached.
+  final hasCallbacks = _hasFunctionTypeParams(spec);
+  // Streams need the per-stream register/release externals + ack + DL-API init
+  // (the coalescer posts items via Dart_PostCObject).
+  final hasStreams = spec.streams.isNotEmpty;
+  final needsDlInit = hasAsync || hasStreams;
+  // Plain isolate-pool @nitroAsync (callAsync) uses the get/clear error symbols
+  // as native pointers (portable across the pool isolate).
+  final hasCallAsync = spec.functions.any((f) => f.isAsync && !spec.bridgeAsync(f) && !f.isFireAndForget);
+  // @zeroCopy TypedData returns are freed by a NativeFinalizer backed by the
+  // module's <lib>_release_typed_data_return symbol.
+  final hasZcTdReturn = spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData);
+  String native(String type, String symbol, {bool leaf = false}) =>
+      "@Native<$type>(symbol: '$symbol', assetId: '$assetId'${leaf ? ', isLeaf: true' : ''})";
+
+  // ── Top-level module symbols (outside the class) ──────────────────────────
+  writer.line('// Native-assets code asset symbols (built by hook/build.dart) — resolved');
+  writer.line('// statically via @Native, which is what makes this work on Android.');
+  writer.line(native('Void Function(Pointer<Void>)', '${libStem}_nitro_free', leaf: true));
+  writer.line('external void _nitroFreePtr(Pointer<Void> _p);');
+  writer.line(native('Pointer<Void> Function(IntPtr)', '${libStem}_nitro_alloc', leaf: true));
+  writer.line('external Pointer<Void> _nitroAllocPtr(int _n);');
+  writer.line(native('Uint32 Function()', '${libStem}_nitro_abi_version'));
+  writer.line('external int _nitroAbiVersionPtr();');
+  writer.line(native('Pointer<Utf8> Function()', '${libStem}_nitro_bridge_checksum'));
+  writer.line('external Pointer<Utf8> _nitroBridgeChecksumPtr();');
+  writer.line(native('Int64 Function(Pointer<Utf8>)', '${libStem}_create_instance'));
+  writer.line('external int _createInstancePtr(Pointer<Utf8> _key);');
+  writer.line(native('Void Function(Int64)', '${libStem}_destroy_instance'));
+  writer.line('external void _destroyInstancePtr(int _id);');
+  if (hasZcTdReturn) {
+    writer.line(native('Void Function(Pointer<Void>)', '${libStem}_release_typed_data_return', leaf: true));
+    writer.line('external void _releaseTypedDataReturnPtr(Pointer<Void> _p);');
+  }
+
+  // Method externals — same names the bodies call (_<name>Ptr).
+  for (final func in spec.functions) {
+    final nt = _toNativeType(func, spec);
+    final dt = _toDartType(func, spec); // "<ret> Function(<csv params>)"
+    final cut = dt.indexOf(' Function(');
+    final retDart = dt.substring(0, cut);
+    final paramsStr = dt.substring(cut + ' Function('.length, dt.length - 1);
+    // Depth-aware split: a callback param's own type (e.g.
+    // Pointer<NativeFunction<Int64 Function(Int64, Int64)>>) contains commas
+    // that must NOT split the outer param list.
+    final paramTypes = _splitTopLevelCommas(paramsStr);
+    final decl = [for (var k = 0; k < paramTypes.length; k++) '${paramTypes[k]} _a$k'].join(', ');
+    writer.line(native(nt, spec.nativeSymbol(func), leaf: _isLeafCandidate(func, spec)));
+    writer.line('external $retDart _${func.dartName}Ptr($decl);');
+  }
+  // Property externals.
+  for (final prop in spec.properties) {
+    final ffiType = _typeToFFI(prop.type, spec);
+    final dartType = _typeToDartFFI(prop.type, spec);
+    final cap = _cap(prop.dartName);
+    final leaf = _isPrimitiveType(prop.type, spec);
+    if (prop.hasGetter) {
+      writer.line(native('$ffiType Function(Int64, Pointer<NitroErrorFfi>)', prop.getSymbol!, leaf: leaf));
+      writer.line('external $dartType _get${cap}Ptr(int _id, Pointer<NitroErrorFfi> _err);');
+    }
+    if (prop.hasSetter) {
+      writer.line(native('Void Function(Int64, $ffiType, Pointer<NitroErrorFfi>)', prop.setSymbol!, leaf: leaf));
+      writer.line('external void _set${cap}Ptr(int _id, $dartType _v, Pointer<NitroErrorFfi> _err);');
+    }
+  }
+  // DL-API init + ack are shared by native-async AND coalesced streams.
+  if (needsDlInit) {
+    writer.line(native('IntPtr Function(Pointer<Void>)', '${libStem}_init_dart_api_dl'));
+    writer.line('external int _initDartApiDlPtr(Pointer<Void> _data);');
+    writer.line(native('Void Function(Int64)', '${libStem}_nitro_ack', leaf: true));
+    writer.line('external void _nitroAckPtr(int _p);');
+  }
+  // Completion-batch externals for the native-async path only.
+  if (hasAsync) {
+    writer.line(native('Int64 Function(Int64)', '${libStem}_nitro_bind', leaf: true));
+    writer.line('external int _nitroBindPtr(int _p);');
+    writer.line(native('Int32 Function(Int64)', '${libStem}_nitro_arm', leaf: true));
+    writer.line('external int _nitroArmPtr(int _id);');
+    writer.line(native('Void Function(Int64)', '${libStem}_nitro_disarm', leaf: true));
+    writer.line('external void _nitroDisarmPtr(int _id);');
+    writer.line(native('Int32 Function(Int64, Pointer<Uint8>, Int32)', '${libStem}_nitro_poll', leaf: true));
+    writer.line('external int _nitroPollPtr(int _id, Pointer<Uint8> _out, int _giveUp);');
+  }
+  // Per-stream register/release externals (register takes instanceId+port;
+  // release takes port). The coalescer wires them in _emitStreamImpls.
+  for (final stream in spec.streams) {
+    final cap = _cap(stream.dartName);
+    writer.line(native('Void Function(Int64, Int64)', stream.registerSymbol, leaf: true));
+    writer.line('external void _register${cap}Ptr(int _id, int _port);');
+    writer.line(native('Void Function(Int64)', stream.releaseSymbol, leaf: true));
+    writer.line('external void _release${cap}Ptr(int _port);');
+  }
+  // Imported-struct stream items free each decoded item through this module's
+  // generated per-struct release symbol (dart_stream_emitter references it).
+  for (final item in {
+    for (final s in spec.streams)
+      if (spec.isStructName(bareTypeName(s.itemType.name)) && !spec.localStructs.any((l) => l.name == bareTypeName(s.itemType.name))) bareTypeName(s.itemType.name),
+  }) {
+    writer.line(native('Void Function(Pointer<Void>)', '${libStem}_release_$item', leaf: true));
+    writer.line('external void _release${item}StructPtr(Pointer<Void> _p);');
+  }
+  // get/clear error externals for the isolate-pool callAsync path (their
+  // addresses are passed to the pool isolate via Native.addressOf below).
+  if (hasCallAsync) {
+    writer.line(native('Pointer<NitroErrorFfi> Function()', '${libStem}_get_error'));
+    writer.line('external Pointer<NitroErrorFfi> _getErrorPtr();');
+    writer.line(native('Void Function()', '${libStem}_clear_error'));
+    writer.line('external void _clearErrorPtr();');
+  }
+  writer.blankLine();
+
+  // ── Impl class (no _dylib; symbols resolved by the externals above) ───────
+  writer.line('class _${spec.dartClassName}Impl extends ${spec.dartClassName} {');
+  writer.line('  static final _instances = <String, WeakReference<_${spec.dartClassName}Impl>>{};');
+  // GC safety net — same contract as the _dylib path, minus releaseLib (no
+  // dylib is opened under native-assets; the code asset lives for the process).
+  writer.line('  static final _instanceFinalizer = Finalizer<({int id, String key, Pointer<NitroErrorFfi> err, void Function(int) destroy})>((t) {');
+  writer.line('    try {');
+  writer.line('      t.destroy(t.id);');
+  writer.line('      if (_instances[t.key]?.target == null) _instances.remove(t.key);');
+  writer.line('    } catch (_) {');
+  writer.line('    } finally {');
+  writer.line('      calloc.free(t.err);');
+  writer.line('    }');
+  writer.line('  });');
+  writer.line('  final String _instanceKey;');
+  writer.line('  late final int _instanceId;');
+  writer.line('  final Pointer<NitroErrorFfi> _nitroErr = calloc<NitroErrorFfi>();');
+  writer.line('  void _nitroFree(Pointer<NativeType> ptr) => _nitroFreePtr(ptr.cast());');
+  writer.line('  // ignore: unused_field');
+  writer.line('  late final NitroNativeAllocator _nitroNativeAllocator = NitroNativeAllocator(_nitroAllocPtr, _nitroFreePtr);');
+  // Raw free pointer for NativeFinalizer-based owners (LazyRecordList, zero-copy
+  // typed-data). Native.addressOf gives the C function pointer of the @Native
+  // external — the native-assets equivalent of _dylib.lookup<...>.
+  writer.line('  // ignore: unused_field');
+  writer.line('  late final Pointer<NativeFinalizerFunction> _nitroFreeFinalizer = Native.addressOf<NativeFunction<Void Function(Pointer<Void>)>>(_nitroFreePtr).cast();');
+  if (hasZcTdReturn) {
+    writer.line('  // ignore: unused_field');
+    writer.line('  late final Pointer<NativeFinalizerFunction> _typedDataReturnFinalizer = Native.addressOf<NativeFunction<Void Function(Pointer<Void>)>>(_releaseTypedDataReturnPtr).cast();');
+  }
+  if (hasCallbacks) {
+    // One NativeCallable slot per "methodName.paramName", replaced (not
+    // accumulated) on every re-registration — see _emitCallbackHelpers.
+    writer.line('  final Map<String, NativeCallable<dynamic>> _nativeCallbackCache = {};');
+  }
+  if (hasCallAsync) {
+    // Raw error-symbol pointers passed to the pool isolate by callAsync.
+    writer.line('  late final Pointer<NativeFunction<Pointer<NitroErrorFfi> Function()>> _getErrorNativePtr = Native.addressOf<NativeFunction<Pointer<NitroErrorFfi> Function()>>(_getErrorPtr);');
+    writer.line('  late final Pointer<NativeFunction<Void Function()>> _clearErrorNativePtr = Native.addressOf<NativeFunction<Void Function()>>(_clearErrorPtr);');
+  }
+  if (hasAsync) {
+    writer.line('  late final NitroCompletionBatch _nitroBatch = NitroCompletionBatch(bind: _nitroBindPtr, ack: _nitroAckPtr, arm: _nitroArmPtr, disarm: _nitroDisarmPtr, poll: _nitroPollPtr);');
+  }
+  writer.blankLine();
+  writer.line('  factory _${spec.dartClassName}Impl([String key = \'default\']) {');
+  writer.line('    final cached = _instances[key]?.target;');
+  writer.line('    if (cached != null) return cached;');
+  writer.line('    return _${spec.dartClassName}Impl._init(key);');
+  writer.line('  }');
+  writer.blankLine();
+  writer.line('  _${spec.dartClassName}Impl._init(this._instanceKey) {');
+  writer.line("    final initSw = NitroConfig.instance.effectiveLogLevel == NitroLogLevel.verbose ? (Stopwatch()..start()) : null;");
+  writer.line("    assert(sizeOf<IntPtr>() >= 4, '${spec.lib}: unsupported pointer width \${sizeOf<IntPtr>()}B');");
+  if (needsDlInit) {
+    writer.line('    final _initCode = _initDartApiDlPtr(NativeApi.initializeApiDLData);');
+    writer.line("    if (_initCode != 0) { throw StateError('${spec.lib}: Dart API DL initialization failed with code \$_initCode.'); }");
+  }
+  writer.line("    NitroRuntime.checkAbiVersion('${spec.lib}', () => _nitroAbiVersionPtr());");
+  writer.line("    NitroRuntime.checkLinkChecksum('${spec.lib}', '$checksum', () => _nitroBridgeChecksumPtr().toDartString());");
+  // Zero-copy struct proxies bind their release symbol via Native.addressOf.
+  for (final st in spec.localStructs) {
+    writer.line('    ${st.name}Proxy._init();');
+  }
+  writer.line('    final _keyPtr = _instanceKey.toNitroUtf8(allocator: calloc);');
+  writer.line('    try {');
+  writer.line('      _instanceId = _createInstancePtr(_keyPtr);');
+  writer.line('      if (_instanceId < 0) {');
+  writer.line("        throw StateError('${spec.lib}: failed to create native instance for key \"\$_instanceKey\".');");
+  writer.line('      }');
+  writer.line('    } finally {');
+  writer.line('      calloc.free(_keyPtr);');
+  writer.line('    }');
+  writer.line('    NitroInstanceRegistry.register(_instanceId, this);');
+  writer.line('    _instances[_instanceKey] = WeakReference(this);');
+  writer.line('    _instanceFinalizer.attach(this, (id: _instanceId, key: _instanceKey, err: _nitroErr, destroy: _destroyInstancePtr), detach: this);');
+  writer.line('    if (initSw != null) {');
+  writer.line("      NitroRuntime.logLifecycle('init(${spec.lib})', 'initialized in \${initSw.elapsedMicroseconds} µs (instanceId=\$_instanceId)');");
+  writer.line('    }');
+  writer.line('  }');
+  writer.blankLine();
+  writer.line('  @override');
+  writer.line('  void dispose() {');
+  writer.line('    if (isDisposed) return;');
+  writer.line('    _instanceFinalizer.detach(this);');
+  writer.line('    if (NitroConfig.instance.effectiveLogLevel == NitroLogLevel.verbose) {');
+  writer.line("      NitroRuntime.logLifecycle('dispose(${spec.lib})', 'disposing (instanceId=\$_instanceId)');");
+  writer.line('    }');
+  writer.line('    _destroyInstancePtr(_instanceId);');
+  writer.line('    _instances.remove(_instanceKey);');
+  writer.line('    NitroInstanceRegistry.unregister(_instanceId, this);');
+  if (hasCallbacks) {
+    writer.line('    for (final callback in _nativeCallbackCache.values) {');
+    writer.line('      callback.close();');
+    writer.line('    }');
+    writer.line('    _nativeCallbackCache.clear();');
+  }
+  writer.line('    calloc.free(_nitroErr);');
+  writer.line('    super.dispose();');
+  writer.line("    NitroRuntime.logLifecycle('dispose(${spec.lib})', 'disposed');");
+  writer.line('  }');
+  writer.blankLine();
+  writer.line('  AnyNativeObject get asAnyNativeObject => AnyNativeObject(_instanceId);');
+  writer.blankLine();
+  if (hasCallbacks) {
+    _emitCallbackHelpers(writer, spec);
+  }
+  // Class left OPEN — _emitFunctionImpls/_emitPropertyImpls add methods and
+  // _emitStreamImpls emits the closing brace (streams.isEmpty here → just `}`).
+}
+
 /// Emits a `${ClassName}NativeRef` extension on the abstract class so that
 /// callers holding the public type can access [asAnyNativeObject] without casting.
 void _emitNativeRefExtension(CodeWriter writer, BridgeSpec spec) {

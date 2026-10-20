@@ -192,13 +192,15 @@ class CppInterfaceGenerator {
             ),
           );
         }
-        if (func.isNativeAsync) {
+        if (func.isNativeAsync && !func.isFireAndForget) {
           // @NitroNativeAsync: impl returns void and accepts a NitroError*
           // out-param (fresh-per-call, unlike sync's instance-owned slot —
           // see NitroRuntime.throwIfOutParamErrorAndFree) plus dart_port so
           // it can post the result directly via Dart_PostCObject_DL from any
           // thread. Order must match the call site in cpp_direct_emitter.dart
           // / cpp_bridge_generator.dart's Apple-C++-direct dispatch.
+          // Fire-and-forget (void) falls through to the plain-virtual branch:
+          // the impl is a plain `void method(params)` — no err/port.
           final params = _cppMethodParams(func.params, enumNames, structNames, recordNames);
           params.add('NitroError* _nitro_err');
           params.add('int64_t dartPort');

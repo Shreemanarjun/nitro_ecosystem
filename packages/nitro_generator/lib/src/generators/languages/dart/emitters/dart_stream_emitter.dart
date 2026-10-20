@@ -38,11 +38,17 @@ void _emitStreamImpls(CodeWriter writer, BridgeSpec spec) {
           // release through THIS module's ${spec.lib.replaceAll('-', '_')}_release_$baseItemType.
           // ponytail: symbol lookup per item; cache it if a shared-struct stream gets hot.
           final release = '${spec.lib.replaceAll('-', '_')}_release_$baseItemType';
+          // Native-assets: the release symbol is a top-level @Native external
+          // (emitted in _emitNativeAssetsImplSetup); call it directly. Otherwise
+          // look it up on the per-instance _dylib.
+          final releaseCall = spec.useNativeAssets
+              ? '_release${baseItemType}StructPtr(p.cast())'
+              : "_dylib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('$release')(p.cast())";
           unpackExpr =
               '(message) { if (message == null) { $nullAction; } '
               'final p = Pointer<${baseItemType}Ffi>.fromAddress(message as int); '
               'try { return p.ref.toDart(); } '
-              "finally { _dylib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('$release')(p.cast()); } }";
+              'finally { $releaseCall; } }';
         }
         streamItemType = baseItemType;
       case _ when isVariant:

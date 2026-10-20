@@ -461,9 +461,25 @@ bool _isLeafCandidate(BridgeFunction func, BridgeSpec spec) {
   if (func.isAsync || func.isNativeAsync) return false;
   if (func.isFast) return true;
   final rt = func.returnType;
+  // A void method taking no parameters carries no signature evidence that it is
+  // quick: it is typically a lifecycle/barrier call (e.g. stop, resetNative)
+  // whose native impl may BLOCK (joining loop threads). isLeaf keeps the VM
+  // thread in the Dart-executing state for the whole call with no safepoint, so
+  // a blocking leaf call stalls any stop-the-world GC safepoint across the
+  // isolate group until it returns. Leaf is a pure speed-up and de-leafing is
+  // always safe, so require an explicit @nitroFast to treat such a call as leaf.
+  if (rt.name == 'void' && func.params.isEmpty) return false;
   if (!_isPrimitiveType(rt, spec) && rt.name != 'void') return false;
-  // A NativeHandle PARAMETER is just the Pointer<Void> it wraps — leaf-safe
-  // (#52). A NativeHandle RETURN is not: it allocates the wrapper and attaches
-  // a NativeFinalizer, which is Dart heap work, so it stays excluded above.
-  return func.params.every((p) => p.type.isNativeHandle || _isPrimitiveType(p.type, spec));
+  // On the @Native path (W1), ANY non-callback param is leaf-safe: a TypedData
+  // param rides `list.address` and a String/record marshals via the arena in the
+  // same call — the dart:ffi contract materializes `.address` just before the
+  // call (after sibling args), so an allocating sibling can't invalidate it. A
+  // callback param is NOT leaf (native re-enters Dart). The _dylib path keeps
+  // the strict {handle, primitive} rule (no `.address` payoff, no behaviour
+  // change). NativeHandle param = leaf-safe (#52); NativeHandle return is not.
+  return func.params.every((p) {
+    if (p.type.isFunction) return false; // callback → native re-enters Dart → not leaf
+    if (p.type.isNativeHandle || _isPrimitiveType(p.type, spec)) return true;
+    return spec.nativeAssetsEmit; // @Native: any other non-callback param is leaf-safe
+  });
 }

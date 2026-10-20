@@ -9,7 +9,7 @@ name: Generator & Runtime CI
 
 on:
   push:
-    branches: [main, 'refactor-*', 'feature-*']
+    branches: [main, 'refactor-*', 'feature-*', 'perf-*', 'perf/*']
   pull_request:
     branches: [main]
 
@@ -41,6 +41,33 @@ jobs:
       - name: Verify generated C++ bridges compile
         run: dart run tool/verify_cpp_bridge_compiles.dart
         working-directory: packages/nitro_generator
+
+      # Same rationale for the native-assets (@Native) path: string-assertion
+      # unit tests prove WHAT is emitted, not that it COMPILES. This generates a
+      # comprehensive all-C++ spec on the @Native path and `dart analyze`s the
+      # emitted Dart against the real nitro runtime (catches a bad external
+      # signature / arity desync / wrong FFI type that a `contains(...)` misses).
+      - name: Verify native-assets emit analyzes
+        run: dart run tool/verify_native_assets_analyzes.dart
+        working-directory: packages/nitro_generator
+
+  # Lever-2 zero-copy ratio gate (W4). Pure Dart — no Flutter: the microbench is
+  # self-contained (only dart:ffi/io/typed_data), so it runs under the plain Dart
+  # SDK as a standalone script. Copied out of the Flutter pub workspace so no
+  # `pub get` drags Flutter in. (It measures the malloc+memcpy+free that
+  # `.address` eliminates — true `.address` needs the native-assets build.)
+  zero-copy-gate:
+    name: zero-copy ratio gate (pure Dart, no Flutter)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Run the gate as a standalone script
+        run: |
+          cp benchmark/tool/zero_copy_microbench.dart "$RUNNER_TEMP/zc.dart"
+          dart run "$RUNNER_TEMP/zc.dart"
 
   runtime:
     name: nitro runtime tests

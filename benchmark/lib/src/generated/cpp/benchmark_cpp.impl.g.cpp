@@ -164,6 +164,10 @@ public:
         throw std::runtime_error("Not implemented: nativeAsyncEchoFromThread");
     }
 
+    void nativeAsyncFnf(int64_t value) override {
+        // TODO: do the work; fire-and-forget returns no result.
+    }
+
     void submitCoalesced(int64_t callId, int64_t value, int64_t dartPort) override {
         // TODO: implement submitCoalesced
         throw std::runtime_error("Not implemented: submitCoalesced");

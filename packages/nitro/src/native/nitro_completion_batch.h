@@ -45,34 +45,22 @@
 
 class NitroCompletionBatch {
  public:
-  // ── Single-in-flight completion spin (issue #57) ───────────────────────────
-  // Client-side workaround for dart-lang/sdk#53156 (Dart_PostCObject_DL wake
-  // latency; closed not-planned). sdk#64229 (Isolate.onEvent) would be the
-  // principled fix if it ships.
-  //
-  // A lone serial @nitroNativeAsync completion pays a full isolate wake (~15-20
-  // µs) because the isolate is parked on `await` and the OS must reschedule it.
-  // When the Dart side arms the slot (only when exactly one call is in flight
-  // and NitroConfig.nativeAsyncSpinUs > 0), it busy-polls `poll()` for a short
-  // window instead of parking; a completion that lands inside the window is
-  // picked up with no port post and no OS wake. A CAS on `flag` arbitrates the
-  // boundary race, so exactly one of {slot delivery, port delivery} ever fires.
-  // Opt-in: spinning burns a CPU core, wrong default on battery.
+  // Single-in-flight completion spin (issue #57; workaround for dart-lang/sdk#53156).
+  // A lone @nitroNativeAsync completion otherwise pays a full isolate wake (~15-20µs
+  // to reschedule the awaiting isolate). When armed (single in flight, spin enabled)
+  // Dart busy-polls the slot instead of parking; a completion inside the window is
+  // taken with no port post. A `flag` CAS arbitrates the boundary race so delivery
+  // is exactly-once. Opt-in (NitroConfig.nativeAsyncSpinUs > 0): spinning burns a core.
   enum : int32_t { kPending = 0, kDone = 1, kParked = 2 };
   enum : int32_t { kTagNull = 0, kTagInt = 1, kTagDouble = 2, kTagBool = 3 };
 
-  // Dart, before a spin-eligible single-in-flight call: CAS-claim the one slot
-  // for [id]. Returns false if another isolate already owns it — the caller must
-  // then NOT spin (poll() reads the owner's slot; a non-owner would see the
-  // owner's payload).
-  //
-  // The batch is one process-global per library, so its single slot is shared
-  // across isolates, yet the single-in-flight guard is only per-isolate. The CAS
-  // picks one owner. The claim is freed only after the owner's result is
-  // consumed — poll() releases on a slot hit (after copying), post() on the
-  // park/non-scalar paths — so no other isolate touches the slot until this call
-  // is done. disarm() frees it if the call threw before dispatching a worker.
+  // Claim the one shared slot for [id]; false if another isolate already owns it
+  // (don't spin then — poll() would read the owner's result). The relaxed load
+  // skips the CAS when the slot is taken, so many concurrent callers (issue #58)
+  // don't fight over the cache line. Freed by poll() on a hit, post() on a park,
+  // or disarm() on throw.
   bool arm(int64_t id) noexcept {
+    if (spinId_.load(std::memory_order_relaxed) != 0) return false;
     int64_t expected = 0;
     if (!spinId_.compare_exchange_strong(expected, id, std::memory_order_acq_rel, std::memory_order_relaxed)) {
       return false;
@@ -92,19 +80,11 @@ class NitroCompletionBatch {
     spinId_.compare_exchange_strong(expected, 0, std::memory_order_acq_rel, std::memory_order_relaxed);
   }
 
-  // Dart spin: poll the armed slot. With [giveUp] set, first try to claim the
-  // slot for the port (CAS kPending→kParked) so a later completion takes the
-  // port. Returns kPending (keep spinning), kDone (payload written to [out]:
-  // int32 tag @0, int64 @8, double @16 — matching the Dart read), or kParked
-  // (await the port). The delivery decision is read off the flag alone, never
-  // spinId_: the giveUp CAS and the worker's done-CAS both target the flag, so
-  // the flag is the single arbiter.
-  //
-  // On kDone the READER releases the slot (spinId_→0, release) after copying —
-  // NOT the worker. The worker frees the slot only on the park/non-scalar paths
-  // where Dart never reads it. If the worker freed on kDone, the next isolate
-  // could claim and overwrite this shared slot while this poll is still
-  // copying — a use-after-free the release-here/acquire-in-arm() pair closes.
+  // One poll of the slot. With [giveUp], first flip the flag to kParked so a late
+  // result goes to the port instead. Returns kPending / kDone (payload at out:
+  // tag@0, int64@8, double@16) / kParked. On a hit the reader frees the slot
+  // after copying (not the worker), so the next isolate can't overwrite it
+  // mid-copy.
   int32_t poll([[maybe_unused]] int64_t id, uint8_t* out, int32_t giveUp) noexcept {
     if (giveUp) {
       int32_t expected = kPending;

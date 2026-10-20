@@ -90,6 +90,29 @@ class BridgeSpec {
   /// Every targeted native platform is implemented in C++ (direct dispatch).
   bool get allNativeCpp => [iosImpl, androidImpl, macosImpl, windowsImpl, linuxImpl].every((i) => i == null || i is CppImpl);
 
+  /// Opt-in (build.yaml `native_assets: true`): emit the Dart FFI impl using
+  /// top-level `@Native` externals resolved against a native-assets code asset
+  /// (built by the generated `hook/build.dart`) instead of a runtime
+  /// `DynamicLibrary.open`/`process` + `lookupFunction`. This is what makes
+  /// `@Native` work on Android (the `RTLD_LOCAL` wall blocks `lookupFunction`
+  /// there). Set by the builder from BuilderOptions; false in hand-built specs.
+  bool nativeAssets = false;
+
+  /// The native-assets path only applies to an all-C++ module on native
+  /// targets — CBuilder compiles C/C++, not the Swift/Kotlin bridges, and the
+  /// web build has no dart:ffi. Finer shape guards (streams/callbacks) live in
+  /// the Dart emitter where the callback scan is available.
+  bool get useNativeAssets => nativeAssets && allNativeCpp && !targetsWeb;
+
+  /// THE single source of truth for "does this spec actually emit the @Native
+  /// impl?". Set once by [DartFfiGenerator] (= [useNativeAssets] AND the shape
+  /// guard `_nativeAssetsEligible`), and read by BOTH the impl-class dispatch
+  /// AND the struct-proxy emitter so they can never disagree. Must be false on
+  /// the web-split path. A coarse check ([useNativeAssets]) in one emitter and
+  /// the fine shape check in the other caused the proxy `_init()` arity desync
+  /// (proxy emitted 0-arg `_init()` while the _dylib impl called `_init(dylib)`).
+  bool nativeAssetsEmit = false;
+
   /// True when the bridge runs [f] on its own thread and posts the result
   /// back (native-async transport): every `@nitroNativeAsync` method, plus
   /// the `@nitroAsync` methods of [dispatchesAsync].
@@ -120,8 +143,16 @@ class BridgeSpec {
     });
   }
 
+  /// Fire-and-forget (issue #58): a `void`-returning `@nitroNativeAsync` method.
+  /// Inferred from the return type — no extra annotation. The bridge copies the
+  /// args, enqueues the work on the pool and returns immediately (`<sym>_fnf`);
+  /// no completion port, no wake, no await, so a hot loop of such calls isn't
+  /// gated by the single-in-flight completion slot. Errors are best-effort.
+  bool fireAndForget(BridgeFunction f) => f.isFireAndForget;
+
   /// The C symbol the Dart FFI part binds for [f] on native targets.
-  String nativeSymbol(BridgeFunction f) => dispatchesAsync(f) ? '${f.cSymbol}_dispatch' : f.cSymbol;
+  String nativeSymbol(BridgeFunction f) =>
+      fireAndForget(f) ? '${f.cSymbol}_fnf' : dispatchesAsync(f) ? '${f.cSymbol}_dispatch' : f.cSymbol;
 
   /// True when the iOS platform uses a direct C++ implementation.
   bool get iosIsCpp => iosImpl is CppImpl;
@@ -625,6 +656,12 @@ class BridgeFunction {
   /// `var x`, Kotlin `val x`, C++ `get_x()`.
   final bool isGetter;
 
+  /// Fire-and-forget (issue #58): the method is `@nitroNativeAsync` and its
+  /// DECLARED return type is bare `void` (not `Future<void>`). Set by the
+  /// extractor from the declared type, since `Future<void>` is unwrapped to
+  /// `void` and would otherwise be indistinguishable. See [BridgeSpec.fireAndForget].
+  final bool isFireAndForget;
+
   /// Dart member declaration after the return type: `get x` or `x(params)`.
   String dartMember(String params) => isGetter ? 'get $dartName' : '$dartName($params)';
 
@@ -636,6 +673,7 @@ class BridgeFunction {
     required this.cSymbol,
     required this.isAsync,
     this.isNativeAsync = false,
+    this.isFireAndForget = false,
     required this.returnType,
     required this.params,
     this.zeroCopyReturn = false,

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:path/path.dart' as p;
 
+import 'link_command.dart' show removeStaleNativeAssetsHook;
 import '../ui.dart';
 
 class CleanCommand extends Command {
@@ -89,6 +90,18 @@ class CleanCommand extends Command {
           stdout.writeln('  ${red('−')} $rel');
         }
       }
+    }
+
+    // Remove a stale native-assets code-asset hook (+ vendored runtime) so a
+    // cleaned project doesn't keep double-bundling the engine (C1). Sentinel-
+    // gated: a hand-written hook is never touched.
+    for (final rel in removeStaleNativeAssetsHook(projectDir.path)) {
+      if (headless) {
+        stdout.writeln('[nitro:clean] deleted $rel');
+      } else {
+        stdout.writeln('  ${red('−')} $rel');
+      }
+      deleted++;
     }
 
     deleteIncrementalGenerationCache(

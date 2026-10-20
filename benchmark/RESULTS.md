@@ -349,3 +349,35 @@ summed across cases is 0.8 s (a milliseconds reading would imply 13 minutes,
 impossible inside the observed 141 s wall clock including the build); 0.013 µs
 for a leaf FFI call is ~50 CPU cycles on an M4; and 16 MiB ÷ 525 µs = 31.9 GB/s
 is real memcpy bandwidth (a ms reading would give 31.9 MB/s).
+
+---
+
+## 8. native-assets / `@Native` (perf lever 1 + 2, experimental)
+
+Measured on an **M4 (debug `flutter test` integration_test)** — not the curated
+profile columns above, so read these as tier/ratio evidence, not absolutes.
+
+**Scalar call — `@Native` vs `_dylib` is sub-noise.** A leaf `@Native` scalar
+call measured **~4 ns/op** in-app — the same FFI-floor tier as "Raw FFI (leaf)"
+elsewhere here (0.009–0.019 µs). A cached `lookupFunction` tear-off (`_dylib`)
+and an `@Native` external both lower to the same direct leaf call in AOT, so the
+binding mechanism adds no measurable per-call cost. The `@Native` win for
+scalars is **Android symbol visibility** (`RTLD_LOCAL` hides the code-asset
+symbols from `lookupFunction`), not speed.
+
+**Zero-copy `TypedData` (lever 2) — the real, size-scaling win.** `.address`
+(a GC-pinned pointer passed to a leaf call) skips the `toPointer(arena)` =
+`malloc` + `memcpy` + `free` the `_dylib` path performs. Standalone microbench
+(`tool/zero_copy_microbench.dart` — the per-call cost `.address` eliminates):
+**33 ns @ 64 B → ~23.5 µs @ 1 MiB** saved (1.3–2.8×). In-app `@Native` 1 MiB
+zero-copy sum ≈ **62 µs** raw. (The §2 "Raw FFI (manual copy)" row is the same
+copy cost at the top of the buffer table.)
+
+**Why there's no single-harness A/B row here.** The native-assets code asset's
+symbols are NOT resolvable via `DynamicLibrary.process().lookup` on macOS *or*
+Android (hidden/local visibility — the very reason `@Native` exists), so the
+same symbol can't be bound both ways in one app for a side-by-side. A literal
+A/B wired into the baseline-regression gate would need a dedicated in-repo
+native-assets bench module built alongside the classic `_dylib` `benchmark_cpp`
+— a scoped follow-on. The zero-copy ratio is guarded in CI today by
+`tool/zero_copy_microbench.dart` (fails if the copy saving vanishes at ≥256 KiB).

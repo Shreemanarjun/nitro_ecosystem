@@ -1061,7 +1061,10 @@ class SpecExtractor {
       final isResult = resultChecker.hasAnnotationOf(m);
       DartType returnDartType = m.returnType;
       final returnsFutureOr = (isAsync || isNativeAsync) && returnDartType.isDartAsyncFutureOr;
-      if ((isAsync || isNativeAsync) && (returnDartType.isDartAsyncFuture || returnsFutureOr)) {
+      // Did the method DECLARE a Future/FutureOr (vs a bare type)? Captured before
+      // the unwrap below, since Future<void> and bare void both end up 'void'.
+      final declaredIsFuture = returnDartType.isDartAsyncFuture || returnsFutureOr;
+      if ((isAsync || isNativeAsync) && declaredIsFuture) {
         final it = returnDartType as InterfaceType;
         if (it.typeArguments.isNotEmpty) returnDartType = it.typeArguments.first;
       }
@@ -1077,6 +1080,10 @@ class SpecExtractor {
         cSymbol: '${ns}_${_toSnakeCase(m.name!)}',
         isAsync: isAsync,
         isNativeAsync: isNativeAsync && !isFast,
+        // Fire-and-forget (issue #58): a @nitroNativeAsync method that did NOT
+        // declare a Future — i.e. a bare `void`, the one native-async shape with
+        // no result to await. Future<void> keeps declaredIsFuture and stays awaited.
+        isFireAndForget: isNativeAsync && !isFast && !declaredIsFuture,
         inlineFuture: isNativeAsync && isFast,
         returnsFutureOr: returnsFutureOr,
         returnType: _makeBridgeType(

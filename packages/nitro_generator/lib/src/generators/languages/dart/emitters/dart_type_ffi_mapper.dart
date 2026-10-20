@@ -41,8 +41,10 @@ String _toNativeType(BridgeFunction func, BridgeSpec spec) {
     // keeps using its own TLS get_error/clear_error mechanism, untouched).
     // Native-async gets a FRESH struct per call, unlike sync's one
     // instance-owned slot — see NitroRuntime.throwIfOutParamErrorAndFree.
-    if (!func.isAsync || spec.bridgeAsync(func)) 'Pointer<NitroErrorFfi>',
-    if (spec.bridgeAsync(func)) 'Int64', // dart_port
+    // Fire-and-forget (void @nitroNativeAsync, issue #58): `<sym>_fnf` takes no
+    // NitroError* and no dart_port — it enqueues and returns.
+    if (!spec.fireAndForget(func) && (!func.isAsync || spec.bridgeAsync(func))) 'Pointer<NitroErrorFfi>',
+    if (spec.bridgeAsync(func) && !spec.fireAndForget(func)) 'Int64', // dart_port
   ].join(', ');
   return '$effectiveRet Function($params)';
 }
@@ -66,8 +68,8 @@ String _toDartType(BridgeFunction func, BridgeSpec spec) {
     // S8: sync AND native-async functions receive a Pointer<NitroErrorFfi>
     // out-param (native-async: a fresh struct per call, see
     // NitroRuntime.throwIfOutParamErrorAndFree).
-    if (!func.isAsync || spec.bridgeAsync(func)) 'Pointer<NitroErrorFfi>',
-    if (spec.bridgeAsync(func)) 'int', // dart_port
+    if (!spec.fireAndForget(func) && (!func.isAsync || spec.bridgeAsync(func))) 'Pointer<NitroErrorFfi>',
+    if (spec.bridgeAsync(func) && !spec.fireAndForget(func)) 'int', // dart_port
   ].join(', ');
   return '$effectiveRet Function($params)';
 }

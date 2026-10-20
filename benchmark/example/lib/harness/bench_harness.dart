@@ -637,6 +637,21 @@ class BenchHarness {
       },
     );
 
+    // Fire-and-forget (issue #58): a `void` @nitroNativeAsync. The call enqueues
+    // the work on the pool and returns immediately — no await, no completion —
+    // so this measures the per-call DISPATCH cost, not a round-trip. It is the
+    // ceiling-free counterpart to `nitro_native_async_scalar` above.
+    await latencyCase(
+      'nitro_native_async_fnf',
+      'Nitro @nitroNativeAsync void (fire-and-forget, no wait)',
+      config.asyncIters,
+      (n) async {
+        for (var i = 0; i < n; i++) {
+          cpp.nativeAsyncFnf(i);
+        }
+      },
+    );
+
     // Same call declared FutureOr<int>: the value comes back directly, so the
     // loop never awaits — what remains is the bare checked call.
     await latencyCase(

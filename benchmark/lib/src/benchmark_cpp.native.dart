@@ -248,6 +248,13 @@ abstract class BenchmarkCpp extends HybridObject {
   @nitroNativeAsync
   Future<int> nativeAsyncEchoFromThread(int value);
 
+  /// Fire-and-forget (issue #58): a `void` `@nitroNativeAsync`. The bridge copies
+  /// the arg, enqueues the work on the pool and returns immediately — no port, no
+  /// await, no result — so a hot loop of these isn't gated by the process-global
+  /// single-in-flight completion slot. The C++ impl is a plain sync `void` method.
+  @nitroNativeAsync
+  void nativeAsyncFnf(int value);
+
   /// Coalesced completion (issue #39): the worker buffers `(callId, value)` and
   /// posts each drained burst as one `kArray`, so a burst shares one wake.
   void submitCoalesced(int callId, int value, int dartPort);

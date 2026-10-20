@@ -82,6 +82,19 @@ class DartFfiGenerator {
     writer.line("part of '${spec.sourceUri.split('/').last}';");
     writer.blankLine();
 
+    // Decide the @Native-emit mode ONCE, before anything (the proxy emitter
+    // below reads it too) — so the proxy `_init()` arity and the impl-class
+    // dispatch can never disagree (Bug A root cause).
+    spec.nativeAssetsEmit = _nativeAssetsEligible(spec);
+    // N6: an opt-in that can't apply must explain itself AT THE CODE, so a user
+    // who passed --native-assets isn't left wondering why they got the _dylib
+    // path. One comment naming the first disqualifying construct.
+    if (spec.useNativeAssets && !spec.nativeAssetsEmit) {
+      writer.line('// native-assets: NOT applied — ${_nativeAssetsIneligibility(spec)}.');
+      writer.line('// This module stays on the standard DynamicLibrary (_dylib) path.');
+      writer.blankLine();
+    }
+
     // Enum & struct extensions (class bodies live in .native.dart)
     final enumExt = EnumGenerator.generateDartExtensions(spec);
     if (enumExt.isNotEmpty) writer.raw(enumExt);
@@ -103,7 +116,16 @@ class DartFfiGenerator {
     // Type-only files have no bridge implementation — only type declarations.
     if (spec.isTypeOnly) return writer.toString();
 
-    _emitImplClassSetup(writer, spec);
+    // Perf lever 1 (opt-in): scalar all-C++ modules resolve symbols via
+    // top-level @Native externals bound to the hook-built code asset instead
+    // of DynamicLibrary + lookupFunction. Only the symbol-resolution setup
+    // differs; the method/property/stream bodies (and the class-closing brace
+    // in _emitStreamImpls) are emitted identically.
+    if (spec.nativeAssetsEmit) {
+      _emitNativeAssetsImplSetup(writer, spec);
+    } else {
+      _emitImplClassSetup(writer, spec);
+    }
     _emitFunctionImpls(writer, spec);
     _emitPropertyImpls(writer, spec);
     _emitStreamImpls(writer, spec);
@@ -151,6 +173,9 @@ class DartFfiGenerator {
       return '// Web not targeted — the dart:ffi implementation lives in the .g.dart part.\n';
     }
     _assertSupportedFunctionTypes(spec);
+    // Web-split FFI libraries always use the _dylib path (a web-targeting spec
+    // is never native-assets-eligible); keep the proxy emitter in sync.
+    spec.nativeAssetsEmit = false;
 
     final specFile = spec.sourceUri.split('/').last;
     final className = spec.dartClassName;

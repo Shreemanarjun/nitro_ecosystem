@@ -18,6 +18,8 @@ import 'link_command.dart'
         findPodfileDirs,
         discoverModuleInfos,
         ModuleInfo,
+        linkNativeAssetsHook,
+        removeStaleNativeAssetsHook,
         linkCMake,
         linkPodspec,
         linkMacosPodspec,
@@ -61,6 +63,13 @@ class GenerateCommand extends Command {
       ..addOption(
         'targets',
         help: 'Comma-separated output targets: dart,kotlin,swift,cpp,cmake,native,test. Platform aliases are also supported.',
+      )
+      ..addFlag(
+        'native-assets',
+        negatable: false,
+        help: 'Experimental (perf lever 1): emit the Dart FFI impl as top-level @Native '
+            'externals bound to a native-assets code asset, and write hook/build.dart + '
+            'vendor the nitro C runtime. All-C++ modules only.',
       )
       ..addFlag(
         'verbose',
@@ -298,6 +307,8 @@ class GenerateCommand extends Command {
       'build_runner',
       'build',
       '--delete-conflicting-outputs',
+      // Perf lever 1: turn on the generator's @Native/native-assets Dart emit.
+      if (argResults!['native-assets'] as bool) '--define=nitro_generator:nitro_generator=native_assets=true',
       ...targets.buildFilterArgs(projectRoot, incrementalPlan.changedSpecs),
     ];
     final buildResult = await runStreamingInspected(
@@ -352,6 +363,29 @@ class GenerateCommand extends Command {
     final moduleInfos = discoverModuleInfos(pluginName, baseDir: projectRoot);
     final hasCpp = moduleInfos.any((m) => m.isCpp);
     final hasNonCpp = moduleInfos.any((m) => !m.isCpp);
+
+    // Perf lever 1: when the hook is actually written (all modules eligible,
+    // no pre-existing hand-written hook), the hook builds every code asset so
+    // the CMake/podspec/gradle native linking is redundant — skip it. But if
+    // linkNativeAssetsHook REFUSES (ineligible module / the plugin has its own
+    // native build like nitro_server's cmake engine), fall through to the
+    // standard linking so the working build is preserved, never clobbered.
+    if (argResults!['native-assets'] as bool) {
+      final wroteHook = linkNativeAssetsHook(moduleInfos, nitroNativePath, baseDir: projectRoot);
+      if (wroteHook) {
+        linkClangd(pluginName, moduleInfos: moduleInfos, baseDir: projectRoot);
+        return;
+      }
+      stdout.writeln('  native-assets: not applied — using the standard CMake/podspec linking below.');
+    }
+
+    // C1: about to do standard _dylib linking — drop a stale generated hook from
+    // a prior `--native-assets` run, else its code asset double-bundles.
+    final removedStale = removeStaleNativeAssetsHook(projectRoot);
+    if (removedStale.isNotEmpty) {
+      stdout.writeln('  native-assets: removed stale generated ${removedStale.join(' + ')} '
+          '(plugin is on the standard _dylib build; a lingering code-asset hook would double-bundle the engine)');
+    }
 
     // Patch CMake and C++ stubs
     linkCMake(pluginName, moduleInfos.map((m) => m.lib).toList(), nitroNativePath, baseDir: projectRoot, moduleInfos: moduleInfos);

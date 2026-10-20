@@ -21,10 +21,13 @@ import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
-import 'dart:ui' show PluginUtilities;
-
 import 'package:ffi/ffi.dart';
 import 'package:test/test.dart';
+
+// dart:ui is Flutter-only; the stub lets this file compile under `dart test`
+// and the one dart:ui test skips there (runs under `flutter test`).
+import 'src/plugin_utilities_stub.dart'
+    if (dart.library.ui) 'src/plugin_utilities_ui.dart';
 
 // Dart_CObject layout: int32 type @0, union @8 (8-aligned). kInt64 == 3.
 const _kInt64 = 3;
@@ -118,7 +121,7 @@ void main() {
       // Works for any top-level function in JIT; under AOT only functions
       // carrying @pragma('vm:entry-point') survive tree-shaking for this.
       expect(PluginUtilities.getCallbackHandle(plainTopLevel), isNotNull);
-    });
+    }, skip: hasDartUi ? null : 'dart:ui (PluginUtilities) — run under `flutter test`');
 
     test('Nitro closes the gap with @NitroEntryPoint: a runtime helper, no callback handles', () {
       // The generated `@pragma('vm:entry-point')` wrapper references the user

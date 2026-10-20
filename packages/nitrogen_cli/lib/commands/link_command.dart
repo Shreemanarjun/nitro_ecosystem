@@ -12,6 +12,7 @@ import '../templates/swift_templates.dart' as st;
 import '../templates/cmake_templates.dart' as ct;
 import '../templates/scaffold_templates.dart' as sft;
 import '../templates/build_versions.dart';
+import '../templates/native_assets_templates.dart';
 import 'spm_utils.dart' as spm;
 
 part 'link/discovery.dart';
@@ -21,6 +22,7 @@ part 'link/android.dart';
 part 'link/desktop.dart';
 part 'link/web.dart';
 part 'link/impl_starters.dart';
+part 'link/native_assets.dart';
 
 // ── Package-level helpers (also used in tests) ─────────────────────────────
 

@@ -10,9 +10,33 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
     // structs), TypedData (pointer+length pair), and maps.
     // classifyBridgeItem() is the canonical classifier — adding a new nullable
     // type only requires updating BridgeItemKind, not every needsArena check.
+    // Lever 2 zero-copy: on the @Native path, a fully-leaf method passes its
+    // non-nullable TypedData params as `list.address` (GC-pinned, no copy)
+    // instead of `toPointer(arena)`. Only when the whole method is leaf (no
+    // string/record/struct/variant/map params) — otherwise it needs an arena
+    // and can't be leaf, so TypedData falls back to the copying path.
+    final zeroCopyLeaf = spec.nativeAssetsEmit && _isLeafCandidate(func, spec);
+    bool typedDataZeroCopy(BridgeParam p) => zeroCopyLeaf && p.type.isTypedData && !p.type.name.endsWith('?');
+
+    // W1: a non-leaf method (callback param / async / stream / non-primitive
+    // return) can't zero-copy — its TypedData params fall back to a memcpy.
+    // Name them so a multi-MB copy on a hot path isn't a silent perf cliff.
+    if (spec.nativeAssetsEmit && !zeroCopyLeaf) {
+      final copied = [
+        for (final p in func.params)
+          if (p.type.isTypedData && !p.type.name.endsWith('?')) p.name,
+      ];
+      if (copied.isNotEmpty) {
+        writer.line('  // native-assets: TypedData param(s) ${copied.join(', ')} are COPIED '
+            '(toPointer+memcpy), not zero-copy — this method is not leaf (a non-TypedData param/'
+            'return de-leafs it). Isolate those params in a leaf method for zero-copy `.address`.');
+      }
+    }
+
     final needsArena = func.params.any((p) {
       if (p.type.isAnyMap) return true; // maps are not classified by BridgeItemKind
       if (spec.isCustomTypeName(p.type.baseName)) return true; // custom type codec encode needs arena
+      if (typedDataZeroCopy(p)) return false; // .address — no arena
       final kind = classifyBridgeItem(p.type, spec);
       return kind.isStringKind || kind.isRecordKind || kind.isStructKind || kind.isVariantKind || kind.isNullablePrimitive || p.type.isTypedData;
     });
@@ -41,6 +65,10 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
             // Nullable list: nullptr + length 0 for null (an empty list still
             // gets a real pointer, so native can tell the two apart).
             if (t.endsWith('?')) return ['${p.name} == null ? nullptr : ${p.name}.toPointer(arena)', '${p.name}?.length ?? 0'];
+            // Lever 2 zero-copy: pass the pinned heap pointer directly to the
+            // leaf @Native call — no arena alloc + memcpy. `.address` is valid
+            // only as a direct argument to a leaf FFI call (dart:ffi).
+            if (typedDataZeroCopy(p)) return ['${p.name}.address', '${p.name}.length'];
             return ['${p.name}.toPointer(arena)', '${p.name}.length'];
           }
           if (t == 'String') {
@@ -100,7 +128,10 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
         ? 'NativeHandle<$nativeHandleTypeParam>'
         : func.returnType.name;
     final wrapper = func.returnsFutureOr ? 'FutureOr' : 'Future';
-    final returnType = (func.isAsync || func.isNativeAsync || func.inlineFuture) ? '$wrapper<$effectiveDartReturnName>' : effectiveDartReturnName;
+    // Fire-and-forget (issue #58): a bare `void` method — not Future-wrapped.
+    final returnType = spec.fireAndForget(func)
+        ? 'void'
+        : (func.isAsync || func.isNativeAsync || func.inlineFuture) ? '$wrapper<$effectiveDartReturnName>' : effectiveDartReturnName;
     // inlineFuture: the sync body runs inside an `async` function; the future
     // completes inline (no port, no isolate wake). Measured: Future.sync,
     // Future.value and a sync Completer are no cheaper in a Flutter build —
@@ -120,7 +151,16 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
     // Classify once — avoids repeated spec.structs.any() / spec.enums.any() calls.
     final returnKind = classifyReturn(func.returnType, spec);
 
-    if (spec.bridgeAsync(func)) {
+    if (spec.fireAndForget(func)) {
+      // Fire-and-forget (issue #58): copy/marshal args, call the `_fnf` pointer
+      // (which enqueues on the pool and returns), done — no port, no await, no
+      // result. The native <sym>_fnf has signature void(instanceId, params).
+      if (needsArena) {
+        writer.line('    withArena((arena) { _${func.dartName}Ptr($instancedCallArgs); });');
+      } else {
+        writer.line('    _${func.dartName}Ptr($instancedCallArgs);');
+      }
+    } else if (spec.bridgeAsync(func)) {
       _emitNativeAsyncBody(writer, func, spec, instancedCallArgs, needsArena);
     } else if (func.isAsync) {
       // plainCallArgs: used when no arena is needed. Apply the same optional-primitive

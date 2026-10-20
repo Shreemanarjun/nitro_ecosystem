@@ -267,6 +267,9 @@ class SpecFromSource {
         isAsync: isAsync,
         asyncTimeout: asyncTimeout,
         isNativeAsync: isNativeAsync && !(isFastFn || name.endsWith('Fast')),
+        // Fire-and-forget (issue #58): @nitroNativeAsync with a bare `void`
+        // declared return (retSrc, not Future<void>). Mirrors spec_extractor.
+        isFireAndForget: isNativeAsync && !(isFastFn || name.endsWith('Fast')) && retSrc == 'void',
         inlineFuture: isNativeAsync && (isFastFn || name.endsWith('Fast')),
         returnsFutureOr: returnsFutureOr,
         isOwned: isOwnedFn,
