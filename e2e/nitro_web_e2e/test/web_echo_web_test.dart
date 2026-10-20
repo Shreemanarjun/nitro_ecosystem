@@ -15,7 +15,6 @@ import 'package:nitro_web_e2e/nitro_web_e2e.dart';
 // directly because a package barrel does not necessarily re-export it — add
 // `export 'src/web_echo.platform.g.dart';` to the barrel if you want callers of
 // your package to reach it too (web callers must await it before first use).
-import 'package:nitro_web_e2e/src/web_echo.platform.g.dart';
 
 void main() {
   setUpAll(() async {
