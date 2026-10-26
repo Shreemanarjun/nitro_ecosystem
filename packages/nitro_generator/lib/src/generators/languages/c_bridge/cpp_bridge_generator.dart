@@ -26,12 +26,55 @@ class CppBridgeGenerator {
   static String generate(BridgeSpec spec) {
     _jniTypeLibs = spec.importedTypeLibs;
     final core = spec.renderGetterCalls(_generateCore(spec));
-    if (spec.entryPoints.isEmpty) return core;
-    // Appended after every prologue so GetEnv/g_bridgeClass are in scope, and
-    // regardless of which bridge path the spec took above.
-    final w = CodeWriter();
-    emitBackgroundExports(w, spec, spec.lib.replaceAll('-', '_'));
-    return core + w.toString();
+    final String full;
+    if (spec.entryPoints.isEmpty) {
+      full = core;
+    } else {
+      // Appended after every prologue so GetEnv/g_bridgeClass are in scope, and
+      // regardless of which bridge path the spec took above.
+      final w = CodeWriter();
+      emitBackgroundExports(w, spec, spec.lib.replaceAll('-', '_'));
+      full = core + w.toString();
+    }
+    return full + _appleKeepExports(spec, full);
+  }
+
+  /// Apple's archive strip (`STRIP_STYLE=all`, the Xcode default for
+  /// release/TestFlight/`flutter build ipa`) drops global symbols that no other
+  /// image references. On iOS/macOS the loader resolves FFI entry points via
+  /// `dlsym(RTLD_DEFAULT, …)` against the statically-linked executable, so a
+  /// stripped build can't find them and the first instance throws
+  /// `Failed to lookup symbol …`. Marking each `NITRO_EXPORT` function
+  /// REFERENCED_DYNAMICALLY (Mach-O `n_desc` `0x10`) makes `strip` keep it — no
+  /// per-app `STRIP_STYLE` setting needed. The directive must live in the
+  /// translation unit that *defines* the symbols (this generated bridge), so it
+  /// is appended here. Emitted only when the spec targets iOS/macOS; wrapped in
+  /// its own `__APPLE__` guard so it is inert on Android/web. See nitro_http#3.
+  static String _appleKeepExports(BridgeSpec spec, String cpp) {
+    if (!(spec.targetsIos || spec.targetsMacos)) return '';
+    final libStem = spec.lib.replaceAll('-', '_');
+    final nameRe = RegExp('\\b${RegExp.escape(libStem)}_\\w+(?=\\s*\\()');
+    final syms = <String>{}; // insertion-ordered → deterministic output
+    for (final line in cpp.split('\n')) {
+      if (!line.contains('NITRO_EXPORT')) continue;
+      final m = nameRe.firstMatch(line);
+      if (m != null) syms.add(m.group(0)!);
+    }
+    if (syms.isEmpty) return '';
+    final b = StringBuffer()
+      ..writeln()
+      ..writeln('// Keep FFI entry points through Apple\'s archive strip (STRIP_STYLE=all drops')
+      ..writeln('// unreferenced globals; the iOS/macOS loader resolves via dlsym(RTLD_DEFAULT)).')
+      ..writeln('// REFERENCED_DYNAMICALLY (n_desc 0x10) survives strip — no app-side setting.')
+      ..writeln('#if defined(__APPLE__)')
+      ..writeln('__asm__(');
+    for (final s in syms) {
+      b.writeln('    ".desc _$s, 0x10\\n"');
+    }
+    b
+      ..writeln(');')
+      ..writeln('#endif');
+    return b.toString();
   }
 
   static String _generateCore(BridgeSpec spec) {

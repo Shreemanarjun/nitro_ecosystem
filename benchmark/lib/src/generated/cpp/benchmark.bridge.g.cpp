@@ -752,3 +752,25 @@ int64_t benchmark_send_large_buffer(int64_t instanceId, uint8_t* buffer, size_t 
 
 } // extern "C"
 #endif
+
+// Keep FFI entry points through Apple's archive strip (STRIP_STYLE=all drops
+// unreferenced globals; the iOS/macOS loader resolves via dlsym(RTLD_DEFAULT)).
+// REFERENCED_DYNAMICALLY (n_desc 0x10) survives strip — no app-side setting.
+#if defined(__APPLE__)
+__asm__(
+    ".desc _benchmark_nitro_post, 0x10\n"
+    ".desc _benchmark_nitro_bind, 0x10\n"
+    ".desc _benchmark_nitro_ack, 0x10\n"
+    ".desc _benchmark_nitro_arm, 0x10\n"
+    ".desc _benchmark_nitro_disarm, 0x10\n"
+    ".desc _benchmark_nitro_poll, 0x10\n"
+    ".desc _benchmark_nitro_abi_version, 0x10\n"
+    ".desc _benchmark_nitro_bridge_checksum, 0x10\n"
+    ".desc _benchmark_init_dart_api_dl, 0x10\n"
+    ".desc _benchmark_enable_native_bindings, 0x10\n"
+    ".desc _benchmark_nitro_free, 0x10\n"
+    ".desc _benchmark_nitro_alloc, 0x10\n"
+    ".desc _benchmark_create_instance, 0x10\n"
+    ".desc _benchmark_destroy_instance, 0x10\n"
+);
+#endif

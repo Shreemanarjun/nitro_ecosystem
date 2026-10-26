@@ -1484,3 +1484,32 @@ NITRO_EXPORT void nitro_ar_resume_session_dispatch(int64_t instanceId, NitroErro
 }
 
 #endif
+
+// Keep FFI entry points through Apple's archive strip (STRIP_STYLE=all drops
+// unreferenced globals; the iOS/macOS loader resolves via dlsym(RTLD_DEFAULT)).
+// REFERENCED_DYNAMICALLY (n_desc 0x10) survives strip — no app-side setting.
+#if defined(__APPLE__)
+__asm__(
+    ".desc _nitro_ar_nitro_post, 0x10\n"
+    ".desc _nitro_ar_nitro_bind, 0x10\n"
+    ".desc _nitro_ar_nitro_ack, 0x10\n"
+    ".desc _nitro_ar_nitro_arm, 0x10\n"
+    ".desc _nitro_ar_nitro_disarm, 0x10\n"
+    ".desc _nitro_ar_nitro_poll, 0x10\n"
+    ".desc _nitro_ar_nitro_abi_version, 0x10\n"
+    ".desc _nitro_ar_nitro_bridge_checksum, 0x10\n"
+    ".desc _nitro_ar_init_dart_api_dl, 0x10\n"
+    ".desc _nitro_ar_enable_native_bindings, 0x10\n"
+    ".desc _nitro_ar_nitro_free, 0x10\n"
+    ".desc _nitro_ar_nitro_alloc, 0x10\n"
+    ".desc _nitro_ar_create_instance, 0x10\n"
+    ".desc _nitro_ar_destroy_instance, 0x10\n"
+    ".desc _nitro_ar_get_greeting_dispatch, 0x10\n"
+    ".desc _nitro_ar_check_camera_permission_dispatch, 0x10\n"
+    ".desc _nitro_ar_request_camera_permission_dispatch, 0x10\n"
+    ".desc _nitro_ar_start_session_dispatch, 0x10\n"
+    ".desc _nitro_ar_stop_session_dispatch, 0x10\n"
+    ".desc _nitro_ar_pause_session_dispatch, 0x10\n"
+    ".desc _nitro_ar_resume_session_dispatch, 0x10\n"
+);
+#endif

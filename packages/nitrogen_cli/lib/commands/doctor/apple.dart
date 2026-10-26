@@ -101,6 +101,36 @@ extension _DoctorAppleChecks on DoctorCommand {
     _checkIosDartApi(ctx, iosSec, iosDir, spmStatus);
     _checkIosMmBridges(ctx, iosSec, classesDir, allSpecsCpp, spmStatus);
     _checkIosSpm(ctx, iosSec, spmStatus);
+    _checkStripSurvival(ctx, iosSec);
+  }
+
+  /// Xcode's archive strip (`STRIP_STYLE=all`) drops FFI entry-point symbols
+  /// unless they are marked REFERENCED_DYNAMICALLY, so an archived/TestFlight
+  /// build fails `dlsym(RTLD_DEFAULT, …)` on the first instance.
+  /// nitro_generator 0.8.1+ emits the marker in each Apple-compiled bridge;
+  /// this flags a stale bridge that predates it. See nitro_http#3.
+  void _checkStripSurvival(_DoctorCtx ctx, DoctorSection iosSec) {
+    final cppDir = Directory(p.join(ctx.root.path, 'lib', 'src', 'generated', 'cpp'));
+    if (!cppDir.existsSync()) return;
+    var checked = 0, missing = 0;
+    for (final f in cppDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.cpp'))) {
+      final src = f.readAsStringSync();
+      if (!src.contains('init_dart_api_dl')) continue; // not an FFI bridge
+      // Skip Android-only bridges — not compiled on Apple, so no marker needed.
+      if (src.contains('#ifdef __ANDROID__') && !src.contains('__APPLE__')) continue;
+      checked++;
+      if (!src.contains('REFERENCED_DYNAMICALLY')) {
+        missing++;
+        ctx.warn(
+          iosSec,
+          '${p.basename(f.path)} is missing the archive-strip-survival marker — an Xcode archive (TestFlight/App Store/`flutter build ipa`) may strip its FFI exports and crash on first use',
+          hint: 'Regenerate with nitro_generator 0.8.1+ (`nitrogen generate`). See nitro_http#3',
+        );
+      }
+    }
+    if (checked > 0 && missing == 0) {
+      ctx.ok(iosSec, 'FFI bridges mark exports REFERENCED_DYNAMICALLY (survive Xcode archive strip)');
+    }
   }
 
   void _checkIosPodspec(_DoctorCtx ctx, DoctorSection iosSec, Directory iosDir, bool allSpecsCpp) {

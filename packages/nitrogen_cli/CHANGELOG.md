@@ -1,3 +1,9 @@
+## 0.8.1
+
+- `doctor`: warn when a generated iOS/macOS bridge predates the archive-strip
+  survival marker (REFERENCED_DYNAMICALLY) — regenerate with nitro_generator
+  0.8.1+. (nitro_http#3)
+
 ## 0.8.0
 
 Experimental — `nitrogen generate --native-assets` wires the `@Native` path (see

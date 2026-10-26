@@ -978,3 +978,29 @@ void benchmark_cpp_release_BenchmarkBox(void* ptr) {
 }
 
 } // extern "C"
+
+// Keep FFI entry points through Apple's archive strip (STRIP_STYLE=all drops
+// unreferenced globals; the iOS/macOS loader resolves via dlsym(RTLD_DEFAULT)).
+// REFERENCED_DYNAMICALLY (n_desc 0x10) survives strip — no app-side setting.
+#if defined(__APPLE__)
+__asm__(
+    ".desc _benchmark_cpp_nitro_post, 0x10\n"
+    ".desc _benchmark_cpp_nitro_bind, 0x10\n"
+    ".desc _benchmark_cpp_nitro_ack, 0x10\n"
+    ".desc _benchmark_cpp_nitro_arm, 0x10\n"
+    ".desc _benchmark_cpp_nitro_disarm, 0x10\n"
+    ".desc _benchmark_cpp_nitro_poll, 0x10\n"
+    ".desc _benchmark_cpp_make_handle_release, 0x10\n"
+    ".desc _benchmark_cpp_nitro_abi_version, 0x10\n"
+    ".desc _benchmark_cpp_nitro_bridge_checksum, 0x10\n"
+    ".desc _benchmark_cpp_init_dart_api_dl, 0x10\n"
+    ".desc _benchmark_cpp_nitro_set_post_fn, 0x10\n"
+    ".desc _benchmark_cpp_create_instance, 0x10\n"
+    ".desc _benchmark_cpp_destroy_instance, 0x10\n"
+    ".desc _benchmark_cpp_nitro_free, 0x10\n"
+    ".desc _benchmark_cpp_nitro_alloc, 0x10\n"
+    ".desc _benchmark_cpp_compute_stats_dispatch, 0x10\n"
+    ".desc _benchmark_cpp_async_echo_dispatch, 0x10\n"
+    ".desc _benchmark_cpp_native_async_fnf_fnf, 0x10\n"
+);
+#endif

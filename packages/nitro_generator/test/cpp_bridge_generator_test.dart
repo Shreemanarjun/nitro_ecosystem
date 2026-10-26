@@ -4,6 +4,38 @@ import 'test_utils.dart';
 
 void main() {
   group('CppBridgeGenerator', () {
+    group('Apple archive-strip survival (.desc REFERENCED_DYNAMICALLY) — nitro_http#3', () {
+      test('Apple-targeting spec marks every NITRO_EXPORT so Xcode strip keeps it', () {
+        final out = CppBridgeGenerator.generate(simpleSpec()); // iosImpl set
+        expect(out, contains('#if defined(__APPLE__)'));
+        expect(out, contains('REFERENCED_DYNAMICALLY'));
+        expect(out, contains('.desc _my_camera_init_dart_api_dl, 0x10'));
+        expect(out, contains('.desc _my_camera_nitro_abi_version, 0x10'));
+      });
+
+      test('Android-only spec emits no .desc block (not compiled on Apple)', () {
+        final out = CppBridgeGenerator.generate(
+          BridgeSpec(
+            dartClassName: 'Dsp',
+            lib: 'dsp',
+            namespace: 'dsp',
+            androidImpl: NativeImpl.kotlin,
+            sourceUri: 'dsp.native.dart',
+            functions: [
+              BridgeFunction(
+                dartName: 'ping',
+                cSymbol: 'dsp_ping',
+                isAsync: false,
+                returnType: BridgeType(name: 'void'),
+                params: [],
+              ),
+            ],
+          ),
+        );
+        expect(out, isNot(contains('.desc _')));
+      });
+    });
+
     test('emits InitDartApiDL', () {
       final out = CppBridgeGenerator.generate(simpleSpec());
       expect(out, contains('NITRO_EXPORT intptr_t my_camera_init_dart_api_dl(void* data)'));
