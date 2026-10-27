@@ -39,17 +39,10 @@ class CppBridgeGenerator {
     return full + _appleKeepExports(spec, full);
   }
 
-  /// Apple's archive strip (`STRIP_STYLE=all`, the Xcode default for
-  /// release/TestFlight/`flutter build ipa`) drops global symbols that no other
-  /// image references. On iOS/macOS the loader resolves FFI entry points via
-  /// `dlsym(RTLD_DEFAULT, …)` against the statically-linked executable, so a
-  /// stripped build can't find them and the first instance throws
-  /// `Failed to lookup symbol …`. Marking each `NITRO_EXPORT` function
-  /// REFERENCED_DYNAMICALLY (Mach-O `n_desc` `0x10`) makes `strip` keep it — no
-  /// per-app `STRIP_STYLE` setting needed. The directive must live in the
-  /// translation unit that *defines* the symbols (this generated bridge), so it
-  /// is appended here. Emitted only when the spec targets iOS/macOS; wrapped in
-  /// its own `__APPLE__` guard so it is inert on Android/web. See nitro_http#3.
+  /// Marks each `NITRO_EXPORT` symbol REFERENCED_DYNAMICALLY so Apple's archive
+  /// strip (`STRIP_STYLE=all`) keeps it and `dlsym(RTLD_DEFAULT)` still resolves
+  /// it in release/TestFlight builds. Must sit in the defining TU (this bridge);
+  /// iOS/macOS only, guarded so it's inert elsewhere. See nitro_http#3.
   static String _appleKeepExports(BridgeSpec spec, String cpp) {
     if (!(spec.targetsIos || spec.targetsMacos)) return '';
     final libStem = spec.lib.replaceAll('-', '_');
@@ -63,9 +56,7 @@ class CppBridgeGenerator {
     if (syms.isEmpty) return '';
     final b = StringBuffer()
       ..writeln()
-      ..writeln('// Keep FFI entry points through Apple\'s archive strip (STRIP_STYLE=all drops')
-      ..writeln('// unreferenced globals; the iOS/macOS loader resolves via dlsym(RTLD_DEFAULT)).')
-      ..writeln('// REFERENCED_DYNAMICALLY (n_desc 0x10) survives strip — no app-side setting.')
+      ..writeln('// REFERENCED_DYNAMICALLY keeps these exports through Apple archive strip (nitro_http#3).')
       ..writeln('#if defined(__APPLE__)')
       ..writeln('__asm__(');
     for (final s in syms) {

@@ -104,11 +104,9 @@ extension _DoctorAppleChecks on DoctorCommand {
     _checkStripSurvival(ctx, iosSec);
   }
 
-  /// Xcode's archive strip (`STRIP_STYLE=all`) drops FFI entry-point symbols
-  /// unless they are marked REFERENCED_DYNAMICALLY, so an archived/TestFlight
-  /// build fails `dlsym(RTLD_DEFAULT, …)` on the first instance.
-  /// nitro_generator 0.8.1+ emits the marker in each Apple-compiled bridge;
-  /// this flags a stale bridge that predates it. See nitro_http#3.
+  /// Flags a stale bridge missing the REFERENCED_DYNAMICALLY marker that
+  /// nitro_generator 0.8.1+ emits — without it, Apple's archive strip drops the
+  /// FFI exports and an archived build fails `dlsym`. See nitro_http#3.
   void _checkStripSurvival(_DoctorCtx ctx, DoctorSection iosSec) {
     final cppDir = Directory(p.join(ctx.root.path, 'lib', 'src', 'generated', 'cpp'));
     if (!cppDir.existsSync()) return;

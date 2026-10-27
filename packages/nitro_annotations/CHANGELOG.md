@@ -1,3 +1,7 @@
+## 0.8.1
+
+- Coordinated 0.8.1 release; no changes.
+
 ## 0.8.0
 
 - Coordinated 0.8.0 release (no annotation API changes).

@@ -40,10 +40,10 @@ No method channels. No manual FFI. No boilerplate.
 ```yaml
 # pubspec.yaml
 dependencies:
-  nitro: ^0.7.6
+  nitro: ^0.8.1
 
 dev_dependencies:
-  nitro_generator: ^0.7.6
+  nitro_generator: ^0.8.1
   build_runner: ^2.4.0
 ```
 
@@ -185,6 +185,15 @@ Every command also works headlessly for CI — pass `--no-ui`, or just pipe the 
 nitrogen generate --no-ui --fail-on-warn   # exit 2 on spec warnings
 nitrogen doctor --no-ui                    # exit 1 on any health-check error
 ```
+
+---
+
+## iOS release builds
+
+On iOS/macOS the FFI entry points are resolved with `dlsym`. Xcode's archive strip (`STRIP_STYLE=all` — `flutter build ipa`, TestFlight, App Store) drops those symbols from the statically-linked app, so an archived build would otherwise fail with `Failed to lookup symbol …`.
+
+- **nitro_generator 0.8.1+**: generated bridges mark every export `REFERENCED_DYNAMICALLY`, so the symbols survive the strip — no app-side setting needed. Just regenerate (`nitrogen generate`).
+- **Older than 0.8.1**: set `STRIP_STYLE = non-global` on the Runner target for the Release and Profile configurations.
 
 ---
 

@@ -3,7 +3,8 @@
 - iOS/macOS: mark every `NITRO_EXPORT` function REFERENCED_DYNAMICALLY in the
   generated bridge so Xcode's archive strip (`STRIP_STYLE=all`) keeps the FFI
   entry points — fixes `dlsym … symbol not found` on archived/TestFlight builds,
-  with no app-side `STRIP_STYLE`. (nitro_http#3)
+  with no app-side `STRIP_STYLE`. Thanks [@ndelanou](https://github.com/ndelanou)
+  for reporting (nitro_http#3).
 
 ## 0.8.0
 
