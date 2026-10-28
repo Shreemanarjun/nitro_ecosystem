@@ -6,9 +6,8 @@ void main() {
   group('CppBridgeGenerator', () {
     group('Apple archive-strip survival (.desc REFERENCED_DYNAMICALLY) — nitro_http#3', () {
       test('Apple-targeting spec marks every NITRO_EXPORT so Xcode strip keeps it', () {
-        final out = CppBridgeGenerator.generate(simpleSpec()); // iosImpl set
+        final out = CppBridgeGenerator.generate(simpleSpec());
         expect(out, contains('#if defined(__APPLE__)'));
-        expect(out, contains('REFERENCED_DYNAMICALLY'));
         expect(out, contains('.desc _my_camera_init_dart_api_dl, 0x10'));
         expect(out, contains('.desc _my_camera_nitro_abi_version, 0x10'));
       });
@@ -33,6 +32,42 @@ void main() {
           ),
         );
         expect(out, isNot(contains('.desc _')));
+      });
+
+      test('every NITRO_EXPORT symbol is marked — none left strippable', () {
+        final out = CppBridgeGenerator.generate(simpleSpec());
+        final nameRe = RegExp(r'\bmy_camera_\w+(?=\s*\()');
+        final exported = {
+          for (final line in out.split('\n'))
+            if (line.contains('NITRO_EXPORT') && nameRe.hasMatch(line)) nameRe.firstMatch(line)!.group(0)!,
+        };
+        expect(exported.length, greaterThan(5));
+        for (final sym in exported) {
+          expect(out, contains('.desc _$sym, 0x10'), reason: '$sym is NITRO_EXPORT but has no REFERENCED_DYNAMICALLY marker');
+        }
+      });
+
+      test('macOS-only spec also emits the markers', () {
+        final out = CppBridgeGenerator.generate(
+          BridgeSpec(
+            dartClassName: 'MacThing',
+            lib: 'mac_thing',
+            namespace: 'mac_thing',
+            macosImpl: NativeImpl.cpp,
+            sourceUri: 'mac_thing.native.dart',
+            functions: [
+              BridgeFunction(
+                dartName: 'go',
+                cSymbol: 'mac_thing_go',
+                isAsync: false,
+                returnType: BridgeType(name: 'void'),
+                params: [],
+              ),
+            ],
+          ),
+        );
+        expect(out, contains('#if defined(__APPLE__)'));
+        expect(out, contains('.desc _mac_thing_init_dart_api_dl, 0x10'));
       });
     });
 

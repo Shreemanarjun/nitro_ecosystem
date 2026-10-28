@@ -104,20 +104,17 @@ extension _DoctorAppleChecks on DoctorCommand {
     _checkStripSurvival(ctx, iosSec);
   }
 
-  /// Flags a stale bridge missing the REFERENCED_DYNAMICALLY marker that
-  /// nitro_generator 0.8.1+ emits — without it, Apple's archive strip drops the
-  /// FFI exports and an archived build fails `dlsym`. See nitro_http#3.
   void _checkStripSurvival(_DoctorCtx ctx, DoctorSection iosSec) {
     final cppDir = Directory(p.join(ctx.root.path, 'lib', 'src', 'generated', 'cpp'));
     if (!cppDir.existsSync()) return;
     var checked = 0, missing = 0;
+    final markerRe = RegExp(r'\.desc\s+_\w+,\s*0x10');
     for (final f in cppDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.cpp'))) {
       final src = f.readAsStringSync();
-      if (!src.contains('init_dart_api_dl')) continue; // not an FFI bridge
-      // Skip Android-only bridges — not compiled on Apple, so no marker needed.
+      if (!src.contains('init_dart_api_dl')) continue;
       if (src.contains('#ifdef __ANDROID__') && !src.contains('__APPLE__')) continue;
       checked++;
-      if (!src.contains('REFERENCED_DYNAMICALLY')) {
+      if (!markerRe.hasMatch(src)) {
         missing++;
         ctx.warn(
           iosSec,

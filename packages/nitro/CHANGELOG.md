@@ -1,3 +1,7 @@
+## 0.8.2
+
+- Coordinated 0.8.2 release; no changes to this package.
+
 ## 0.8.1
 
 - Coordinated 0.8.1 release; no changes to this package.

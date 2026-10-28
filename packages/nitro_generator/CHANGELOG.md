@@ -1,3 +1,7 @@
+## 0.8.2
+
+- Drop the explanatory comment from the generated Apple strip-survival block; the `.desc` markers are unchanged.
+
 ## 0.8.1
 
 - iOS/macOS: mark every `NITRO_EXPORT` function REFERENCED_DYNAMICALLY in the

@@ -818,7 +818,7 @@ nitrogen generate # regenerates all
 
 ```yaml
 dev_dependencies:
-  nitro_generator: ^0.8.1       # code generator
+  nitro_generator: ^0.8.2       # code generator
   build_runner: ^2.4.0
 ```
 

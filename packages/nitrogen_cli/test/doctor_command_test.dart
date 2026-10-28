@@ -2529,6 +2529,50 @@ let package = Package(name: "my_plugin", targets: [
           reason: 'must NOT error for a hand-written hook');
     });
   });
+
+  group('Apple strip-survival (nitro_http#3)', () {
+    void writeBridge(Directory root, String body) {
+      final cpp = Directory(p.join(root.path, 'lib', 'src', 'generated', 'cpp'))..createSync(recursive: true);
+      File(p.join(cpp.path, 'my_plugin.bridge.g.cpp')).writeAsStringSync(body);
+    }
+
+    test('ok when the generated bridge marks exports REFERENCED_DYNAMICALLY', () {
+      final root = _scaffold();
+      addTearDown(() => root.deleteSync(recursive: true));
+      writeBridge(root, '''
+NITRO_EXPORT intptr_t my_plugin_init_dart_api_dl(void* d) { return 0; }
+#if defined(__APPLE__)
+__asm__(".desc _my_plugin_init_dart_api_dl, 0x10");
+#endif
+''');
+      final sec = _run(root).sections.firstWhere((s) => s.title == 'iOS');
+      expect(sec.checks.any((c) => c.status == DoctorStatus.ok && c.label.contains('REFERENCED_DYNAMICALLY')), isTrue);
+    });
+
+    test('warns when a generated Apple bridge lacks the marker (pre-0.8.1)', () {
+      final root = _scaffold();
+      addTearDown(() => root.deleteSync(recursive: true));
+      writeBridge(root, '''
+#ifdef __APPLE__
+NITRO_EXPORT intptr_t my_plugin_init_dart_api_dl(void* d) { return 0; }
+#endif
+''');
+      final sec = _run(root).sections.firstWhere((s) => s.title == 'iOS');
+      expect(sec.checks.any((c) => c.status == DoctorStatus.warn && c.label.contains('archive-strip-survival marker')), isTrue);
+    });
+
+    test('skips an Android-only bridge (not compiled on Apple)', () {
+      final root = _scaffold();
+      addTearDown(() => root.deleteSync(recursive: true));
+      writeBridge(root, '''
+#ifdef __ANDROID__
+NITRO_EXPORT intptr_t my_plugin_init_dart_api_dl(void* d) { return 0; }
+#endif
+''');
+      final sec = _run(root).sections.firstWhere((s) => s.title == 'iOS');
+      expect(sec.checks.any((c) => c.label.contains('archive-strip-survival marker')), isFalse);
+    });
+  });
 }
 
 // ── False positives found on real plugins (nitro_vani/webgpu/http/printing/view) ──

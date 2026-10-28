@@ -39,15 +39,11 @@ class CppBridgeGenerator {
     return full + _appleKeepExports(spec, full);
   }
 
-  /// Marks each `NITRO_EXPORT` symbol REFERENCED_DYNAMICALLY so Apple's archive
-  /// strip (`STRIP_STYLE=all`) keeps it and `dlsym(RTLD_DEFAULT)` still resolves
-  /// it in release/TestFlight builds. Must sit in the defining TU (this bridge);
-  /// iOS/macOS only, guarded so it's inert elsewhere. See nitro_http#3.
   static String _appleKeepExports(BridgeSpec spec, String cpp) {
     if (!(spec.targetsIos || spec.targetsMacos)) return '';
     final libStem = spec.lib.replaceAll('-', '_');
     final nameRe = RegExp('\\b${RegExp.escape(libStem)}_\\w+(?=\\s*\\()');
-    final syms = <String>{}; // insertion-ordered → deterministic output
+    final syms = <String>{};
     for (final line in cpp.split('\n')) {
       if (!line.contains('NITRO_EXPORT')) continue;
       final m = nameRe.firstMatch(line);
@@ -56,7 +52,6 @@ class CppBridgeGenerator {
     if (syms.isEmpty) return '';
     final b = StringBuffer()
       ..writeln()
-      ..writeln('// REFERENCED_DYNAMICALLY keeps these exports through Apple archive strip (nitro_http#3).')
       ..writeln('#if defined(__APPLE__)')
       ..writeln('__asm__(');
     for (final s in syms) {

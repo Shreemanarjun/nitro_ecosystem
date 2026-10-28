@@ -1,3 +1,7 @@
+## 0.8.2
+
+- `doctor` detects the strip-survival marker by its `.desc`/`0x10` emit (bridges no longer carry a comment).
+
 ## 0.8.1
 
 - `doctor`: warn when a generated iOS/macOS bridge predates the archive-strip
