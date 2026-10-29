@@ -99,7 +99,7 @@ nitrogen init --no-ui --name my_plugin \
 | `android/.../<Name>Impl.kt` | Starter Kotlin implementation |
 | `android/.../<Name>Plugin.kt` | Flutter plugin registrar |
 | `src/CMakeLists.txt` | NDK build file |
-| `pubspec.yaml` | Pre-wired with `nitro: ^0.8.2` and `nitro_generator: ^0.8.2` |
+| `pubspec.yaml` | Pre-wired with `nitro: ^0.8.3` and `nitro_generator: ^0.8.3` |
 
 **You only ever edit:** the spec, the Kotlin impl, and the Swift impl (or a single C++ impl). Everything else is generated.
 
@@ -196,6 +196,8 @@ Hook modes (auto-detected):
 > ⚠️ **Double-bundle hazard.** The code asset is ONE copy of your native library. If the plugin ALSO builds it the classic way (`ffiPlugin: true` / a `pluginClass` native project / podspec / gradle / CMake), `flutter build` bundles it **twice** → two C++ runtimes → split-brain global state → a double-free/abort at runtime. To adopt native-assets, remove the platform native engine build for the covered platforms so only the hook bundles the library. `nitrogen generate` warns about this (naming the platforms) and `nitrogen doctor` fails on it.
 
 > External dependencies are the plugin's responsibility: `nitrogen` supplies only the cross-compile toolchain. OpenSSL/libuv/etc. must be available **pre-cross-compiled for each target ABI** via the plugin's own cmake (as any manual mobile cmake build requires).
+
+> ⚠️ **`dart compile exe` skips build hooks.** The code asset is produced by `hook/build.dart`, which only runs under `dart build`, `dart run`, `flutter run`, and `flutter build`. A binary from `dart compile exe` has **no** code asset and throws at the first `@Native` call. For a standalone CLI/server executable use `dart build` (or stay on the default `_dylib` path, whose `.so`/`.dylib` is loaded at runtime). `nitrogen doctor` flags this on any module using the `@Native` path.
 
 **CI examples:**
 
@@ -744,9 +746,8 @@ part 'my_module.g.dart';
 
 | ID | Limitation | Workaround |
 |---|---|---|
-| L6 | `@HybridStruct` / `@HybridRecord` cannot be returned from a callback parameter. | Return `void`; use a reverse method call or stream. |
-| L7 | `TypedData?` (nullable `Uint8List`, etc.) is not supported. | Wrap in `@HybridRecord`: `class MaybeBuffer { final Uint8List? data; }` |
-| L8 | Web — `dart:ffi` unavailable; streams/callbacks throw `UnsupportedError`. | Guard platform-specific code. |
+| L6 | `@HybridStruct` cannot be returned from a callback parameter (`@HybridRecord` / `@NitroVariant` returns work). | Return `void`; use a reverse method call or stream. |
+| L7 | `TypedData?` (nullable `Uint8List`, etc.) is not supported as a return type (nullable parameters work since 0.7.7). | Wrap in `@HybridRecord`: `class MaybeBuffer { final Uint8List? data; }` |
 | L10 | `Map<String, @HybridStruct>` is not supported. | Use `Map<String, @HybridRecord>`. |
 
 ---
@@ -755,8 +756,8 @@ part 'my_module.g.dart';
 
 | Tool | Minimum |
 |---|---|
-| Dart SDK | 3.3.0+ |
-| Flutter SDK | 3.22.0+ |
+| Dart SDK | 3.11.3+ |
+| Flutter SDK | 3.35.0+ |
 | Android NDK | 26.1+ |
 | Kotlin | 1.9.0+ |
 | iOS Deployment Target | 13.0+ |

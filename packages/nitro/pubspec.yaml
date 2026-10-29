@@ -2,7 +2,7 @@ name: nitro
 description: >
   High-performance Native Modules for Flutter (Nitro Modules equivalent).
   Runtime support for .native.dart spec generated bridges.
-version: 0.8.2
+version: 0.8.3
 homepage: https://nitro.shreeman.dev
 repository: https://github.com/Shreemanarjun/nitro_ecosystem
 issue_tracker: https://github.com/Shreemanarjun/nitro_ecosystem/issues
@@ -27,13 +27,13 @@ resolution: workspace
 # in their own native build.
 dependencies:
   ffi: ^2.2.0
-  nitro_annotations: ^0.8.2
+  nitro_annotations: ^0.8.3
   meta: ^1.17.0
 
 dev_dependencies:
   flutter_lints: ^6.0.0
   build_runner: ^2.15.0
-  nitro_generator: ^0.8.2
+  nitro_generator: ^0.8.3
   test: ^1.31.1
   ffi_leak_tracker: ^0.1.2
   leak_tracker: ^11.0.0

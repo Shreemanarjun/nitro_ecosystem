@@ -1267,7 +1267,7 @@ class InitCommand extends Command {
         defaultsTo: _defaultPlatforms,
         help:
             'Comma-separated list of platforms to scaffold. '
-            'Valid: android, ios, macos, windows, linux. '
+            'Valid: android, ios, macos, windows, linux, web. '
             'Example: --platforms=android,ios,macos,windows',
       )
       ..addFlag(

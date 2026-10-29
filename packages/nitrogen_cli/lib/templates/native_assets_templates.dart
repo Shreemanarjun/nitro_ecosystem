@@ -72,6 +72,7 @@ $sources
       // <lib>.native.g.h, which lives beside the generated bridge).
       includes: ['$vendoredDir', 'lib/src/generated/cpp'],
       std: 'c++17',
+      libraries: android ? const ['m', 'log'] : const [],
       cppLinkStdLib: android ? 'c++_static' : null,
     ).run(input: input, output: output, logger: logger);''';
   }

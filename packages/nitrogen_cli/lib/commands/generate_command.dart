@@ -616,6 +616,13 @@ class GenerateCommand extends Command {
     for (final spec in specFiles) {
       final specHash = IncrementalGenerationCache.contentHash(spec);
       for (final outputPath in _generatedOutputsForSpec(projectRoot, spec, targets)) {
+        // The C++ impl interface + GoogleMock/test scaffolds are write-once or
+        // emitted only for C++-impl modules; `nitrogen generate` does NOT
+        // deterministically (re)write them, so flagging them "stale → run
+        // nitrogen generate" is a false positive the hint can't fix. --check
+        // gates only the files generate always refreshes; native.g.h correctness
+        // is enforced by compilation (verify_cpp_bridge_compiles) instead.
+        if (_isEditableStarterOutput(outputPath)) continue;
         final output = File(outputPath);
         if (!output.existsSync()) {
           issues.add(_GeneratedFileIssue.missing(outputPath));
@@ -677,6 +684,12 @@ class GenerateCommand extends Command {
     ];
     return outputs.where(targets.matchesOutput).toList();
   }
+
+  /// Outputs `nitrogen generate` writes once as user-editable scaffolds, or only
+  /// for C++-impl modules — never deterministically refreshed on a later run.
+  /// --check skips them: a "stale" report here is unactionable (running generate
+  /// won't rewrite them), so it would be a false positive.
+  static bool _isEditableStarterOutput(String path) => path.endsWith('.native.g.h') || path.endsWith('.mock.g.h') || path.endsWith('.test.g.cpp');
 
   _GenerateTargetSelection? _parseTargets(String? raw) {
     if (raw == null || raw.trim().isEmpty) return const _GenerateTargetSelection.all();

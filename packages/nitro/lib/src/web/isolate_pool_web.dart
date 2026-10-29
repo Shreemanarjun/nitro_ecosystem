@@ -9,8 +9,14 @@ import 'dart:async';
 class IsolatePool {
   IsolatePool._();
 
-  /// Web: no isolates to spawn — returns an inline-executing pool.
-  static Future<IsolatePool> create(int size) async => IsolatePool._();
+  /// Web: no isolates to spawn — returns an inline-executing pool. [size] and
+  /// [maxWorkers] are accepted for API parity with the VM pool but ignored
+  /// (there is nothing to grow on a single-threaded runtime).
+  static Future<IsolatePool> create(int size, {int? maxWorkers}) async => IsolatePool._();
+
+  /// API parity with the VM pool: web runs inline, so there is one conceptual
+  /// executor and it never grows.
+  int get workerCount => 1;
 
   /// Runs [fn] inline after one event-loop hop. [getError]/[clearError] are
   /// the native error-slot function pointers on the VM; on web the generated

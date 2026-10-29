@@ -16,9 +16,9 @@ Sync calls decode immediately after the call returns — a couple of field reads
 no callbacks, no reentry — so a single slot per thread is enough, and a
 `malloc`/`free` pair disappears from every call.
 
-`@nitroAsync` cannot use it. `NitroRuntime.callAsync` dispatches through
-`Isolate.run`, so the native call runs on a helper isolate thread while Dart
-decodes on the main isolate. Thread-local storage there is a *different slot*, so
+`@nitroAsync` cannot use it. The call is dispatched to a bridge worker thread
+(or an isolate-pool worker), so the native call runs on another thread while Dart
+decodes on the calling isolate. Thread-local storage there is a *different slot*, so
 the value would decode as garbage. Those paths keep their own allocation.
 
 The Dart free site is platform-independent — one `.g.dart` serves the C++, JNI and

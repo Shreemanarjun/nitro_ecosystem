@@ -1,3 +1,7 @@
+## 0.8.3
+
+- Instance-lookup cache: 32 direct-mapped slots (was 8) — fewer mutex fallbacks when a call loop rotates between many live instances of one hybrid class.
+
 ## 0.8.2
 
 - Drop the explanatory comment from the generated Apple strip-survival block; the `.desc` markers are unchanged.

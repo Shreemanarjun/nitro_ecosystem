@@ -12,8 +12,8 @@ Before you begin, install and verify the following tools:
 
 | Tool | Required version | Check |
 |---|---|---|
-| Flutter SDK | 3.22.0+ | `flutter --version` |
-| Dart SDK | 3.3.0+ | `dart --version` |
+| Flutter SDK | 3.35.0+ | `flutter --version` |
+| Dart SDK | 3.11.3+ | `dart --version` |
 | Android NDK | 26.1+ (r26b) | Android Studio → SDK Manager → SDK Tools → NDK |
 | Kotlin | 1.9.0+ | bundled with Android Studio |
 | Xcode | 15.0+ | `xcode-select --version` |
@@ -184,7 +184,7 @@ abstract class MySensor extends HybridObject {
 | `int?`, `double?`, `bool?`, `String?` | same + nullable semantics | same + `?` | same + `?` |
 | `Future<T>` | — | `suspend fun` | `async throws` |
 | `Stream<T>` | SendPort registration | `Flow<T>` | `AnyPublisher<T, Never>` |
-| `@HybridEnum` | `int32_t` | `Long` (via `.nativeValue`) | `Int32` rawValue |
+| `@HybridEnum` | `int64_t` | `Long` (via `.nativeValue`) | `Int64` rawValue |
 | `@HybridStruct` | `YourStruct*` | `@Keep data class` | `public struct` |
 | `@HybridRecord` | `uint8_t*` (binary record codec) | `@Keep data class` | `struct` |
 | `List<@HybridRecord T>` | `uint8_t*` (binary list codec) | `List<T>` | `[T]` |
@@ -198,7 +198,7 @@ abstract class MySensor extends HybridObject {
 > | `String` | `UnsafePointer<CChar>?` | `UnsafeMutablePointer<CChar>?` (malloc'd) |
 > | `@HybridRecord` | `UnsafeMutablePointer<UInt8>?` | `UnsafeMutablePointer<UInt8>?` (malloc'd) |
 > | `Bool` | `Int8` | `Int8` |
-> | `@HybridEnum` | `Int32` | `Int32` |
+> | `@HybridEnum` | `Int64` | `Int64` |
 >
 > This is handled entirely by the generator.
 > Full details: **[docs/swift-type-mapping.md](swift-type-mapping.md)**
@@ -517,7 +517,7 @@ public class MySensorImpl: NSObject, HybridMySensorProtocol {
 
     // --- Properties ---
 
-    public var mode: Int32 = SensorMode.idle.rawValue
+    public var mode: Int64 = SensorMode.idle.rawValue
 
     public var sampleRate: Double = 10.0
 }
@@ -818,7 +818,7 @@ nitrogen generate # regenerates all
 
 ```yaml
 dev_dependencies:
-  nitro_generator: ^0.8.2       # code generator
+  nitro_generator: ^0.8.3       # code generator
   build_runner: ^2.4.0
 ```
 
@@ -851,6 +851,6 @@ Fix the type in your spec, then regenerate.
 - **[Publishing to pub.dev](publishing.md)** — prepare your plugin for release, versioning, and the `dart pub publish` flow
 - **[Consuming a plugin](consuming.md)** — how app developers add your plugin and use its API
 - Read the **[`nitro` runtime docs](../packages/nitro/README.md)** for the full annotation reference
-- Read the **[`nitro_generator` generator docs](../packages/nitrogen/README.md)** for spec validator rules and type mapping details
+- Read the **[`nitro_generator` generator docs](../packages/nitro_generator/README.md)** for spec validator rules and type mapping details
 - Study **[`my_camera`](../my_camera/README.md)** as a production-quality reference implementation
 - Run `nitrogen doctor` in CI to catch regressions early

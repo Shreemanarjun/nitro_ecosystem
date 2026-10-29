@@ -7,9 +7,9 @@ Nitro supports Linux via `NativeImpl.cpp` — your module is compiled as a share
 | Tool | Minimum version | How to install |
 |---|---|---|
 | GCC or Clang | GCC 9+ / Clang 10+ | `apt install build-essential` / `apt install clang` |
-| CMake | 3.14+ | `apt install cmake` |
-| Flutter | 3.22+ stable | flutter.dev |
-| Dart SDK | 3.4+ | bundled with Flutter |
+| CMake | 3.10+ | `apt install cmake` |
+| Flutter | 3.35+ stable | flutter.dev |
+| Dart SDK | 3.11.3+ | bundled with Flutter |
 | GTK3 dev headers | any | `apt install libgtk-3-dev` (required by Flutter Linux shell) |
 
 Verify:
@@ -129,8 +129,8 @@ When both Windows and Linux are targeted:
 ```
 nitrogen doctor
 
-  ✓ Dart 3.4.0
-  ✓ Flutter 3.22.0
+  ✓ Dart 3.11.3
+  ✓ Flutter 3.35.0
   ✓ g++ 11.4.0 found at /usr/bin/g++
   ✓ cmake 3.22.1 found at /usr/bin/cmake
   ⚠ ANDROID_NDK_HOME not set — Android targets will fail

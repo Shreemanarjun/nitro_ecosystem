@@ -40,10 +40,10 @@ No method channels. No manual FFI. No boilerplate.
 ```yaml
 # pubspec.yaml
 dependencies:
-  nitro: ^0.8.2
+  nitro: ^0.8.3
 
 dev_dependencies:
-  nitro_generator: ^0.8.2
+  nitro_generator: ^0.8.3
   build_runner: ^2.4.0
 ```
 
@@ -131,11 +131,11 @@ class MathImpl : HybridMathSpec {
 }
 ```
 
-**Swift (`ios/Classes/MathModuleImpl.swift`, the scaffolded file — `nitrogen link` registers `MathModuleImpl`):**
+**Swift (`ios/Classes/MathImpl.swift`, the scaffolded file — the scaffolded `SwiftMathPlugin` registers `MathImpl`):**
 ```swift
 import Foundation
 
-class MathModuleImpl: NSObject, HybridMathProtocol {
+class MathImpl: NSObject, HybridMathProtocol {
     func add(a: Double, b: Double) -> Double { a + b }
     func greet(name: String) -> String { "Hello, \(name)" }
     var precision: Int64 = 6
@@ -1083,12 +1083,11 @@ Works on web; the C++ twin is the generated `*.mock.g.h`.
 
 | ID | Limitation | Workaround |
 |---|---|---|
-| L6 | `@HybridStruct` and `@HybridRecord` cannot be **returned** from a callback (function parameter). Callbacks that need to return complex data should return `void` and call back via a method. | Use a method channel or reverse callback pattern |
-| L7 | `TypedData?` (nullable `Uint8List`, etc.) is not supported in sync/async params or returns. The two-param C ABI (pointer + length) makes optional transport ambiguous. | Use a `@HybridRecord` wrapper: `@HybridRecord() class MaybeBuffer { final Uint8List? data; }` |
+| L6 | `@HybridStruct` cannot be **returned** from a callback (function parameter); `@HybridRecord` and `@NitroVariant` returns are supported. Callbacks that need to return complex data should return `void` and call back via a method. | Use a method channel or reverse callback pattern |
+| L7 | `TypedData?` (nullable `Uint8List`, etc.) is not supported as a return type (nullable typed-data *parameters* work since 0.7.7). The two-param C ABI (pointer + length) makes optional transport ambiguous. | Use a `@HybridRecord` wrapper: `@HybridRecord() class MaybeBuffer { final Uint8List? data; }` |
 | ~~L8~~ | Resolved in 0.7.0: web is fully supported — the C++ impl compiles to WASM (Emscripten) and the generated `dart:js_interop` bridge speaks the same binary wire format, including streams and `@nitroNativeAsync`. | See [migration/0.7.0.md](migration/0.7.0.md) to add web to a plugin |
 | L10 | `Map<String, @HybridStruct>` is not supported. | Use `Map<String, @HybridRecord>` instead |
 | L13 | A nullable map value only works for `int`/`double`/`bool`/`String` on a String-keyed map. An int-keyed map's values carry no type tag, and enum/record/variant values are dropped rather than kept as null (E018). | Use `NitroAnyMap`, which tags every value and carries nulls |
-| L12 | `@NitroVariant` callbacks (function parameters returning a variant) are not supported. | Return `void` from callback; use a reverse method call |
 
 ---
 

@@ -51,6 +51,19 @@ jobs:
         run: dart run tool/verify_native_assets_analyzes.dart
         working-directory: packages/nitro_generator
 
+      # Every always-regenerated file carries the spec-sha256 stamp so
+      # `nitrogen generate --check` can distinguish committed output from drift
+      # (#42). Prove the current generator's FRESH output actually passes that
+      # gate end-to-end: a regression that drops the stamp, emits non-idempotent
+      # output, or re-breaks the editable-starter exclusion turns this red.
+      # Ephemeral regen — the runner tree is throwaway.
+      - name: nitrogen generate --check is clean on fresh output
+        working-directory: packages/nitro/example
+        run: |
+          dart run nitrogen_cli:nitrogen clean --no-ui
+          dart run nitrogen_cli:nitrogen generate --no-ui
+          dart run nitrogen_cli:nitrogen generate --check --no-ui
+
   # Lever-2 zero-copy ratio gate (W4). Pure Dart — no Flutter: the microbench is
   # self-contained (only dart:ffi/io/typed_data), so it runs under the plain Dart
   # SDK as a standalone script. Copied out of the Flutter pub workspace so no

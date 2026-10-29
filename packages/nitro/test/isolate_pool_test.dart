@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io' show sleep;
+import 'dart:isolate' show Isolate;
 
 import 'package:nitro/nitro.dart';
 import 'package:test/test.dart';
@@ -48,6 +50,17 @@ int _slowAdd(int a, int b) {
   }
   return a + b + (sum - sum); // sum cancels out; avoids dead-code elimination
 }
+
+/// Blocks the worker's thread for [ms] so it stays "busy" — used to hold every
+/// worker occupied and force the adaptive pool to grow.
+int _sleepReturn(int ms) {
+  sleep(Duration(milliseconds: ms));
+  return ms;
+}
+
+/// Kills the worker isolate mid-call (no reply) — simulates a native crash / OOM
+/// so the pool's onExit/onError death handling runs.
+Never _suicide() => Isolate.exit();
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -402,4 +415,234 @@ void main() {
     }, timeout: const Timeout(Duration(seconds: 20)));
   });
 
+  group('adaptive growth', () {
+    test('a fixed pool (maxWorkers defaults to size) never grows', () async {
+      await withPool(2, (pool) async {
+        final calls = [for (var i = 0; i < 12; i++) pool.dispatch<int>(_sleepReturn, [30])];
+        await Future.wait(calls);
+        expect(pool.workerCount, 2, reason: 'no growth when maxWorkers == size');
+      });
+    }, timeout: const Timeout(Duration(seconds: 20)));
+
+    test('grows past the initial size under concurrent load', () async {
+      final pool = await IsolatePool.create(1, maxWorkers: 4);
+      final inflight = <Future<int>>[];
+      try {
+        expect(pool.workerCount, 1);
+        // A steady stream of overlapping blocking calls: once in-flight calls
+        // outnumber workers the pool spawns the shortfall (demand-proportional,
+        // in parallel) up to the cap.
+        for (var i = 0; i < 200 && pool.workerCount < 4; i++) {
+          inflight.add(pool.dispatch<int>(_sleepReturn, [40]));
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        expect(pool.workerCount, 4, reason: 'adaptive pool should ramp to maxWorkers under sustained load');
+      } finally {
+        await Future.wait(inflight);
+        pool.dispose();
+      }
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('never grows beyond maxWorkers under a flood', () async {
+      final pool = await IsolatePool.create(1, maxWorkers: 2);
+      try {
+        final calls = [for (var i = 0; i < 40; i++) pool.dispatch<int>(_sleepReturn, [20])];
+        await Future.wait(calls);
+        expect(pool.workerCount, lessThanOrEqualTo(2));
+      } finally {
+        pool.dispose();
+      }
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('grown workers serve calls and dispose cleanly', () async {
+      final pool = await IsolatePool.create(1, maxWorkers: 3);
+      final inflight = <Future<int>>[];
+      try {
+        for (var i = 0; i < 100 && pool.workerCount < 3; i++) {
+          inflight.add(pool.dispatch<int>(_sleepReturn, [30]));
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        expect(pool.workerCount, greaterThan(1));
+        // Every dispatched call (across original + grown workers) returns.
+        expect(await Future.wait(inflight), everyElement(30));
+      } finally {
+        pool.dispose();
+      }
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('a cold concurrent burst fans out onto workers as they spawn', () async {
+      // All 24 calls are dispatched before any new worker exists, so they queue
+      // centrally; the work-queue hands them to workers as they come online
+      // (rather than stranding all 24 on the first worker).
+      final pool = await IsolatePool.create(1, maxWorkers: 4);
+      try {
+        expect(pool.workerCount, 1);
+        final results = await Future.wait([for (var i = 0; i < 24; i++) pool.dispatch<int>(_sleepReturn, [40])]);
+        expect(results, everyElement(40), reason: 'every queued call must still complete');
+        expect(pool.workerCount, greaterThan(1), reason: 'the backlog should have pulled new workers in');
+      } finally {
+        pool.dispose();
+      }
+    }, timeout: const Timeout(Duration(seconds: 30)));
+  });
+
+  group('work-queue edge cases', () {
+    test('worker death with a backlog fails the queued calls (fixed pool cannot grow to recover)', () async {
+      // The one worker dies mid-call; the calls queued behind it are in the
+      // central backlog, not the worker's mailbox. With no worker left and no
+      // growth (maxWorkers == size), nothing can ever serve them — they must
+      // FAIL, not hang.
+      final pool = await IsolatePool.create(1);
+      try {
+        final suicide = pool.dispatch<void>(_suicide, const []);
+        final queued = [for (var i = 0; i < 5; i++) pool.dispatch<int>(_add, [i, 0])];
+        await expectLater(suicide, throwsA(anything));
+        for (var i = 0; i < queued.length; i++) {
+          await expectLater(queued[i], throwsA(anything), reason: 'queued call $i must settle, not hang');
+        }
+      } finally {
+        pool.dispose();
+      }
+    }, timeout: const Timeout(Duration(seconds: 15)));
+
+    test('worker death with survivors: the backlog drains onto a live worker', () async {
+      final pool = await IsolatePool.create(2);
+      try {
+        final suicide = pool.dispatch<void>(_suicide, const []);
+        final good = [for (var i = 0; i < 12; i++) pool.dispatch<int>(_add, [i, 100])];
+        await expectLater(suicide, throwsA(anything));
+        expect(await Future.wait(good), [for (var i = 0; i < 12; i++) i + 100],
+            reason: 'the surviving worker must serve the whole backlog');
+      } finally {
+        pool.dispose();
+      }
+    }, timeout: const Timeout(Duration(seconds: 15)));
+
+    test('an adaptive pool spawns past a dead worker to serve the backlog', () async {
+      // maxWorkers > 1: the backlog dispatch already triggered growth, so fresh
+      // workers come online and serve it even though the first worker died.
+      final pool = await IsolatePool.create(1, maxWorkers: 4);
+      try {
+        final suicide = pool.dispatch<void>(_suicide, const []);
+        final good = [for (var i = 0; i < 16; i++) pool.dispatch<int>(_add, [i, 1])];
+        await expectLater(suicide, throwsA(anything));
+        expect(await Future.wait(good), [for (var i = 0; i < 16; i++) i + 1]);
+      } finally {
+        pool.dispose();
+      }
+    }, timeout: const Timeout(Duration(seconds: 20)));
+
+    test('dispose fails a large queued backlog — nothing hangs', () async {
+      final pool = await IsolatePool.create(1, maxWorkers: 2);
+      // Blocking calls: a couple assigned, the rest piled in the backlog.
+      final calls = [for (var i = 0; i < 30; i++) pool.dispatch<int>(_sleepReturn, [200])];
+      pool.dispose();
+      for (var i = 0; i < calls.length; i++) {
+        await expectLater(calls[i], throwsA(anything), reason: 'call $i must settle after dispose');
+      }
+    }, timeout: const Timeout(Duration(seconds: 15)));
+
+    test('dispose while workers are still spawning settles everything + is idempotent', () async {
+      final pool = await IsolatePool.create(1, maxWorkers: 8);
+      // A burst that triggers several spawns…
+      final calls = [for (var i = 0; i < 40; i++) pool.dispatch<int>(_sleepReturn, [100])];
+      // …disposed almost immediately, racing the in-flight spawns.
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+      pool.dispose();
+      for (var i = 0; i < calls.length; i++) {
+        await expectLater(calls[i], throwsA(anything));
+      }
+      expect(() => pool.dispose(), returnsNormally);
+    }, timeout: const Timeout(Duration(seconds: 15)));
+
+    test('a call dispatched to a never-contended pool still uses the fast path', () async {
+      // Sequential dispatch on a pool that can grow but never needs to: must
+      // stay at one worker and return correct results (fast path, no queue).
+      final pool = await IsolatePool.create(1, maxWorkers: 4);
+      try {
+        for (var i = 0; i < 50; i++) {
+          expect(await pool.dispatch<int>(_add, [i, i]), i + i);
+        }
+        expect(pool.workerCount, 1, reason: 'no concurrency → no growth');
+      } finally {
+        pool.dispose();
+      }
+    }, timeout: const Timeout(Duration(seconds: 15)));
+  });
+
+  group('idle shrink', () {
+    // Grow the pool via a sustained concurrent stream, then await the inflight.
+    Future<void> growUnderLoad(IsolatePool pool, int target) async {
+      final inflight = <Future<int>>[];
+      for (var i = 0; i < 200 && pool.workerCount < target; i++) {
+        inflight.add(pool.dispatch<int>(_sleepReturn, [40]));
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      await Future.wait(inflight);
+    }
+
+    test('shrinks back to the floor after an idle period', () async {
+      final pool = await IsolatePool.create(1, maxWorkers: 4, idleReap: const Duration(milliseconds: 100));
+      try {
+        await growUnderLoad(pool, 4);
+        expect(pool.workerCount, greaterThan(1), reason: 'should have grown under load');
+        // Idle through several reap intervals → retire the extras back to 1.
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        expect(pool.workerCount, 1, reason: 'idle pool must shrink to the floor (never below)');
+      } finally {
+        pool.dispose();
+      }
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('serves correctly after shrinking and regrows under new load', () async {
+      final pool = await IsolatePool.create(1, maxWorkers: 4, idleReap: const Duration(milliseconds: 100));
+      try {
+        await growUnderLoad(pool, 4);
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        expect(pool.workerCount, 1);
+        // Floor worker still serves.
+        expect(await pool.dispatch<int>(_add, [2, 3]), 5);
+        // New load regrows (reusing the tombstoned slots).
+        await growUnderLoad(pool, 4);
+        expect(pool.workerCount, greaterThan(1), reason: 'must regrow after shrinking');
+        expect(await pool.dispatch<int>(_add, [10, 20]), 30);
+      } finally {
+        pool.dispose();
+      }
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('a fixed pool never starts a reaper and never shrinks', () async {
+      final pool = await IsolatePool.create(3, idleReap: const Duration(milliseconds: 80));
+      try {
+        expect(await pool.dispatch<int>(_add, [1, 1]), 2); // some activity
+        await Future<void>.delayed(const Duration(milliseconds: 400)); // idle through many ticks
+        expect(pool.workerCount, 3, reason: 'fixed pool must stay at its size');
+      } finally {
+        pool.dispose();
+      }
+    }, timeout: const Timeout(Duration(seconds: 15)));
+
+    test('idleReap: Duration.zero disables shrinking (stays grown)', () async {
+      final pool = await IsolatePool.create(1, maxWorkers: 4, idleReap: Duration.zero);
+      try {
+        await growUnderLoad(pool, 4);
+        final grown = pool.workerCount;
+        expect(grown, greaterThan(1));
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        expect(pool.workerCount, grown, reason: 'shrink disabled → pool keeps its workers');
+      } finally {
+        pool.dispose();
+      }
+    }, timeout: const Timeout(Duration(seconds: 30)));
+
+    test('dispose cancels the reaper and stays idempotent', () async {
+      final pool = await IsolatePool.create(1, maxWorkers: 4, idleReap: const Duration(milliseconds: 50));
+      await growUnderLoad(pool, 3);
+      pool.dispose();
+      expect(() => pool.dispose(), returnsNormally);
+      // If the reaper kept firing on a disposed pool it would touch torn-down
+      // state; _reap guards on _disposed, so this quiet wait is uneventful.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }, timeout: const Timeout(Duration(seconds: 15)));
+  });
 }

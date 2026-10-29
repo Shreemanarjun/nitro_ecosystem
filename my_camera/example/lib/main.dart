@@ -9,7 +9,7 @@ import 'widgets/debug_panel.dart';
 /// Configure the Nitro runtime BEFORE any plugin is accessed.
 Future<void> _configureNitro() async {
   NitroConfig.instance.enable(slowCallThresholdMs: 16);
-  await NitroRuntime.init(isolatePoolSize: 1);
+  await NitroRuntime.init();
 }
 
 void main() async {
@@ -49,14 +49,6 @@ class _HomePage extends StatefulWidget {
 class _HomePageState extends State<_HomePage> {
   int _refreshCount = 0;
   bool _debugPanelOpen = false;
-  int _poolSize = NitroConfig.instance.isolatePoolSize;
-
-  void _applyPoolSize(int size) async {
-    await NitroRuntime.dispose();
-    NitroConfig.instance.isolatePoolSize = size;
-    await NitroRuntime.init(isolatePoolSize: size);
-    if (mounted) setState(() => _poolSize = size);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -103,12 +95,9 @@ class _HomePageState extends State<_HomePage> {
               duration: const Duration(milliseconds: 250),
               curve: Curves.easeInOut,
               child: _debugPanelOpen
-                  ? Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20.0),
-                      child: DebugPanel(
-                        poolSize: _poolSize,
-                        onPoolSizeChanged: _applyPoolSize,
-                      ),
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 20.0),
+                      child: DebugPanel(),
                     )
                   : const SizedBox.shrink(),
             ),
@@ -127,7 +116,7 @@ class _HomePageState extends State<_HomePage> {
           padding: const EdgeInsets.all(12),
           color: Colors.black,
           child: Text(
-            'nitro 0.2.2 • pool=$_poolSize workers',
+            'nitro • adaptive isolate pool',
             textAlign: TextAlign.center,
             style: const TextStyle(color: Colors.grey, fontSize: 11),
           ),

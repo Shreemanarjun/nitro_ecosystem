@@ -145,7 +145,7 @@ print('$temp °C  connected=$ok');
 
 ### Async calls
 
-Runs on a background isolate, returns to the main isolate automatically:
+Runs off the UI thread (bridge worker pool since 0.7.6) and completes on the calling isolate:
 
 ```dart
 final id = await sensor.readManufacturerId();

@@ -234,6 +234,12 @@ extension _DoctorToolchainChecks on DoctorCommand {
       final plats = nativeBuildPlatforms(pubspec);
       if (plats.isEmpty) {
         ctx.ok(pubSec, 'native-assets hook present with no platform native build (single-bundle)');
+        ctx.warn(
+          pubSec,
+          'native-assets (@Native) code assets are built by build hooks — `dart compile exe` skips hooks',
+          hint: 'A binary from `dart compile exe` has no code asset and throws at the first @Native call. '
+              'Build/run via `dart build`, `dart run`, `flutter run`, or `flutter build` (which run hooks) instead.',
+        );
       } else if (generatedHook) {
         ctx.err(
           pubSec,

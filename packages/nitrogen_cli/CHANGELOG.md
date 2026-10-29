@@ -1,3 +1,9 @@
+## 0.8.3
+
+- Generated Android build hook links `libm`/`liblog`, so a consumer C++ impl using float math or `__android_log` loads on armeabi-v7a.
+- `generate --check` no longer flags the write-once C++ starters (`.native.g.h`/`.mock.g.h`/`.test.g.cpp`) as stale — `generate` never refreshes them, so the report was unactionable. CI now runs `--check` on fresh output.
+- `doctor` warns on the `@Native` path that `dart compile exe` skips build hooks (no code asset → first-call failure); use `dart build`/`flutter`.
+
 ## 0.8.2
 
 - `doctor` detects the strip-survival marker by its `.desc`/`0x10` emit (bridges no longer carry a comment).

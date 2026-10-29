@@ -1,29 +1,20 @@
 // Native implementation of the NitroRuntime startup sequence.
 // Loaded when dart.library.io is present (all non-web platforms).
 
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:nitro/nitro.dart';
 
 String? startupError;
 
 Future<void> initNitroRuntime() async {
-  NitroConfig.instance.isolatePoolSize = Platform.numberOfProcessors;
+  // The @nitroAsync pool is automatic and adaptive — it sizes itself to the
+  // CPU and grows under concurrent load, so there is nothing to configure.
   try {
     await NitroRuntime.init();
   } catch (e) {
-    // IsolatePool.create() can fail on some devices — retry with pool disabled.
-    debugPrint(
-      '[NitroBenchmark] NitroRuntime.init() failed: $e. Retrying with isolatePoolSize=0.',
-    );
-    NitroConfig.instance.isolatePoolSize = 0;
-    try {
-      await NitroRuntime.init();
-    } catch (e2) {
-      debugPrint(
-        '[NitroBenchmark] NitroRuntime.init() failed again: $e2. Running without runtime.',
-      );
-      startupError = e2.toString();
-    }
+    // IsolatePool spawn can fail on some devices; callAsync then falls back to
+    // a fresh isolate per call (the pool simply isn't warmed).
+    debugPrint('[NitroBenchmark] NitroRuntime.init() failed: $e. Continuing without a warmed pool.');
+    startupError = e.toString();
   }
 }

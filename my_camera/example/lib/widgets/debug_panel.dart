@@ -2,13 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:nitro/nitro.dart';
 
 class DebugPanel extends StatefulWidget {
-  final int poolSize;
-  final Function(int) onPoolSizeChanged;
-  const DebugPanel({
-    super.key,
-    required this.poolSize,
-    required this.onPoolSizeChanged,
-  });
+  const DebugPanel({super.key});
 
   @override
   State<DebugPanel> createState() => _DebugPanelState();
@@ -54,16 +48,9 @@ class _DebugPanelState extends State<DebugPanel> {
             ],
           ),
           const Divider(),
-          Text(
-            'Worker Isolate Pool Size: ${widget.poolSize}',
-            style: const TextStyle(color: Colors.grey, fontSize: 12),
-          ),
-          Slider(
-            min: 0,
-            max: 8,
-            divisions: 8,
-            value: widget.poolSize.toDouble(),
-            onChanged: (v) => widget.onPoolSizeChanged(v.round()),
+          const Text(
+            'Isolate pool: automatic — adaptive to CPU & load',
+            style: TextStyle(color: Colors.grey, fontSize: 12),
           ),
         ],
       ),

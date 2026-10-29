@@ -706,9 +706,10 @@ class NitroRuntime {
 
   /// Initialises the runtime. On web there is no isolate pool to warm — this
   /// exists for API parity so `main()` code runs unchanged.
-  static Future<void> init({int? isolatePoolSize}) async {
-    final cfg = NitroConfig.instance;
-    if (isolatePoolSize != null) cfg.isolatePoolSize = isolatePoolSize;
+  static Future<void> init({
+    @Deprecated('The isolate pool is automatic and adaptive now; this argument is ignored (and web has no isolates anyway).')
+    int? isolatePoolSize,
+  }) async {
     _log(NitroLogLevel.verbose, 'init', 'web runtime ready (no isolate pool on web)');
   }
 

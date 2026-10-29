@@ -590,11 +590,11 @@ void main() {
       }
     });
 
-    // The instance lookup uses an N-way alignas(64) cache instead of a single
-    // entry, so a loop across several instances stays lock-free.
-    test('instance lookup uses an 8-way alignas(64) cache', () {
+    // The instance lookup uses a direct-mapped alignas(64) cache instead of a
+    // single entry, so a loop across several instances stays lock-free.
+    test('instance lookup uses a direct-mapped alignas(64) cache', () {
       final out = CppBridgeGenerator.generate(cppSpec());
-      expect(out, contains('static constexpr int _kNitroCacheWays = 8;'));
+      expect(out, contains('static constexpr int _kNitroCacheWays = 32;'));
       expect(out, contains('struct alignas(64) _NitroInstSlot {'));
       expect(out, contains('_g_inst_cache[(uint64_t)id & (_kNitroCacheWays - 1)]'));
       // Per-slot ordering preserved: read id (acquire), ptr (relaxed).

@@ -1,3 +1,11 @@
+## 0.8.3
+
+- `@nitroAsync` isolate pool is now automatic and adaptive: a central work-queue over workers that start at one, grow (demand-proportionally) toward the CPU count under load, and shrink back to one after an idle period. One call in flight per worker — no head-of-line blocking, and a cold concurrent burst fans out across workers as they spawn — so it matches a hand-sized `cores`-worker pool on both cold and warm bursts with instant startup, then releases the extra isolates when idle. `NitroConfig.isolatePoolSize` and `NitroRuntime.init(isolatePoolSize:)` are deprecated and ignored.
+- Removed the dead `android/ios/macos/windows/linux` plugin scaffold; the pure-Dart runtime vendors native headers from `src/native`.
+- Documented `NitroRuntime.loadLib`'s per-platform loader contract (Apple `process()`, Android bare-name) so plugins reuse it instead of hand-rolling.
+- Documented the single-in-flight concurrency ceiling in `NitroConfig.nativeAsyncSpinUs`.
+- Froze the shared wire codec's absolute byte layout with golden vectors; added `doc/wire_format.md`.
+
 ## 0.8.2
 
 - Coordinated 0.8.2 release; no changes to this package.

@@ -191,4 +191,45 @@ void main() {
       });
     });
   });
+
+  // The parity groups above prove the web and native Dart edges agree with EACH
+  // OTHER — but both derive from the same shared codec, so a lockstep change to
+  // the layout passes parity while silently breaking the C++/Swift/Kotlin
+  // decoders (and any persisted bytes). These frozen vectors pin the ABSOLUTE
+  // wire bytes: a diff here means the format moved, and every native emitter +
+  // the ABI version must move with it on purpose. See doc/wire_format.md.
+  group('absolute wire-format golden vectors (cross-backend contract)', () {
+    test('NitroIntWireCodec layout is frozen ([1B flag][8B int64 LE])', () {
+      expect(const NitroIntWireCodec().encodeBytes(null), [0, 0, 0, 0, 0, 0, 0, 0, 0]);
+      expect(const NitroIntWireCodec().encodeBytes(1), [1, 1, 0, 0, 0, 0, 0, 0, 0]);
+      expect(const NitroIntWireCodec().encodeBytes(-1), [1, 255, 255, 255, 255, 255, 255, 255, 255]);
+      expect(const NitroIntWireCodec().encodeBytes(0x0102030405060708), [1, 8, 7, 6, 5, 4, 3, 2, 1]);
+    });
+
+    test('NitroDoubleWireCodec layout is frozen ([1B flag][8B float64 LE])', () {
+      expect(const NitroDoubleWireCodec().encodeBytes(null), [0, 0, 0, 0, 0, 0, 0, 0, 0]);
+      expect(const NitroDoubleWireCodec().encodeBytes(1.0), [1, 0, 0, 0, 0, 0, 0, 0xf0, 0x3f]);
+      expect(const NitroDoubleWireCodec().encodeBytes(-2.5), [1, 0, 0, 0, 0, 0, 0, 0x04, 0xc0]);
+    });
+
+    test('NitroBoolWireCodec layout is frozen ([1B flag][1B value])', () {
+      expect(const NitroBoolWireCodec().encodeBytes(null), [0, 0]);
+      expect(const NitroBoolWireCodec().encodeBytes(true), [1, 1]);
+      expect(const NitroBoolWireCodec().encodeBytes(false), [1, 0]);
+    });
+
+    test('RecordWriter framed layout is frozen (len32 ++ int64 ++ bool ++ str32+utf8)', () {
+      final framed = (RecordWriter()
+            ..writeInt(1)
+            ..writeBool(true)
+            ..writeString('Hi'))
+          .takeFramedBytes();
+      expect(framed, [
+        0x0f, 0x00, 0x00, 0x00, // framed payload length = 15
+        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // int64 LE = 1
+        0x01, // bool true
+        0x02, 0x00, 0x00, 0x00, 0x48, 0x69, // string: len32=2, "Hi"
+      ]);
+    });
+  });
 }

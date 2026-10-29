@@ -1732,14 +1732,16 @@ class CppBridgeGenerator {
     writer.line('    return f;');
     writer.line('}');
     writer.blankLine();
-    // Lock-free N-way cache for resolved (id -> raw impl); the map + mutex stay the
-    // source of truth for create/destroy. 8 direct-mapped slots keep several live
-    // instances resident — a single entry fell back to the mutex on every call once
-    // a loop rotated between instances. alignas(64) prevents false sharing.
-    // The pointer is borrowed (the map owns the shared_ptr); the Dart-side
-    // NativeFinalizer never destroys an instance while a call is in flight, and
-    // slots are invalidated under the mutex so a freed id can't resolve stale.
-    writer.line('static constexpr int _kNitroCacheWays = 8;');
+    // Lock-free direct-mapped cache for resolved (id -> raw impl); the map + mutex
+    // stay the source of truth for create/destroy. N slots keep a rotating working
+    // set of live instances resident so a loop between them doesn't hit the mutex
+    // every call. Indexed by `id & (N-1)`: two live ids that alias mod N evict each
+    // other and fall back to the (correct, slower) mutex lookup — widen N for a hot
+    // workload rotating between more than ~N instances of one class. alignas(64)
+    // avoids false sharing; the pointer is borrowed (the map owns the shared_ptr),
+    // the Dart-side NativeFinalizer never destroys an instance mid-call, and slots
+    // are invalidated under the mutex so a freed id can't resolve stale.
+    writer.line('static constexpr int _kNitroCacheWays = 32;');
     writer.line('struct alignas(64) _NitroInstSlot {');
     writer.line('    std::atomic<int64_t> id{-1};');
     writer.line('    std::atomic<Hybrid$className*> ptr{nullptr};');

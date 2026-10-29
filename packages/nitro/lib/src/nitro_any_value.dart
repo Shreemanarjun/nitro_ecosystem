@@ -213,7 +213,7 @@ final class NitroAnyObject extends NitroAnyValue {
 //   final ptr = map.toNative(arena);
 //
 //   // Receive from bridge:
-//   final result = NitroAnyMap.fromNative(ptr);
+//   final result = nitroAnyMapFromNative(ptr);
 //   final count = result.getInt('count');   // int?
 
 class NitroAnyMap {

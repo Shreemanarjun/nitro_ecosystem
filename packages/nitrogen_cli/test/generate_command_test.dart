@@ -108,6 +108,32 @@ void main() {
       expect(command.exitCode, 3);
     });
 
+    // The C++ impl interface + GoogleMock/test scaffolds are write-once (or only
+    // emitted for C++-impl modules); `nitrogen generate` never deterministically
+    // refreshes them, so a "stale → run nitrogen generate" report on them is an
+    // unactionable false positive. --check must gate only the always-regenerated
+    // core, else no project with older starters can ever pass.
+    test('--check ignores editable C++ starters (native.g.h / mock / test)', () async {
+      final specFile = _writePluginFixture(tempDir);
+      // Core outputs are current…
+      for (final output in _coreGeneratedOutputs(tempDir)) {
+        output.parent.createSync(recursive: true);
+        output.writeAsStringSync(_generatedHeader(specFile));
+      }
+      // …but one starter is stampless (pre-0.7.4) and another is absent entirely.
+      final nativeH = File(p.join(tempDir.path, 'lib', 'src', 'generated', 'cpp', 'camera.native.g.h'))..parent.createSync(recursive: true);
+      nativeH.writeAsStringSync('// hand-edited impl interface, no stamp\n');
+      final mockH = File(p.join(tempDir.path, 'lib', 'src', 'generated', 'cpp', 'test', 'camera.mock.g.h'))..parent.createSync(recursive: true);
+      mockH.writeAsStringSync('// pre-0.7.4 mock, no stamp\n');
+      // camera.test.g.cpp intentionally missing.
+
+      final command = _TestGenerateCommand();
+      final runner = CommandRunner<void>('nitrogen', 'test')..addCommand(command);
+      await runner.run(['generate', '--check', '--no-ui', '--directory=${tempDir.path}']);
+
+      expect(command.exitCode, 0, reason: 'starters are write-once/conditional; generate never refreshes them, so --check must not gate on them');
+    });
+
     test('--check --targets=dart ignores stale native outputs outside the target set', () async {
       final specFile = _writePluginFixture(tempDir);
       final dartOutput = File(p.join(tempDir.path, 'lib', 'src', 'camera.g.dart'));
@@ -395,6 +421,12 @@ List<File> _expectedGeneratedOutputs(Directory root) {
     File(p.join(base, 'generated', 'cpp', 'test', 'camera.test.g.cpp')),
   ];
 }
+
+/// The always-regenerated, stamp-bearing outputs --check gates on (the 9
+/// expected outputs minus the three write-once/conditional C++ starters).
+List<File> _coreGeneratedOutputs(Directory root) => _expectedGeneratedOutputs(root)
+    .where((f) => !f.path.endsWith('.native.g.h') && !f.path.endsWith('.mock.g.h') && !f.path.endsWith('.test.g.cpp'))
+    .toList();
 
 /// The header nitro_generator 0.7.4+ writes: --check reads the spec hash from it.
 String _generatedHeader(File spec) {

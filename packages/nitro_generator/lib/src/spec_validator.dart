@@ -1048,7 +1048,7 @@ class SpecValidator {
                     '@HybridStruct fields cannot form reference cycles — they '
                     'are value types laid out inline in C memory. '
                     'Break the cycle by replacing one side with @HybridRecord '
-                    '(heap-allocated, JSON-bridged).',
+                    '(heap-allocated, binary-encoded).',
               ),
             );
           }

@@ -191,6 +191,13 @@ final class WasmImpl extends NativeImpl implements WebNativeImpl {
 
 // ── @NitroModule annotation ────────────────────────────────────────────────────
 
+/// Declares a native module: which implementation backs the spec on each
+/// platform (omit a platform to skip it) and, optionally, the library name
+/// and C symbol prefix the generated bridge uses.
+///
+/// Put it on an `abstract class` that extends `HybridObject` in a
+/// `*.native.dart` file; every public method, getter and setter of that
+/// class becomes part of the bridge.
 class NitroModule {
   /// Which implementation to use on iOS. `null` = not targeting iOS.
   final AppleNativeImpl? ios;
@@ -217,7 +224,8 @@ class NitroModule {
   /// Override the C symbol prefix (default: snake_case of the class name).
   final String? cSymbolPrefix;
 
-  /// Override the shared library name (default: `lib{classname}`).
+  /// Override the shared library name (default: the spec file stem,
+  /// `math.native.dart` → `math`, with `-` replaced by `_`).
   final String? lib;
 
   const NitroModule({
@@ -516,7 +524,7 @@ const nitroOwned = NitroOwned();
 ///
 /// Wire format: `[1B tag 0..N] [optional payload bytes — record codec]`
 ///
-/// **E014:** More than 10 cases are rejected at validation time.
+/// **E014:** Zero cases, or more than 255, are rejected at validation time.
 ///
 /// Example:
 /// ```dart

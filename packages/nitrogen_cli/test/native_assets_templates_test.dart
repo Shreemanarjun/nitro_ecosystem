@@ -26,6 +26,10 @@ void main() {
       expect(hook, contains('.run('));
     });
 
+    test('links libm + liblog on Android (armeabi-v7a dlopen; nitro_http#5)', () {
+      expect(hook, contains("libraries: android ? const ['m', 'log']"));
+    });
+
     test('compiles the bridge + impl + vendored dart_api_dl.c, includes vendor dir', () {
       expect(hook, contains("'lib/src/generated/cpp/my_cpp.bridge.g.cpp',"));
       expect(hook, contains("'src/HybridMyCpp.cpp',"));

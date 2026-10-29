@@ -53,6 +53,13 @@ class NitroRuntime {
   static IsolatePool? _pool;
   static bool _poolReady = false;
 
+  /// Upper bound on background worker isolates for `@nitroAsync` dispatch,
+  /// derived automatically from the hardware (never user-configured). The pool
+  /// starts at one worker and grows toward this only as concurrent async calls
+  /// demand it — more workers than CPUs can't run more native calls in
+  /// parallel, so the core count is the natural ceiling (floored at 1).
+  static final int _autoMaxWorkers = Platform.numberOfProcessors < 1 ? 1 : Platform.numberOfProcessors;
+
   static String _timelineLabel(String tag) => 'Nitro.$tag';
 
   /// True on iOS and macOS — used by generated code to select `@Native<F>` direct
@@ -77,6 +84,27 @@ class NitroRuntime {
 
   // ── Library loading ──────────────────────────────────────────────────────
 
+  /// Opens the native library for a Nitro module, cached and ref-counted.
+  ///
+  /// This is the **canonical loader** — any plugin that ships a Nitro bridge
+  /// should call it (generated code does) rather than hand-rolling a
+  /// `DynamicLibrary.open`, because each platform branch is load-bearing:
+  ///
+  /// - **iOS / macOS** → [DynamicLibrary.process]: the bridge is statically
+  ///   linked into the app binary, so symbols resolve via `RTLD_DEFAULT`. This
+  ///   is why generated exports are marked `REFERENCED_DYNAMICALLY` (a `.desc`
+  ///   asm block) — otherwise the Xcode archive strip (`STRIP_STYLE=all`) drops
+  ///   them and `dlsym` fails at runtime (nitro_http#3).
+  /// - **Android** → `DynamicLibrary.open('lib$libName.so')`, the **bare name**,
+  ///   never a resolved file path. A modern APK (`extractNativeLibs=false`) maps
+  ///   the `.so` straight out of the archive with no on-disk path, so a
+  ///   path-based open fails; the bare name resolves through the loader's search
+  ///   path in both the unpacked and mapped cases (nitro_server#5).
+  /// - **Windows** → `$libName.dll`; **Linux / other** → `lib$libName.so`.
+  ///
+  /// A plugin that loads its *own* downloaded/prebuilt library should keep the
+  /// same per-platform shape (bare name on Android, `process()` for a statically
+  /// linked Apple build) to avoid re-introducing those classes.
   static DynamicLibrary loadLib(String libName) {
     _libRefCount[libName] = (_libRefCount[libName] ?? 0) + 1;
     return _libCache.putIfAbsent(libName, () {
@@ -560,9 +588,10 @@ class NitroRuntime {
 
   /// Calls a native function on a background isolate.
   ///
-  /// When [NitroConfig.instance.isolatePoolSize] is `0`, falls back to
-  /// spawning a fresh [Isolate] per call (legacy behaviour).
-  /// Otherwise dispatches to the pre-warmed [IsolatePool].
+  /// Before [NitroRuntime.init] has run (no pool yet) this spawns a fresh
+  /// [Isolate] per call; afterward it dispatches to the adaptive [IsolatePool],
+  /// which starts at one worker and grows toward the CPU count under concurrent
+  /// load. The pool is sized automatically — there is no knob.
   static Future<T> callAsync<T>(
     Function fn,
     List<Object?> args, {
@@ -575,7 +604,6 @@ class NitroRuntime {
     String methodName = '',
   }) async {
     final cfg = NitroConfig.instance;
-    final poolSize = cfg.isolatePoolSize;
     final effective = cfg.effectiveLogLevel;
     final traceTimeline = cfg.timelineTracingEnabled;
 
@@ -584,7 +612,7 @@ class NitroRuntime {
     // survives, its tag built lazily on throw; `dispatch` keeps the pool/legacy
     // branch from being duplicated across the none/try paths.
     if (effective != NitroLogLevel.verbose && !traceTimeline && cfg.slowCallThresholdUs == 0) {
-      Future<T> dispatch() => (poolSize <= 0 || !_poolReady)
+      Future<T> dispatch() => !_poolReady
           ? _runLegacyIsolate<T>(fn, args, getError, clearError)
           : _pool!.dispatch<T>(fn, args, getError: getError, clearError: clearError);
       if (effective == NitroLogLevel.none) return await dispatch();
@@ -604,13 +632,14 @@ class NitroRuntime {
     if (traceTimeline) developer.Timeline.startSync(_timelineLabel(tag));
     try {
       final T result;
-      if (poolSize <= 0 || !_poolReady) {
-        // Legacy: spawn a fresh isolate per call.
+      if (!_poolReady) {
+        // Pool not initialised (NitroRuntime.init not called): spawn a fresh
+        // isolate per call.
         _log(NitroLogLevel.verbose, tag, 'dispatching via Isolate.run');
         result = await _runLegacyIsolate<T>(fn, args, getError, clearError);
       } else {
         if (_verboseOn) {
-          _log(NitroLogLevel.verbose, tag, 'dispatching via pool (size=$poolSize)');
+          _log(NitroLogLevel.verbose, tag, 'dispatching via adaptive pool');
         }
         result = await _pool!.dispatch<T>(
           fn,
@@ -937,31 +966,19 @@ class NitroRuntime {
   ///
   /// ```dart
   /// await NitroRuntime.init();
-  /// // or with pool pre-warming:
-  /// NitroConfig.instance.isolatePoolSize = 4;
-  /// await NitroRuntime.init();
   /// ```
-  static Future<void> init({int? isolatePoolSize}) async {
-    final cfg = NitroConfig.instance;
-    if (isolatePoolSize != null) cfg.isolatePoolSize = isolatePoolSize;
-
-    final poolSize = cfg.isolatePoolSize;
-    if (poolSize > 0) {
-      _log(
-        NitroLogLevel.verbose,
-        'init',
-        'spawning isolate pool (size=$poolSize)…',
-      );
-      _pool = await IsolatePool.create(poolSize);
-      _poolReady = true;
-      _log(NitroLogLevel.verbose, 'init', 'pool ready');
-    } else {
-      _log(
-        NitroLogLevel.verbose,
-        'init',
-        'pool disabled (isolatePoolSize=0) — using Isolate.run per call',
-      );
-    }
+  ///
+  /// Pre-warms the `@nitroAsync` isolate pool. The pool is **adaptive and
+  /// automatic**: it starts with one worker and grows toward the CPU count as
+  /// concurrent async calls demand it — there is no size to configure.
+  static Future<void> init({
+    @Deprecated('Pool size is automatic and adaptive now (one worker, growing toward the CPU count under load). This argument is ignored.')
+    int? isolatePoolSize,
+  }) async {
+    _log(NitroLogLevel.verbose, 'init', 'spawning adaptive isolate pool (1 → $_autoMaxWorkers)…');
+    _pool = await IsolatePool.create(1, maxWorkers: _autoMaxWorkers);
+    _poolReady = true;
+    _log(NitroLogLevel.verbose, 'init', 'pool ready');
   }
 
   /// Tears down the runtime.  Disposes the isolate pool and clears the lib

@@ -35,7 +35,7 @@ natural Swift types used in your protocol implementation.
 | `bool` | `int8_t` | `Int8` | `Int8` | `Bool` |
 | `String` | `const char*` | `UnsafePointer<CChar>?` | `UnsafeMutablePointer<CChar>?` | `String` |
 | `TypedData` | `T*` + `int64_t` | `UnsafeMutablePointer<T>?` | *(not a return type)* | `Data` or `[T]` |
-| `@HybridEnum` | `int32_t` | `Int32` | `Int32` | `Enum.rawValue` |
+| `@HybridEnum` | `int64_t` | `Int64` | `Int64` | `Enum.rawValue` |
 | `@HybridStruct` | `void*` | *(not a param type)* | `UnsafeMutableRawPointer?` | struct value |
 | `void` | `void` | *(no param)* | `Void` | `Void` |
 

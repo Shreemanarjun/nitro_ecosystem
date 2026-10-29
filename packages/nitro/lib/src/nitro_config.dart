@@ -21,8 +21,7 @@ enum NitroLogLevel {
 /// ```dart
 /// NitroConfig.instance
 ///   ..debugMode = true
-///   ..logLevel = NitroLogLevel.verbose
-///   ..isolatePoolSize = 4;
+///   ..logLevel = NitroLogLevel.verbose;
 /// ```
 ///
 /// All settings are live — changing them mid-run takes effect on the next
@@ -66,19 +65,12 @@ class NitroConfig {
 
   // ── Isolate pool ──────────────────────────────────────────────────────────
 
-  /// Number of persistent worker isolates maintained by
-  /// [NitroRuntime.callAsync].
-  ///
-  /// - `0` — legacy mode: a new [Isolate] is spawned for every call
-  ///   (same as the original behaviour).
-  /// - `1` (default) — single persistent worker; eliminates spawn overhead
-  ///   for sequential workloads.
-  /// - `N > 1` — pool of N workers; round-robin dispatch; useful when
-  ///   multiple async FFI calls are in-flight concurrently (e.g. image
-  ///   processing pipeline).
-  ///
-  /// Changing this after [NitroRuntime.init] has been called requires calling
-  /// [NitroRuntime.dispose] + [NitroRuntime.init] again to resize the pool.
+  /// **Deprecated and ignored.** The `@nitroAsync` isolate pool is sized
+  /// automatically now: it starts with one persistent worker and grows
+  /// adaptively toward the CPU count as concurrent async calls demand it, and
+  /// retires the extra workers after an idle period. There is nothing to tune —
+  /// setting this has no effect.
+  @Deprecated('The isolate pool is automatic and adaptive now (one worker, growing toward the CPU count under load); this setting is ignored and will be removed.')
   int isolatePoolSize = 1;
 
   /// Threshold in microseconds above which a [NitroRuntime.callAsync] call
@@ -117,8 +109,13 @@ class NitroConfig {
   /// It is cheap to leave on: the loop breaks the instant the result lands (so
   /// the cap bounds only the *miss* path), a circuit breaker disables it when
   /// the native side is reliably slower than the cap, and the single-in-flight
-  /// guard skips it entirely under concurrency (where the wake already
-  /// amortizes). Set an explicit µs value to override the auto cap, or `0` to
+  /// guard skips it entirely under concurrency. Only **one** outstanding
+  /// native-async call spins at a time — a second concurrent completion takes
+  /// the ordinary port wake by design. The one shared slot is deliberate, not a
+  /// ceiling to lift: a pool of spinners would busy-wait on several cores at
+  /// once, and with multiple calls in flight the wake is already amortized
+  /// across the others, so spinning the extras would burn cores for almost no
+  /// latency gain. Set an explicit µs value to override the auto cap, or `0` to
   /// disable — e.g. on a battery-critical path that makes many lone, slow
   /// native-async calls. [NitroSpinStats] reports whether it is paying off.
   ///
@@ -182,7 +179,6 @@ class NitroConfig {
     debugMode = false;
     logLevel = NitroLogLevel.error;
     logHandler = _defaultLog;
-    isolatePoolSize = 1;
     slowCallThresholdUs = 0;
     nativeAsyncTimeoutMs = 0;
     nativeAsyncSpinUs = null;

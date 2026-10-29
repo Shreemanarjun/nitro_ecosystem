@@ -11,15 +11,15 @@ post it directly.
 | | `@nitroAsync` | `@NitroNativeAsync` |
 |---|---|---|
 | **Return type** | `Future<T>` | `Future<T>` (Dart side) |
-| **Dart isolate** | Spawns a background isolate via `IsolatePool` | No isolate spawned |
-| **Native post** | No — Dart isolate awaits result | Yes — `Dart_PostCObject_DL` |
-| **Overhead** | ~28 µs (macOS), roughly at parity with a method channel round-trip | ~27 µs (macOS), no isolate hop |
+| **Dispatch** | Bridge worker pool (since 0.7.6); isolate pool only for `timeout:` and a few return/parameter shapes | Native thread of your choice |
+| **Completion** | Shared completion port (`NitroCompletionBatch`) | Native posts to the same shared completion port |
+| **Overhead** | ~24 µs (macOS; ~28 µs on the isolate pool), roughly at parity with a method channel round-trip | ~25 µs (macOS), no isolate hop |
 | **Error path** | `NitroError` slot, checked in Dart | Native posts `kNull` on error |
 | **Best for** | Work that returns complex types | I/O-bound, fire-and-forget |
 
 ---
 
-## `@nitroAsync` — Dart-isolate async
+## `@nitroAsync` — bridge-dispatched async
 
 ### Usage
 
@@ -37,21 +37,21 @@ abstract class FileProcessor extends HybridObject {
 ### How it works
 
 1. Dart calls the generated `_Impl.readFile(path)`.
-2. The impl dispatches to an `IsolatePool` worker via `NitroRuntime.callAsync<T>`.
-3. The worker calls the native `${lib}_read_file(path)` C function (synchronously inside the worker isolate).
-4. The native function runs on the worker thread — **never blocks the UI thread**.
-5. Return value is sent back to the calling isolate via the result port.
+2. The generated `${lib}_read_file_dispatch` twin runs the sync export on the bridge's worker pool (`NitroWorkerPool`) — no isolate hop. Calls with a `timeout:`, `@NitroResult`, `@zeroCopy`, `@mainThread`, typed `Map`/`NativeHandle`/`Pointer` returns, or function/pointer/custom-type parameters go through the adaptive isolate pool instead.
+3. The native function runs on that worker thread — **never blocks the UI thread**.
+4. The result is posted through the shared completion port (`NitroCompletionBatch`), batched with any other completions that arrived while Dart was busy.
+5. The `Future` completes on the calling isolate.
 6. `NitroRuntime.checkError` is called; any `NitroError` becomes a Dart exception.
 
 ### Performance
 
 ```
-UI isolate → IsolatePool dispatch → worker → native call → result → UI isolate
-Measured total round-trip: ~28 µs on macOS (near-zero native work — see benchmark/
-package's nitro_async_record case), roughly at parity with a Flutter method channel.
+UI isolate → bridge worker pool → native call → shared completion port → UI isolate
+Measured total round-trip: ~24 µs on macOS (~28 µs for the isolate-pool shapes; near-zero
+native work — see the README "Async overhead" table), roughly at parity with a method channel.
 ```
 
-`IsolatePool` uses a **min-heap scheduler** — tasks go to the least-busy worker. A single, persistent reply port is shared across all workers for the pool's lifetime (no per-call `ReceivePort` allocation).
+Isolate-pool dispatch (the shapes listed above) uses the adaptive pool described below: one persistent worker that grows toward the CPU count under load and retires the extra workers when idle.
 
 ### Error handling
 
@@ -116,13 +116,13 @@ abstract class AudioCapture extends HybridObject {
 4. Native code runs asynchronously (on its own thread/queue), then calls `Dart_PostCObject_DL(dart_port, &result)` when done.
 5. The `ReceivePort` fires → `Future` completes.
 
-**No Dart isolate is spawned.** The entire dispatch overhead is a single C function call — measured at ~27 µs end-to-end on macOS (see `benchmark`'s `nitro_native_async_record` case), essentially the same as the underlying native work itself since there's no isolate hop to add latency.
+**No Dart isolate is spawned.** The entire dispatch overhead is a single C function call — measured at ~25 µs end-to-end on macOS (see `benchmark`'s `nitro_native_async_record` case), essentially the same as the underlying native work itself since there's no isolate hop to add latency.
 
 ### When to use
 
 - When the native side already manages its own thread/queue (audio callbacks, camera capture, network I/O).
 - When Dart only needs the final result, not intermediate progress.
-- When you need to skip the isolate hop entirely — `@NitroNativeAsync` measures ~27 µs end-to-end on macOS vs ~28 µs for `@nitroAsync` on the same near-zero-work benchmark case; the real win is architectural (one fewer moving part, no worker-pool contention under concurrent load), not a large fixed-cost gap.
+- When you need to skip the isolate hop entirely — `@NitroNativeAsync` measures ~25 µs end-to-end on macOS vs ~24 µs for `@nitroAsync` on the same near-zero-work benchmark case; the real win is architectural (one fewer moving part, no worker-pool contention under concurrent load), not a large fixed-cost gap.
 
 ### Error handling
 
@@ -203,18 +203,36 @@ Does native code already manage its own thread/queue?
 
 ---
 
-## IsolatePool configuration
+## IsolatePool sizing (automatic)
 
-By default, `IsolatePool` uses a **single** persistent worker (`isolatePoolSize = 1`). A bigger pool only helps *concurrent* throughput — the least-busy-worker scheduler picks a worker in O(1) regardless of pool size, so a single sequential `@nitroAsync` call sees no latency benefit from more workers. Increase the pool size if your app makes multiple `@nitroAsync` calls concurrently and wants them to run in parallel rather than queue behind each other:
+The `@nitroAsync` isolate pool sizes itself — there is **no knob**. It starts
+with a single persistent worker (so a sequential workload pays no idle isolate
+cost) and grows **adaptively and proportionally**: when in-flight calls
+outnumber workers, it spawns the shortfall in parallel — up to the CPU count
+(`Platform.numberOfProcessors`) — so a concurrent workload reaches full width in
+a single spawn window rather than one worker at a time. After an idle period
+(no dispatches for ~30s) it **shrinks** back to a single worker, releasing the
+extra isolates; the next burst regrows it. A fixed pool neither grows nor
+shrinks.
+
+Scheduling is a **central work-queue**: at most one call is in flight per
+worker, and extra calls wait in a shared queue that any worker drains the moment
+it frees up (or spawns). So there is no head-of-line blocking inside a worker's
+mailbox, and even a *cold* concurrent burst fans out across workers as they come
+online. Benchmarks: the adaptive pool matches a hand-sized `cores`-worker pool
+on both cold and warm bursts, with a fraction of its startup cost and no idle
+isolates — see `packages/nitro/tool/bench_pool_compare.sh`.
 
 ```dart
-void main() {
-  NitroConfig.instance
-    ..isolatePoolSize = Platform.numberOfProcessors   // for concurrent async workloads
-    ..enable();
+void main() async {
+  NitroConfig.instance.enable();
+  await NitroRuntime.init(); // pre-warms the adaptive pool
   runApp(const MyApp());
 }
 ```
+
+> `NitroConfig.isolatePoolSize` and `NitroRuntime.init(isolatePoolSize: …)` are
+> deprecated and ignored.
 
 ---
 

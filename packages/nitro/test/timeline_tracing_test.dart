@@ -48,10 +48,11 @@ void main() {
     });
 
     test('callAsync returns result with tracing enabled', () async {
+      // No NitroRuntime.init() here, so the pool is never warmed and callAsync
+      // takes the legacy per-call Isolate.run path — exactly what this exercises.
       NitroConfig.instance
         ..logLevel = NitroLogLevel.none
         ..slowCallThresholdUs = 0
-        ..isolatePoolSize = 0
         ..timelineTracingEnabled = true;
 
       final result = await NitroRuntime.callAsync<int>(
@@ -64,10 +65,11 @@ void main() {
     });
 
     test('callAsync still rethrows with tracing enabled', () async {
+      // No NitroRuntime.init() here, so the pool is never warmed and callAsync
+      // takes the legacy per-call Isolate.run path — exactly what this exercises.
       NitroConfig.instance
         ..logLevel = NitroLogLevel.none
         ..slowCallThresholdUs = 0
-        ..isolatePoolSize = 0
         ..timelineTracingEnabled = true;
 
       await expectLater(
