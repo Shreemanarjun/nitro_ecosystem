@@ -36,12 +36,16 @@ class NitroJob {
     if (sizeof(D) <= kInline && alignof(D) <= alignof(std::max_align_t)) {
       ::new (static_cast<void*>(&storage_.buf)) D(std::forward<F>(f));
       heap_ = false;
+      // Inline: object lives in `buf`, so destruct only — never free `buf`.
+      destroy_ = [](void* p) { static_cast<D*>(p)->~D(); };
     } else {
       storage_.ptr = new D(std::forward<F>(f));
       heap_ = true;
+      // Heap: allocated with `new`, so `delete` to destruct AND free. A bare
+      // `->~D()` here destructs but leaks the allocation (LSan caught this).
+      destroy_ = [](void* p) { delete static_cast<D*>(p); };
     }
     call_ = [](void* p) { (*static_cast<D*>(p))(); };
-    destroy_ = [](void* p) { static_cast<D*>(p)->~D(); };
     move_ = [](void* d, void* s) {
       ::new (d) D(std::move(*static_cast<D*>(s)));
       static_cast<D*>(s)->~D();
