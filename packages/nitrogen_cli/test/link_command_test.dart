@@ -2675,7 +2675,9 @@ abstract class MyPlugin extends HybridObject {}
       final androidIdx = content.indexOf('if(ANDROID)');
       final win32Idx = content.indexOf('elseif(WIN32)');
       final unixIdx = content.indexOf('elseif(UNIX AND NOT APPLE)');
-      final endifIdx = content.indexOf('endif()');
+      // The chain's closing endif is the first one AFTER the UNIX block — the
+      // size-controls preamble defines a function with its own earlier endif()s.
+      final endifIdx = content.indexOf('endif()', unixIdx);
       expect(androidIdx, lessThan(win32Idx));
       expect(win32Idx, lessThan(unixIdx));
       expect(unixIdx, lessThan(endifIdx));

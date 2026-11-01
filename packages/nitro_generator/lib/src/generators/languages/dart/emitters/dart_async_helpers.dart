@@ -291,7 +291,7 @@ void _emitReturnDecode(
         writer.line('${indent}return decoded;');
       }
     case ReturnKind.typedData:
-      _emitTypedDataDecodeReturn(writer, returnType, resVar, indent, zeroCopy: zeroCopy);
+      _emitTypedDataDecodeReturn(writer, returnType, resVar, indent, zeroCopy: zeroCopy, nullable: returnType.isNullable || returnType.name.endsWith('?'));
     case ReturnKind.struct:
       // Nullable struct (T?): null pointer → Dart null.
       // Non-nullable struct: null pointer → StateError (should never happen).

@@ -1,6 +1,6 @@
 ## 0.8.4
 
-- Coordinated 0.8.4 release; no changes.
+- **Binary-size controls** on the generated `src/CMakeLists.txt`: opt-in `NITRO_SIZE_OPT` (dead-code strip + section GC — `--gc-sections` on ELF, `-dead_strip` on Apple, `/OPT:REF /OPT:ICF` on MSVC) and `NITRO_LTO`, applied per nitro library. Both default off and `NITRO_SIZE_OPT` turns on automatically for a `MinSizeRel` build. LTO measured ~−6.5% on the benchmark bridge.
 
 ## 0.8.3
 

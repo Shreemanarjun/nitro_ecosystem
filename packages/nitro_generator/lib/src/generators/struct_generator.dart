@@ -281,7 +281,10 @@ class StructGenerator {
             final companion = zeroCopyCompanionField(st, f.name);
             // Prefer explicit companion field; fall back to synthesized ${fieldName}Length.
             final lenRef = '_native.ref.${companion ?? '${f.name}Length'}';
-            readExpr = '_native.ref.${f.name}.asTypedList($lenRef)';
+            final view = '_native.ref.${f.name}.asTypedList($lenRef)';
+            // Nullable field: native stores a null pointer for a null value, so
+            // the getter must guard it (the decode path already does via orNull).
+            readExpr = f.type.name.endsWith('?') ? '_native.ref.${f.name}.address == 0 ? null : $view' : view;
           case 'bool':
             readExpr = '_native.ref.${f.name} != 0';
           case 'String':

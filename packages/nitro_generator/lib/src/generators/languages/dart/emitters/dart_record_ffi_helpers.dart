@@ -91,12 +91,19 @@ void _emitTypedDataDecodeReturn(
   String ptrVar,
   String indent, {
   bool zeroCopy = false,
+  // Nullable TypedData return (e.g. @zeroCopy Uint8List?): native returns
+  // nullptr for a null value, which decodes to Dart null instead of throwing.
+  bool nullable = false,
 }) {
   final rt = bareTypeName(type.name);
   final ffiElem = _typedDataFfiElement(rt);
   final lengthExpr = _typedDataElementSize(rt) == 1 ? 'byteLength' : 'byteLength ~/ ${_typedDataElementSize(rt)}';
   writer.line('${indent}if ($ptrVar == nullptr) {');
-  writer.line("$indent  throw StateError('Native $rt return was null');");
+  if (nullable) {
+    writer.line('$indent  return null;');
+  } else {
+    writer.line("$indent  throw StateError('Native $rt return was null');");
+  }
   writer.line('$indent}');
   if (zeroCopy) {
     writer.line('$indent final byteLength = $ptrVar.cast<Int64>().value;');

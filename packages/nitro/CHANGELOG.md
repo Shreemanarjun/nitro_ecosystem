@@ -1,6 +1,7 @@
 ## 0.8.4
 
 - **Add `NitroBuffer`** — a reusable native-backed buffer (web twin included). Build a per-frame payload into its `bytes` / `view(n)` and hand it to a `@zeroCopy` `TypedData` parameter: it crosses the bridge by pointer, no copy, on every path. A native-owned `@zeroCopy` return is pointer-only too. A plain Dart-heap `Uint8List` is still copied as before. A/B through the real runtime (AOT, 4 MB param): ~114 µs copied → ~0.7 µs pass-through. See `tool/zero_copy_param_bench.dart`.
+- **Worker pool** now stores jobs in a move-only inline callable instead of `std::function`, removing a heap allocation per `@nitroAsync` dispatch. Under concurrent dispatch (where the producer allocates and a worker frees, defeating per-thread allocator caches) pool throughput is ~1.5–2× higher; single-call latency is unchanged.
 
 ## 0.8.3
 

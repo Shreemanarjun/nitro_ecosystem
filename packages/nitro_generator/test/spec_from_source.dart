@@ -275,6 +275,7 @@ class SpecFromSource {
         isOwned: isOwnedFn,
         isFast: isFastFn || name.endsWith('Fast'),
         mainThread: isMainThread,
+        zeroCopyReturn: hasAnn('ZeroCopy'),
         isGetter: m.isGetter,
         returnType: _makeType(effectiveReturn, effectiveBase, enumNames, structNames, recordNames, isFuture: isFuture),
         params: params,

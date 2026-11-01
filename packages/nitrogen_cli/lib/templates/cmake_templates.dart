@@ -4,6 +4,46 @@ import 'build_versions.dart';
 
 const String localNitroNativeCmakePath = r'${CMAKE_CURRENT_SOURCE_DIR}/native';
 
+/// Opt-in binary-size knobs, emitted once into the generated `src/CMakeLists.txt`
+/// preamble. `nitro_apply_size_opts(<target>)` is then called on each nitro
+/// library (guarded by `if(COMMAND …)` so a standalone/retrofit append is a
+/// no-op). Conservative by design: dead-code strip + section GC only remove
+/// UNREFERENCED code, so every export you call survives; LTO is separate and
+/// off by default. No visibility change (that needs a full export audit).
+const String nitroSizeControlsPreamble = r'''
+# ── Binary-size controls (opt-in) ────────────────────────────────────────────
+# -DNITRO_SIZE_OPT=ON (implied by a MinSizeRel build) strips unreferenced code
+# and garbage-collects unused sections. Exports are referenced, so nothing you
+# call is removed. -DNITRO_LTO=ON adds link-time optimization (smaller output,
+# slower build). Both default OFF — they are knobs, not forced behaviour.
+option(NITRO_SIZE_OPT "Trim the nitro bridge: dead-code strip + section GC" OFF)
+option(NITRO_LTO "Link-time optimization for the nitro bridge (smaller, slower build)" OFF)
+function(nitro_apply_size_opts tgt)
+  if(NITRO_SIZE_OPT OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
+    if(MSVC)
+      target_link_options(${tgt} PRIVATE /OPT:REF /OPT:ICF)
+    else()
+      target_compile_options(${tgt} PRIVATE -ffunction-sections -fdata-sections)
+      if(APPLE)
+        target_link_options(${tgt} PRIVATE "-Wl,-dead_strip")
+      else()
+        target_link_options(${tgt} PRIVATE "-Wl,--gc-sections")
+      endif()
+    endif()
+  endif()
+  if(NITRO_LTO AND NOT MSVC)
+    target_compile_options(${tgt} PRIVATE -flto)
+    target_link_options(${tgt} PRIVATE -flto)
+  endif()
+endfunction()
+''';
+
+/// The guarded per-target call to [nitroSizeControlsPreamble]'s function.
+String _sizeOptCall(String target) =>
+    'if(COMMAND nitro_apply_size_opts)\n'
+    '  nitro_apply_size_opts($target)\n'
+    'endif()\n';
+
 /// Returns the CMake target block for a secondary module library.
 ///
 /// [lib] is the snake_case library name. [isCpp] true when android/linux uses
@@ -37,7 +77,8 @@ String cmakeModuleTarget(String lib, {bool isCpp = false, bool isAndroidCpp = fa
       '  target_link_libraries($lib PRIVATE dbghelp)\n'
       'elseif(UNIX AND NOT APPLE)\n'
       '  target_link_libraries($lib PRIVATE dl pthread)\n'
-      'endif()\n';
+      'endif()\n'
+      '${_sizeOptCall(lib)}';
 }
 
 /// Generates the full content of a fresh `src/CMakeLists.txt`.
@@ -73,6 +114,7 @@ String generateCMakeContent(
     ..writeln('set(CMAKE_CXX_STANDARD ${BuildVersions.cmakeCxxStandard})')
     ..writeln('set(CMAKE_CXX_STANDARD_REQUIRED ON)')
     ..writeln()
+    ..writeln(nitroSizeControlsPreamble)
     ..writeln('set(NITRO_NATIVE "$localNitroNativeCmakePath")')
     ..writeln(_linkChecksumStamp(linkChecksum))
     ..writeln()
@@ -95,7 +137,8 @@ String generateCMakeContent(
     ..writeln('  target_link_libraries($pluginName PRIVATE dbghelp)')
     ..writeln('elseif(UNIX AND NOT APPLE)')
     ..writeln('  target_link_libraries($pluginName PRIVATE dl pthread)')
-    ..writeln('endif()');
+    ..writeln('endif()')
+    ..write(_sizeOptCall(pluginName));
 
   for (final lib in moduleLibs) {
     if (lib == pluginName) continue;

@@ -1,6 +1,7 @@
 ## 0.8.4
 
 - `@zeroCopy` `TypedData` params now pass a native-backed view (e.g. `NitroBuffer`) straight through by pointer instead of copying; a plain heap list still falls back to the copy. `@zeroCopy` returns register their view for the same pointer-only hand-back.
+- Nullable `TypedData` now round-trips null: a `@zeroCopy` `Uint8List?` return and a nullable `TypedData` struct field decode a native null pointer to Dart `null` instead of dereferencing it.
 
 ## 0.8.3
 
