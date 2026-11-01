@@ -39,7 +39,7 @@ In your plugin's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  nitro: ^0.8.3
+  nitro: ^0.8.4
 ```
 
 Then run:
@@ -89,7 +89,7 @@ abstract class Math extends HybridObject {
 | `@nitroNativeAsync` | method | Native side posts the result to the library's shared completion port (`NitroCompletionBatch`); ~12 µs on macOS, bursts coalesce into one message |
 | `@NitroStream(backpressure:)` | getter | Streams native events to Dart via `Dart_PostCObject_DL` |
 | `@NitroResult()` | method | Return type becomes `NitroResultValue<T>` (`NitroOk<T>` or `NitroErr`) |
-| `@zeroCopy` | parameter | Marks a `TypedData` param as a raw native pointer (callee must not retain) |
+| `@zeroCopy` | parameter | `TypedData` param passed as a raw native pointer (callee must not retain); no copy for a `NitroBuffer` view or a `@zeroCopy` return — see §6 |
 | `@NitroOwned` | method | `NativeHandle` return; Dart takes ownership; `NativeFinalizer` calls `_release` |
 | `@NitroCustomType(codec:, encodedSize:)` | class | User-defined FFI codec; generator emits `codec.encode/decode` at every call site |
 
@@ -230,6 +230,30 @@ MyCamera.instance.frames.listen((frame) {
 ## Usage — plugin author side
 
 You write **3 files only**:
+
+### 6. Zero-copy parameters: build frames into a `NitroBuffer`
+
+A `@zeroCopy` `TypedData` parameter crosses the bridge **without a copy when the
+list already lives in native memory**. `TypedData.address` is only legal inside a
+leaf `@Native` call, so on the default bridge a Dart-heap `Uint8List` has to be
+copied first (~0.1 ms for a 4 MB frame). Produce per-frame payloads into a
+reusable `NitroBuffer` and pass its view instead:
+
+```dart
+final overlay = NitroBuffer(4 << 20);   // allocate once — native-backed, reusable
+
+void onFrame(Frame f) {
+  final n = serializeDrawCommands(f, into: overlay.bytes);
+  camera.updateOverlay(textureId, overlay.view(n));   // pointer only — no copy
+}
+```
+
+A `@zeroCopy` *return* (a `Uint8List` backed by native memory) is registered the
+same way, so handing a frame you received from native straight back is free too.
+Any other `Uint8List` still works — it just takes the copy. Views are borrowed:
+keep the `NitroBuffer` alive, and don't use a view after `dispose()` or a growing
+`ensureCapacity()`. Measured (AOT, 4 MB param): 121.9 µs → 1.13 µs.
+
 
 ### 1. `lib/src/my_plugin.native.dart` (Dart spec)
 

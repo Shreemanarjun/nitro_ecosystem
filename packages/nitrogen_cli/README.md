@@ -99,7 +99,7 @@ nitrogen init --no-ui --name my_plugin \
 | `android/.../<Name>Impl.kt` | Starter Kotlin implementation |
 | `android/.../<Name>Plugin.kt` | Flutter plugin registrar |
 | `src/CMakeLists.txt` | NDK build file |
-| `pubspec.yaml` | Pre-wired with `nitro: ^0.8.3` and `nitro_generator: ^0.8.3` |
+| `pubspec.yaml` | Pre-wired with `nitro: ^0.8.4` and `nitro_generator: ^0.8.4` |
 
 **You only ever edit:** the spec, the Kotlin impl, and the Swift impl (or a single C++ impl). Everything else is generated.
 
@@ -701,7 +701,7 @@ The generator emits correct `#include "types.bridge.g.h"` in `scanner.bridge.g.h
 | `bool?` | `NitroOptBool` (2B struct) | `Boolean?` | `Bool?` |
 | `String?` | `const char*` (null = absent) | `String?` | `String?` |
 | `Uint8List` / `Float32List` / … | `T* + int64_t len` | `ByteArray` / `FloatArray` | `UnsafeMutablePointer<T>?, Int64` |
-| `@zeroCopy Uint8List` | `T*` (pinned, no copy) | `java.nio.ByteBuffer` | `UnsafeMutablePointer<UInt8>?` |
+| `@zeroCopy Uint8List` | `T*` (no copy for `NitroBuffer` / `@zeroCopy`-return views or `--native-assets` leaf methods; a heap list is copied) | `java.nio.ByteBuffer` | `UnsafeMutablePointer<UInt8>?` |
 | `@HybridEnum` | `int64_t` | `Long` | `Int64` |
 | `@HybridStruct` | `void*` (packed struct) | `ByteArray` | `UnsafePointer<T>?` |
 | `@HybridRecord` | `uint8_t*, int64_t len` | `ByteArray` | `UnsafePointer<UInt8>?` |

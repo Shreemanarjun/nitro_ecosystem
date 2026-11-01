@@ -457,3 +457,31 @@ class ZeroCopyInt64Buffer extends _ZeroCopyBufferBase {
     return _cachedValues ??= ptr.asTypedList(length);
   }
 }
+
+// ── Zero-copy pass-through registry ──────────────────────────────────────────
+//
+// `TypedData.address` is only legal as a direct argument to a leaf @Native
+// call, so on the DynamicLibrary path a Dart-heap list has to be copied into
+// native memory (the heap moves). A list that already *lives* in native memory
+// needs no copy — native memory doesn't move. The views nitro hands out over
+// native memory (`NitroBuffer.bytes`/`.view()`, `@zeroCopy` returns) are
+// registered here by object identity; a `@zeroCopy` parameter marshals a
+// registered view as its pointer instead of `toPointer(arena)`. Anything else
+// takes the copy. Identity-keyed and weak: a sublist or `fromList` copy is a
+// different object and is (correctly) not registered.
+final Expando<Pointer<Void>> _zeroCopyViews = Expando<Pointer<Void>>('nitro.zeroCopyView');
+
+/// Registers [view] as a native-backed view whose data starts at [data] and
+/// returns it. Called by [NitroBuffer] and by generated `@zeroCopy` returns.
+T nitroRegisterZeroCopyView<T extends TypedData>(T view, Pointer<Void> data) {
+  _zeroCopyViews[view] = data;
+  return view;
+}
+
+/// Drops [view]'s registration (its memory is about to be freed or moved).
+void nitroUnregisterZeroCopyView(TypedData view) => _zeroCopyViews[view] = null;
+
+/// The native data pointer behind [view] when nitro handed it out over native
+/// memory, else null (a Dart-heap list: the caller copies). Used by generated
+/// `@zeroCopy` parameter marshalling.
+Pointer<Void>? nitroZeroCopyPtr(TypedData view) => _zeroCopyViews[view];

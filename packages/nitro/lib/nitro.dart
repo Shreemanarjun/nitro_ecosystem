@@ -38,6 +38,7 @@ export 'src/isolate_pool.dart' if (dart.library.js_interop) 'src/web/isolate_poo
 export 'src/nitro_coalescer.dart' if (dart.library.js_interop) 'src/web/nitro_coalescer_web.dart';
 
 export 'src/native_handle.dart' if (dart.library.js_interop) 'src/web/native_handle_web.dart';
+export 'src/nitro_buffer.dart' if (dart.library.js_interop) 'src/web/nitro_buffer_web.dart';
 
 export 'src/ffi_utils.dart' if (dart.library.js_interop) 'src/web/ffi_utils_web.dart';
 

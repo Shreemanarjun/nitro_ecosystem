@@ -601,6 +601,25 @@ abstract class Zc extends HybridObject {
       expect(out, contains('TypedData param(s) data are COPIED'), reason: 'callback de-leafs → copy');
       expect(out, isNot(contains('data.address')));
     });
+
+    test('non-leaf + @zeroCopy param → passes a NitroBuffer through by pointer, NOT in COPIED note', () {
+      final out = gen('''
+import 'package:nitro_annotations/nitro_annotations.dart';
+import 'dart:typed_data';
+part 'zc.g.dart';
+@NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp)
+abstract class Zc extends HybridObject {
+  int process(@ZeroCopy() Uint8List zc, Uint8List plain, void Function(int n) cb); // callback → non-leaf
+}
+''');
+      // @zeroCopy rides nitroZeroCopyPtr even though the method can't be leaf.
+      expect(out, contains('nitroZeroCopyPtr(zc)?.cast<Uint8>() ?? zc.toPointer(arena)'));
+      expect(out, isNot(contains('zc.address')), reason: 'non-leaf → no .address, but still no forced copy');
+      // The plain sibling still copies and is the only one named in the warning.
+      expect(out, contains('plain.toPointer(arena)'));
+      expect(out, contains('TypedData param(s) plain are COPIED'));
+      expect(out, isNot(contains('zc are COPIED')), reason: '@zeroCopy param is not a silent copy');
+    });
   });
 
   group('eligibility guard falls back to the _dylib path', () {

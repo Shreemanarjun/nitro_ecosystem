@@ -19,17 +19,20 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
     bool typedDataZeroCopy(BridgeParam p) => zeroCopyLeaf && p.type.isTypedData && !p.type.name.endsWith('?');
 
     // W1: a non-leaf method (callback param / async / stream / non-primitive
-    // return) can't zero-copy — its TypedData params fall back to a memcpy.
-    // Name them so a multi-MB copy on a hot path isn't a silent perf cliff.
+    // return) can't use `.address` zero-copy — a plain TypedData param falls
+    // back to a memcpy. A @zeroCopy param still passes a nitro native-backed
+    // view (e.g. NitroBuffer) straight through by pointer, so it is NOT listed.
+    // Name the rest so a multi-MB copy on a hot path isn't a silent perf cliff.
     if (spec.nativeAssetsEmit && !zeroCopyLeaf) {
       final copied = [
         for (final p in func.params)
-          if (p.type.isTypedData && !p.type.name.endsWith('?')) p.name,
+          if (p.type.isTypedData && !p.type.name.endsWith('?') && !p.zeroCopy) p.name,
       ];
       if (copied.isNotEmpty) {
         writer.line('  // native-assets: TypedData param(s) ${copied.join(', ')} are COPIED '
             '(toPointer+memcpy), not zero-copy — this method is not leaf (a non-TypedData param/'
-            'return de-leafs it). Isolate those params in a leaf method for zero-copy `.address`.');
+            'return de-leafs it). Make the method leaf for `.address`, or mark the param @zeroCopy '
+            'and feed it a NitroBuffer to pass by pointer.');
       }
     }
 
@@ -64,12 +67,17 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
           if (p.type.isTypedData) {
             // Nullable list: nullptr + length 0 for null (an empty list still
             // gets a real pointer, so native can tell the two apart).
-            if (t.endsWith('?')) return ['${p.name} == null ? nullptr : ${p.name}.toPointer(arena)', '${p.name}?.length ?? 0'];
+            // @zeroCopy on the DynamicLibrary path: a view nitro handed out over
+            // native memory (NitroBuffer.bytes/.view(), a @zeroCopy return) is passed
+            // as its pointer — no copy. A Dart-heap list takes the toPointer copy.
+            final elem = _typedDataFfiElement(bareTypeName(t));
+            String ptrExpr(String v) => p.zeroCopy ? '(nitroZeroCopyPtr($v)?.cast<$elem>() ?? $v.toPointer(arena))' : '$v.toPointer(arena)';
+            if (t.endsWith('?')) return ['${p.name} == null ? nullptr : ${ptrExpr(p.name)}', '${p.name}?.length ?? 0'];
             // Lever 2 zero-copy: pass the pinned heap pointer directly to the
             // leaf @Native call — no arena alloc + memcpy. `.address` is valid
             // only as a direct argument to a leaf FFI call (dart:ffi).
             if (typedDataZeroCopy(p)) return ['${p.name}.address', '${p.name}.length'];
-            return ['${p.name}.toPointer(arena)', '${p.name}.length'];
+            return [ptrExpr(p.name), '${p.name}.length'];
           }
           if (t == 'String') {
             return ['${p.name}.toNitroUtf8(allocator: arena)'];

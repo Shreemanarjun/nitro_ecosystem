@@ -1,3 +1,7 @@
+## 0.8.4
+
+- `@zeroCopy` `TypedData` params now pass a native-backed view (e.g. `NitroBuffer`) straight through by pointer instead of copying; a plain heap list still falls back to the copy. `@zeroCopy` returns register their view for the same pointer-only hand-back.
+
 ## 0.8.3
 
 - Instance-lookup cache: 32 direct-mapped slots (was 8) — fewer mutex fallbacks when a call loop rotates between many live instances of one hybrid class.

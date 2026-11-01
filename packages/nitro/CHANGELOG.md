@@ -1,3 +1,7 @@
+## 0.8.4
+
+- **Add `NitroBuffer`** — a reusable native-backed buffer (web twin included). Build a per-frame payload into its `bytes` / `view(n)` and hand it to a `@zeroCopy` `TypedData` parameter: it crosses the bridge by pointer, no copy, on every path. A native-owned `@zeroCopy` return is pointer-only too. A plain Dart-heap `Uint8List` is still copied as before. A/B through the real runtime (AOT, 4 MB param): ~114 µs copied → ~0.7 µs pass-through. See `tool/zero_copy_param_bench.dart`.
+
 ## 0.8.3
 
 - `@nitroAsync` isolate pool is now automatic and adaptive: a central work-queue over workers that start at one, grow (demand-proportionally) toward the CPU count under load, and shrink back to one after an idle period. One call in flight per worker — no head-of-line blocking, and a cold concurrent burst fans out across workers as they spawn — so it matches a hand-sized `cores`-worker pool on both cold and warm bursts with instant startup, then releases the extra isolates when idle. `NitroConfig.isolatePoolSize` and `NitroRuntime.init(isolatePoolSize:)` are deprecated and ignored.

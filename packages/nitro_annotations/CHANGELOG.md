@@ -1,3 +1,7 @@
+## 0.8.4
+
+- Coordinated 0.8.4 release; no changes.
+
 ## 0.8.3
 
 - Coordinated 0.8.3 release; no changes.

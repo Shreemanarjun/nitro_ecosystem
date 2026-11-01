@@ -102,7 +102,8 @@ void _emitTypedDataDecodeReturn(
     writer.line('$indent final byteLength = $ptrVar.cast<Int64>().value;');
     writer.line('$indent final dataAddress = Pointer<Int64>.fromAddress($ptrVar.address + 8).value;');
     writer.line('$indent final payloadPtr = Pointer<$ffiElem>.fromAddress(dataAddress);');
-    writer.line('$indent return payloadPtr.asTypedList($lengthExpr, finalizer: _typedDataReturnFinalizer, token: $ptrVar.cast<Void>());');
+    // Register the view so passing it back to a @zeroCopy param is pointer-only.
+    writer.line('$indent return nitroRegisterZeroCopyView(payloadPtr.asTypedList($lengthExpr, finalizer: _typedDataReturnFinalizer, token: $ptrVar.cast<Void>()), payloadPtr.cast<Void>());');
     return;
   }
   writer.line('${indent}try {');

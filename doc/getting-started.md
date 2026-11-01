@@ -157,7 +157,7 @@ abstract class MySensor extends HybridObject {
 | `@HybridRecord` | class | Rich binary-bridged record: nested objects, `List<T>`, nullable fields |
 | `@nitroAsync` | method | Dispatches call to background isolate; method must return `Future<T>` |
 | `@NitroStream(backpressure:)` | getter | Native push stream; getter must return `Stream<T>` |
-| `@ZeroCopy` | `TypedData` param | Pass any typed list (Uint8List, Float32List, etc.) as raw pointer without copying |
+| `@ZeroCopy` | `TypedData` param | Pass a typed list as a raw pointer. No copy for a `NitroBuffer` view or a `@zeroCopy` return (native-backed), or on a `--native-assets` leaf method; a plain Dart-heap list is copied (`memcpy`) |
 
 ### `@HybridStruct` vs `@HybridRecord` — which one?
 
@@ -818,7 +818,7 @@ nitrogen generate # regenerates all
 
 ```yaml
 dev_dependencies:
-  nitro_generator: ^0.8.3       # code generator
+  nitro_generator: ^0.8.4       # code generator
   build_runner: ^2.4.0
 ```
 

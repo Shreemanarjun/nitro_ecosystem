@@ -72,7 +72,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  nitro: ^0.8.3          # pub.dev version — NOT a path dependency
+  nitro: ^0.8.4          # pub.dev version — NOT a path dependency
   ffi: ^2.1.0
   plugin_platform_interface: ^2.0.2
 
@@ -81,7 +81,7 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   build_runner: ^2.4.0   # only needed to regenerate; consumers do not need this
-  nitro_generator: ^0.8.3  # pub.dev version — NOT a path dependency
+  nitro_generator: ^0.8.4  # pub.dev version — NOT a path dependency
 
 flutter:
   plugin:
@@ -266,7 +266,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  nitro: ^0.8.3
+  nitro: ^0.8.4
   ffi: ^2.1.0
   plugin_platform_interface: ^2.0.2
 
@@ -275,7 +275,7 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   build_runner: ^2.4.0
-  nitro_generator: ^0.8.3
+  nitro_generator: ^0.8.4
 
 flutter:
   plugin:

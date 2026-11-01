@@ -336,9 +336,11 @@ class SpecFromSource {
     typeSrc = p.type?.toSource() ?? 'dynamic';
 
     final typeBase = typeSrc.replaceAll('?', '');
+    final isZeroCopy = p.metadata.any((a) => _annName(a) == 'ZeroCopy' || _annName(a) == 'zeroCopy');
     return BridgeParam(
       name: p.name?.lexeme ?? '',
       type: _makeType(typeSrc, typeBase, enumNames, structNames, recordNames),
+      zeroCopy: isZeroCopy,
       isNamed: p.isNamed,
       isOptional: p.isOptional,
       defaultLiteral: defaultValue,

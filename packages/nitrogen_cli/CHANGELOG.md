@@ -1,3 +1,7 @@
+## 0.8.4
+
+- Coordinated 0.8.4 release; no changes.
+
 ## 0.8.3
 
 - Generated Android build hook links `libm`/`liblog`, so a consumer C++ impl using float math or `__android_log` loads on armeabi-v7a.

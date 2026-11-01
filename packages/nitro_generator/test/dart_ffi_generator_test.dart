@@ -95,7 +95,7 @@ void main() {
 
       expect(out, contains("lookup<NativeFinalizerFunction>('dsp_release_typed_data_return')"));
       expect(out, contains('final dataAddress = Pointer<Int64>.fromAddress(res.address + 8).value;'));
-      expect(out, contains('return payloadPtr.asTypedList(byteLength, finalizer: _typedDataReturnFinalizer, token: res.cast<Void>());'));
+      expect(out, contains('return nitroRegisterZeroCopyView(payloadPtr.asTypedList(byteLength, finalizer: _typedDataReturnFinalizer, token: res.cast<Void>()), payloadPtr.cast<Void>());'));
       expect(out, isNot(contains('Uint8List.fromList(payloadPtr.asTypedList(byteLength))')));
     });
 

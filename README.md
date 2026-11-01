@@ -40,10 +40,10 @@ No method channels. No manual FFI. No boilerplate.
 ```yaml
 # pubspec.yaml
 dependencies:
-  nitro: ^0.8.3
+  nitro: ^0.8.4
 
 dev_dependencies:
-  nitro_generator: ^0.8.3
+  nitro_generator: ^0.8.4
   build_runner: ^2.4.0
 ```
 
@@ -268,7 +268,7 @@ static void math_auto_register() { math_register_impl(&g_math); }
 | `@nitroNativeAsync` | method | Native runs on its own thread and posts the result to the library's shared completion port; no isolate; ~12 µs alone, ~2 µs per call in a burst. `FutureOr<T>` returns the bridge future without an `async` wrapper | Native APIs that are already asynchronous (completion handlers); add `@nitroFast` when the answer is ready at call time |
 | `@mainThread` | method | Kotlin/Swift impl runs on the platform main thread; no effect on C++ | UIKit / Android View APIs; pair with an async annotation |
 | `@NitroStream(backpressure:)` | `Stream<T>` getter/method | Native → Dart events, coalesced by the bridge on every backend: items that arrive while Dart is busy travel in one message, in order, none dropped. The mode (`dropLatest`, `block`, `bufferDrop`, `batch`) shapes the Kotlin/Swift producer's buffer | Push data; `batch` when the producer should not buffer at all |
-| `@zeroCopy` | typed-data param/return | Borrowed buffer, no copy | Large buffers (frames, audio, files) |
+| `@zeroCopy` | typed-data param/return | No copy when the list lives in native memory: a `@zeroCopy` return, a `NitroBuffer` view (build frames into one), or `.address` on a `--native-assets` leaf method. A plain Dart-heap list is copied (`memcpy`) | Large buffers (frames, audio, files) |
 | `@NitroOwned(release:)` | `NativeHandle` return | Handle freed by a finalizer (`free` or a custom release) | Opaque native objects Dart owns |
 | `@NitroResult` | method | Returns `NitroResultValue<T>` instead of throwing | Expected failures on hot paths |
 | `@NitroEntryPoint` | top-level function | Runnable in a headless engine (Android/iOS) or spawned isolate; native-initiated jobs | Background work, WorkManager/BGTask, app-killed scenarios |
