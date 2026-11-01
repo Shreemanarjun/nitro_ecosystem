@@ -155,3 +155,27 @@ jobs:
             -DCMAKE_CXX_COMPILER=g++-12
           cmake --build build_linux
         working-directory: benchmark
+
+  # ── Bridge runtime memory-safety harness (ASan/UBSan + TSan) ──────────────
+  # Compiles the header-only C++ runtime (completion batch, worker pool,
+  # background table) into a standalone test and runs its memory-management
+  # paths under sanitizers. Linux so LeakSanitizer is active (macOS ASan has no
+  # LSan). clang for the full ASan/UBSan/TSan set.
+  linux-bridge-safety:
+    name: Linux — bridge memory safety (ASan/UBSan + TSan)
+    runs-on: ubuntu-22.04
+    needs: generator-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends clang cmake make
+
+      - name: Run bridge safety harness
+        run: ./run.sh
+        working-directory: packages/nitro/test_native
+        env:
+          CC: clang
+          CXX: clang++
