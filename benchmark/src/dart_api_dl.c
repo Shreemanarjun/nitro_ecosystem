@@ -38,12 +38,12 @@ NITRO_DL_WEAK DartApiEntry_function FindFunctionPointer(const DartApiEntry* entr
   return NULL;
 }
 
-NITRO_DL_WEAK DART_EXPORT void Dart_UpdateExternalSize_Deprecated(
+DART_EXPORT NITRO_DL_WEAK void Dart_UpdateExternalSize_Deprecated(
     Dart_WeakPersistentHandle object, intptr_t external_size) {
   printf("Dart_UpdateExternalSize is a nop, it has been deprecated\n");
 }
 
-NITRO_DL_WEAK DART_EXPORT void Dart_UpdateFinalizableExternalSize_Deprecated(
+DART_EXPORT NITRO_DL_WEAK void Dart_UpdateFinalizableExternalSize_Deprecated(
     Dart_FinalizableHandle object,
     Dart_Handle strong_ref_to_object,
     intptr_t external_allocation_size) {
