@@ -99,7 +99,7 @@ nitrogen init --no-ui --name my_plugin \
 | `android/.../<Name>Impl.kt` | Starter Kotlin implementation |
 | `android/.../<Name>Plugin.kt` | Flutter plugin registrar |
 | `src/CMakeLists.txt` | NDK build file |
-| `pubspec.yaml` | Pre-wired with `nitro: ^0.8.4` and `nitro_generator: ^0.8.4` |
+| `pubspec.yaml` | Pre-wired with `nitro: ^0.8.5` and `nitro_generator: ^0.8.5` |
 
 **You only ever edit:** the spec, the Kotlin impl, and the Swift impl (or a single C++ impl). Everything else is generated.
 

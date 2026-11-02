@@ -11,7 +11,21 @@
 #include <stdio.h>
 #include <string.h>
 
-#define DART_API_DL_DEFINITIONS(name, R, A) name##_Type name##_DL = NULL;
+/* This file is vendored (copied) into every nitro plugin, so an iOS/macOS app
+ * that links two or more nitro SPM plugins would otherwise get two strong
+ * definitions of each Dart_*_DL symbol -> "duplicate symbol" link error
+ * (GitHub #61). Mark every definition here weak so the Mach-O/ELF linker
+ * coalesces the identical copies; every plugin initializes them from the same
+ * NativeApi.initializeApiDLData, so whichever copy wins holds the same values.
+ * MSVC has no __attribute__((weak)), but each Windows plugin is its own DLL
+ * with no shared link step, so the guard is a safe no-op there. */
+#if defined(_MSC_VER)
+#define NITRO_DL_WEAK
+#else
+#define NITRO_DL_WEAK __attribute__((weak))
+#endif
+
+#define DART_API_DL_DEFINITIONS(name, R, A) NITRO_DL_WEAK name##_Type name##_DL = NULL;
 
 DART_API_ALL_DL_SYMBOLS(DART_API_DL_DEFINITIONS)
 DART_API_DEPRECATED_DL_SYMBOLS(DART_API_DL_DEFINITIONS)
@@ -20,7 +34,7 @@ DART_API_DEPRECATED_DL_SYMBOLS(DART_API_DL_DEFINITIONS)
 
 typedef void* DartApiEntry_function;
 
-DartApiEntry_function FindFunctionPointer(const DartApiEntry* entries,
+NITRO_DL_WEAK DartApiEntry_function FindFunctionPointer(const DartApiEntry* entries,
                                           const char* name) {
   while (entries->name != NULL) {
     // Cast the function pointer to void* explicitly: implicit in C, but an
@@ -32,12 +46,12 @@ DartApiEntry_function FindFunctionPointer(const DartApiEntry* entries,
   return NULL;
 }
 
-DART_EXPORT void Dart_UpdateExternalSize_Deprecated(
+DART_EXPORT NITRO_DL_WEAK void Dart_UpdateExternalSize_Deprecated(
     Dart_WeakPersistentHandle object, intptr_t external_size) {
   printf("Dart_UpdateExternalSize is a nop, it has been deprecated\n");
 }
 
-DART_EXPORT void Dart_UpdateFinalizableExternalSize_Deprecated(
+DART_EXPORT NITRO_DL_WEAK void Dart_UpdateFinalizableExternalSize_Deprecated(
     Dart_FinalizableHandle object,
     Dart_Handle strong_ref_to_object,
     intptr_t external_allocation_size) {
@@ -45,7 +59,7 @@ DART_EXPORT void Dart_UpdateFinalizableExternalSize_Deprecated(
          "it has been deprecated\n");
 }
 
-intptr_t Dart_InitializeApiDL(void* data) {
+NITRO_DL_WEAK intptr_t Dart_InitializeApiDL(void* data) {
   DartApi* dart_api_data = (DartApi*)data;
 
   if (dart_api_data->major != DART_API_DL_MAJOR_VERSION) {

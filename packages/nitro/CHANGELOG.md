@@ -1,3 +1,7 @@
+## 0.8.5
+
+- **Fix (#61):** the vendored `dart_api_dl.c` now defines its `Dart_*_DL` symbols and `Dart_InitializeApiDL` weakly (MSVC-guarded). Two or more nitro plugins in one iOS/macOS Swift Package Manager app previously failed to link with "duplicate symbol" errors; the linker now coalesces the identical copies. Android/Linux (separate shared libraries) and Windows (separate DLLs) were unaffected. Re-run `nitrogen link` to pick it up.
+
 ## 0.8.4
 
 - **Add `NitroBuffer`** — a reusable native-backed buffer (web twin included). Build a per-frame payload into its `bytes` / `view(n)` and hand it to a `@zeroCopy` `TypedData` parameter: it crosses the bridge by pointer, no copy, on every path. A native-owned `@zeroCopy` return is pointer-only too. A plain Dart-heap `Uint8List` is still copied as before. A/B through the real runtime (AOT, 4 MB param): ~114 µs copied → ~0.7 µs pass-through. See `tool/zero_copy_param_bench.dart`.

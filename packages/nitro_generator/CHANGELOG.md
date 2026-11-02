@@ -1,3 +1,7 @@
+## 0.8.5
+
+- Coordinated 0.8.5 release; no generator changes.
+
 ## 0.8.4
 
 - `@zeroCopy` `TypedData` params now pass a native-backed view (e.g. `NitroBuffer`) straight through by pointer instead of copying; a plain heap list still falls back to the copy. `@zeroCopy` returns register their view for the same pointer-only hand-back.

@@ -1,3 +1,7 @@
+## 0.8.5
+
+- Coordinated 0.8.5 release; no CLI code change. `nitrogen link` now vendors the weak-symbol `dart_api_dl.c` from nitro 0.8.5, so two or more nitro SPM plugins in one iOS/macOS app link (fixes #61). Re-run `nitrogen link` on existing plugins to pick it up.
+
 ## 0.8.4
 
 - **Binary-size controls** on the generated `src/CMakeLists.txt`: opt-in `NITRO_SIZE_OPT` (dead-code strip + section GC — `--gc-sections` on ELF, `-dead_strip` on Apple, `/OPT:REF /OPT:ICF` on MSVC) and `NITRO_LTO`, applied per nitro library. Both default off and `NITRO_SIZE_OPT` turns on automatically for a `MinSizeRel` build. LTO measured ~−6.5% on the benchmark bridge.
