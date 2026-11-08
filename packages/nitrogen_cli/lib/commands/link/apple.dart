@@ -73,10 +73,23 @@ void _syncSwiftBridgesToSpmSources(String baseDir) {
     final sourcesDir = Directory(p.join(packageRoot, 'Sources'));
     if (!sourcesDir.existsSync()) continue;
 
-    // Walk all immediate subdirs of Sources/ — each is an SPM target
-    for (final entry in sourcesDir.listSync().whereType<Directory>()) {
-      // Only copy into Swift targets (skip C/C++ targets whose names end in Cpp)
-      if (entry.path.endsWith('Cpp')) continue;
+    // Walk the immediate subdirs of Sources/. `followLinks: false` so a
+    // SYMLINKED target (e.g. a vendored C++ core aliased into Sources/) is not
+    // followed — otherwise the bridge is written into that external source tree
+    // (GitHub #62). A symlinked directory comes back as a Link, which
+    // `whereType<Directory>()` then drops.
+    for (final entry in sourcesDir.listSync(followLinks: false).whereType<Directory>()) {
+      // Write the bridge ONLY into a Swift target. A folder's NAME is not its
+      // type: a C/C++ target not named `*Cpp` (e.g. `ZXingCore`) or a
+      // header-only support folder (e.g. `ZXingCoreConfig`) must not receive a
+      // `.swift` file — SPM rejects mixed-language targets. Identify a Swift
+      // target POSITIVELY: it already contains a `.swift` source (the plugin's
+      // own Swift and/or the bridge symlink). Check the extension on every
+      // entry (not just Files) so a symlinked `.bridge.g.swift` counts too.
+      final isSwiftTarget = entry
+          .listSync(followLinks: false)
+          .any((e) => p.extension(e.path) == '.swift');
+      if (!isSwiftTarget) continue;
       // One dedup set per SPM target — each target is its own Swift module,
       // so shared declarations must appear exactly once per target.
       final definedDecls = <String>{};
@@ -89,6 +102,10 @@ void _syncSwiftBridgesToSpmSources(String baseDir) {
     }
   }
 }
+
+/// Test-only entry point for [_syncSwiftBridgesToSpmSources] (GitHub #62
+/// regression coverage). Not part of the public CLI surface.
+void syncSwiftBridgesToSpmSourcesForTest(String baseDir) => _syncSwiftBridgesToSpmSources(baseDir);
 
 /// Removes the `'../lib/src/generated/swift/**/*.swift'` glob from [podspecFile]'s
 /// `s.source_files` line. This must be called after [_copySwiftBridgesToClasses] to

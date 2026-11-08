@@ -1,3 +1,7 @@
+## 0.8.6
+
+- **Fix (#62):** `nitrogen link` no longer copies `*.bridge.g.swift` into non-Swift folders under the SPM `Sources/` directory. It now writes only into targets that contain a Swift source, and no longer follows directory symlinks. A C/C++ target whose name doesn't end in `Cpp`, a header-only support folder, or a symlinked vendored target is left alone — previously each received a Swift file, which broke the iOS build with a mixed-language-target error (or, through a symlink, wrote outside the package).
+
 ## 0.8.5
 
 - Coordinated 0.8.5 release; no CLI code change. `nitrogen link` now vendors the weak-symbol `dart_api_dl.c` from nitro 0.8.5, so two or more nitro SPM plugins in one iOS/macOS app link (fixes #61). Re-run `nitrogen link` on existing plugins to pick it up.

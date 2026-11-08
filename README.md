@@ -40,10 +40,10 @@ No method channels. No manual FFI. No boilerplate.
 ```yaml
 # pubspec.yaml
 dependencies:
-  nitro: ^0.8.5
+  nitro: ^0.8.6
 
 dev_dependencies:
-  nitro_generator: ^0.8.5
+  nitro_generator: ^0.8.6
   build_runner: ^2.4.0
 ```
 

@@ -1,3 +1,7 @@
+## 0.8.6
+
+- Coordinated 0.8.6 release; no changes.
+
 ## 0.8.5
 
 - **Fix (#61):** the vendored `dart_api_dl.c` now defines its `Dart_*_DL` symbols and `Dart_InitializeApiDL` weakly (MSVC-guarded). Two or more nitro plugins in one iOS/macOS Swift Package Manager app previously failed to link with "duplicate symbol" errors; the linker now coalesces the identical copies. Android/Linux (separate shared libraries) and Windows (separate DLLs) were unaffected. Re-run `nitrogen link` to pick it up.
