@@ -304,6 +304,10 @@ void linkPodspec(
       p.join(classesDir.path, '$pluginName.c'),
     ).writeAsStringSync(classesCForwarder(pluginName));
   }
+
+  // Last: every writer of Classes/ has run (the forwarders above replaced the
+  // copies syncBridgeFiles made), so derive the link anchors from the result.
+  writeAppleLinkAnchors(classesDir, pluginName);
 }
 
 void linkMacosPodspec(
@@ -389,6 +393,9 @@ void linkMacosPodspec(
   // Link C++ module implementation files for macOS — same logic as iOS above.
   // Only macos:NativeImpl.cpp modules get a Hybrid*.cpp forwarder in macos/Classes/.
   _writeAppleModuleForwarders(moduleInfos, classesDir, baseDir, isMacosCppModule);
+
+  // Last, as in linkPodspec: derive the link anchors from the settled Classes/.
+  writeAppleLinkAnchors(classesDir, pluginName);
 }
 
 /// Wires non-cpp module registrations into the macOS Swift plugin file.

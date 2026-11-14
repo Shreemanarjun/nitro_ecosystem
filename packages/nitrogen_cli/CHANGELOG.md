@@ -1,6 +1,10 @@
+## 0.8.7
+
+- **Fix (CocoaPods release builds, nitro_http#3):** a plugin built as a static pod lost its bridges and C++ impls in release (`Failed to lookup symbol '<lib>_init_dart_api_dl'`). `nitrogen link` and `nitrogen watch` now write `<plugin>.link_anchors.g.mm` into `ios/Classes/` and `macos/Classes/` to keep them linked. No podspec or `Package.swift` changes; SwiftPM was never affected. Re-run `nitrogen link`.
+
 ## 0.8.6
 
-- **Fix (#62):** `nitrogen link` no longer copies `*.bridge.g.swift` into non-Swift folders under the SPM `Sources/` directory. It now writes only into targets that contain a Swift source, and no longer follows directory symlinks. A C/C++ target whose name doesn't end in `Cpp`, a header-only support folder, or a symlinked vendored target is left alone — previously each received a Swift file, which broke the iOS build with a mixed-language-target error (or, through a symlink, wrote outside the package).
+- **Fix (#62):** `nitrogen link` copies `*.bridge.g.swift` only into SPM targets that contain Swift sources, and no longer follows directory symlinks. C/C++ and header-only targets previously received a Swift file, which broke the iOS build.
 
 ## 0.8.5
 

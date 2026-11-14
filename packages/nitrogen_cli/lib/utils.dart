@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'models.dart';
+import 'templates/forwarder_templates.dart';
 
 /// Kills any existing `build_runner` processes before starting a new one.
 ///
@@ -341,6 +342,64 @@ void syncBridgeFiles(String workingDirectory, {String platform = 'ios'}) {
 
   _syncCppBridges(generatedDir, classesDir);
   _syncCppImplStubs(workingDirectory, appleCppModules, classesDir);
+  writeAppleLinkAnchors(classesDir, pluginName);
+}
+
+final _implLinkAnchorSnippet = RegExp(
+  r'\n// nitrogen link anchor — do not edit\.[^\n]*\n(?://[^\n]*\n)*extern "C" [^\n]*\bvoid \w+\(void\) \{\}\n',
+);
+
+/// (Re)generates the release/archive link anchors for a CocoaPods
+/// `<platform>/Classes/` directory from what is actually in it — see
+/// `appleLinkAnchorsTu` for why they exist.
+///
+/// Call it last, after every writer of `Classes/` has run: `nitrogen link`
+/// writes impl forwarders where `nitrogen watch` writes plain copies, so the
+/// anchors are derived from the files on disk rather than from either writer.
+///
+/// - A bridge is anchored only when its copy carries the Apple keep-block entry
+///   for `<lib>_init_dart_api_dl`. That entry exists exactly when the spec
+///   targets Apple and defines the symbol; type-only bridges and bridges from
+///   a generator older than 0.8.1 have none, and are left alone rather than
+///   referenced into an undefined-symbol link error.
+/// - Every `Hybrid*.cpp` here is nitro-owned (forwarder or copy) and gets one
+///   anchor symbol appended; symlinks are never written through.
+///
+/// Leaves no file behind when there is nothing to anchor.
+void writeAppleLinkAnchors(Directory classesDir, String pluginName) {
+  if (!classesDir.existsSync()) return;
+  final anchorsName = appleLinkAnchorsFileName(pluginName);
+  // Sorted: directory listing order differs per filesystem, the output must not.
+  final files = classesDir.listSync(followLinks: false).whereType<File>().toList()..sort((a, b) => a.path.compareTo(b.path));
+
+  final initSymbols = <String>[];
+  final implAnchors = <String>[];
+  for (final f in files) {
+    final name = p.basename(f.path);
+    if (name.endsWith('.bridge.g.mm')) {
+      final lib = name.substring(0, name.length - '.bridge.g.mm'.length);
+      final sym = '${lib.replaceAll('-', '_')}_init_dart_api_dl';
+      // Same marker shape `doctor` checks for strip survival.
+      if (RegExp('\\.desc\\s+_${RegExp.escape(sym)},\\s*0x10').hasMatch(f.readAsStringSync())) initSymbols.add(sym);
+    } else if (name.startsWith('Hybrid') && name.endsWith('.cpp')) {
+      final sym = appleImplLinkAnchorSymbol(pluginName, p.basenameWithoutExtension(name));
+      final src = f.readAsStringSync();
+      // Replace rather than append, so a file never carries two anchors.
+      final stamped = '${src.replaceAll(_implLinkAnchorSnippet, '')}${appleImplLinkAnchor(sym)}';
+      if (stamped != src) f.writeAsStringSync(stamped);
+      implAnchors.add(sym);
+    } else if (name.endsWith('.link_anchors.g.mm') && name != anchorsName) {
+      f.deleteSync(); // an anchors file from before the plugin was renamed
+    }
+  }
+
+  final out = File(p.join(classesDir.path, anchorsName));
+  if (initSymbols.isEmpty && implAnchors.isEmpty) {
+    if (out.existsSync()) out.deleteSync();
+    return;
+  }
+  final content = appleLinkAnchorsTu(pluginName: pluginName, initSymbols: initSymbols, implAnchors: implAnchors);
+  if (!out.existsSync() || out.readAsStringSync() != content) out.writeAsStringSync(content);
 }
 
 /// Syncs Swift bridges into every existing target dir.
