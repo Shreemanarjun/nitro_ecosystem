@@ -1,3 +1,7 @@
+## 0.8.8
+
+- **Fix (SwiftPM, type names):** the bridge forwarder that `nitrogen init` and `nitrogen link` write into the SPM C++ target no longer imports Foundation. The generated bridge imports it itself and renames the Foundation names a `@HybridStruct` or `@HybridEnum` would clash with (`Point`, `Size`, `Style`, …); the forwarder's import came first and undid that. Re-run `nitrogen link`.
+
 ## 0.8.7
 
 - **Fix (CocoaPods release builds, nitro_http#3):** a plugin built as a static pod lost its bridges and C++ impls in release (`Failed to lookup symbol '<lib>_init_dart_api_dl'`). `nitrogen link` and `nitrogen watch` now write `<plugin>.link_anchors.g.mm` into `ios/Classes/` and `macos/Classes/` to keep them linked. No podspec or `Package.swift` changes; SwiftPM was never affected. Re-run `nitrogen link`.

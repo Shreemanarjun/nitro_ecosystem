@@ -305,6 +305,7 @@ abstract class Counter {
 | W009 | Web impl + `@zeroCopy` | One bulk copy (snapshot) on web |
 | E017 | Web impl + struct field with no wasm32 layout (record/variant/map) | Use `@HybridRecord` for the whole type |
 | E018 | Nullable Map value that cannot carry a null | `Map<String, T?>` works for `int`/`double`/`bool`/`String` (tag 0). An int-keyed map's values are untagged, and enum/record/variant values are dropped by Swift's `compactMapValues` — use `NitroAnyMap` there |
+| E021 | `@HybridStruct` / `@HybridEnum` named `Protocol`, a type built into Objective-C, with an iOS or macOS target | Rename the type |
 
 ---
 

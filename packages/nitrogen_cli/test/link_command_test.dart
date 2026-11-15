@@ -1052,8 +1052,9 @@ end
         isTrue,
         reason: 'bridge.g.mm must not be deleted when lib == pluginName',
       );
-      // Content must include Foundation import (main plugin bridge format).
-      expect(bridgeMm.readAsStringSync(), contains('#import <Foundation/Foundation.h>'));
+      // Content must be the main plugin bridge format: the forwarder alone, with no import of its own.
+      expect(bridgeMm.readAsStringSync(), contains('my_plugin.bridge.g.cpp'));
+      expect(bridgeMm.readAsStringSync(), isNot(contains('Foundation/Foundation.h')));
     });
 
     test('bridge.g.mm uses relative path (not absolute) for portability', () {

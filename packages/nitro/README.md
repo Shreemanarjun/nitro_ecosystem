@@ -39,7 +39,7 @@ In your plugin's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  nitro: ^0.8.7
+  nitro: ^0.8.8
 ```
 
 Then run:

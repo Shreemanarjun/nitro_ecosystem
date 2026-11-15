@@ -1,5 +1,6 @@
 import 'package:nitro_annotations/nitro_annotations.dart' show CppImpl, KotlinImpl, NativeImpl, WasmImpl;
 
+import 'apple_system_names.dart';
 import 'bridge_spec.dart';
 import 'map_wire.dart';
 
@@ -916,6 +917,26 @@ class SpecValidator {
             code: 'E020',
             message: '@HybridEnum ${e.name} has duplicate native values: ${dupes.join(', ')}.',
             hint: 'Every case needs a distinct native value — the wire carries the number, so duplicates make one case undecodable.',
+          ),
+        );
+      }
+    }
+
+    // ── E021: a struct or enum named after a type built into Objective-C ──
+    // Each one becomes a C typedef of the same name at file scope, in a bridge
+    // that is compiled as Objective-C++ on Apple. The bridge renames the names
+    // Foundation defines while it imports it; a name the language itself
+    // defines cannot be renamed, and the plugin does not compile there.
+    if (spec.targetsIos || spec.targetsMacos) {
+      final declared = {for (final st in spec.structs) st.name: '@HybridStruct', for (final e in spec.enums) e.name: '@HybridEnum'};
+      for (final MapEntry(key: name, value: kind) in declared.entries) {
+        if (!foundationNamesNotRenamable.contains(name)) continue;
+        issues.add(
+          ValidationIssue(
+            severity: ValidationSeverity.error,
+            code: 'E021',
+            message: '$kind $name has the name of a type built into Objective-C, so the generated bridge does not compile on iOS or macOS.',
+            hint: 'Rename it, for example ${spec.dartClassName}$name.',
           ),
         );
       }

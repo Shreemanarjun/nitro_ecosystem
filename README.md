@@ -40,10 +40,10 @@ No method channels. No manual FFI. No boilerplate.
 ```yaml
 # pubspec.yaml
 dependencies:
-  nitro: ^0.8.7
+  nitro: ^0.8.8
 
 dev_dependencies:
-  nitro_generator: ^0.8.7
+  nitro_generator: ^0.8.8
   build_runner: ^2.4.0
 ```
 
@@ -986,6 +986,7 @@ The generator validates your spec before emitting any code:
 | **E017** | Error | Web + `@HybridStruct` field with no wasm32 layout (record/variant/map) |
 | **E018** | Error | Nullable `Map` value the wire cannot carry — use `NitroAnyMap` |
 | **E020** | Error | Two `@HybridEnum` cases share a native value |
+| **E021** | Error | `@HybridStruct` / `@HybridEnum` named `Protocol`, a type built into Objective-C, in a module that targets iOS or macOS |
 | **W001** | Warning | Non-nullable `int`/`double`/`bool` named param with no default |
 | **W002** | Warning | Non-nullable `@HybridEnum` named param with no default |
 | **W003** | Warning | Non-nullable `@HybridStruct` named param with no default |

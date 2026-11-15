@@ -1,3 +1,9 @@
+## 0.8.8
+
+- iOS/macOS: the generated bridge now marks every exported function REFERENCED_DYNAMICALLY, not only the ones whose definition repeats `NITRO_EXPORT`. The methods Dart calls were left unmarked, so an archived build that links the plugin statically into the app (SwiftPM) stripped them — `Failed to lookup symbol` on first use. Regenerate. Thanks [@JoniDS](https://github.com/JoniDS) for reporting (nitro_http#4).
+- iOS/macOS: a `@HybridStruct` or `@HybridEnum` named after a type Foundation defines (`Point`, `Size`, `Rect`, `Style`, `Duration`, …) no longer fails to compile with `typedef redefinition`. The bridge renames Foundation's name while it imports it. Needs the bridge forwarder from `nitrogen link` 0.8.8.
+- New validator error `E021`: a `@HybridStruct` or `@HybridEnum` named `Protocol`, a type built into Objective-C, in a module that targets iOS or macOS.
+
 ## 0.8.7
 
 - Coordinated 0.8.7 release; no generator changes.

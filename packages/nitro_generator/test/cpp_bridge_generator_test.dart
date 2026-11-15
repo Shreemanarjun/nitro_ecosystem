@@ -1,4 +1,5 @@
 import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:test/test.dart';
 import 'test_utils.dart';
 
@@ -44,6 +45,20 @@ void main() {
         expect(exported.length, greaterThan(5));
         for (final sym in exported) {
           expect(out, contains('.desc _$sym, 0x10'), reason: '$sym is NITRO_EXPORT but has no REFERENCED_DYNAMICALLY marker');
+        }
+      });
+
+      test('every symbol Dart looks up is marked, whichever language implements the spec', () {
+        // A method's definition does not repeat `NITRO_EXPORT`; only its declaration in the header carries it.
+        // Those are the symbols Dart calls, so an unmarked one is a `symbol not found` in an archived app.
+        for (final spec in [simpleSpec(), richSpec(), structStreamSpec(), cppSpec(), cppStreamSpec(), iosOnlyCppSpec(), macosOnlyCppSpec(), mixedPlatformCppSpec(), fullCrossPlatformSpec()]) {
+          final out = CppBridgeGenerator.generate(spec);
+          final dart = DartFfiGenerator.generate(spec) + DartFfiGenerator.generateFfiLibrary(spec);
+          final lookedUp = RegExp("'(${RegExp.escape(spec.lib.replaceAll('-', '_'))}_\\w+)'").allMatches(dart).map((m) => m.group(1)!).toSet();
+          expect(lookedUp.length, greaterThan(5), reason: spec.lib);
+          for (final sym in lookedUp) {
+            expect(out, contains('.desc _$sym, 0x10'), reason: '${spec.lib}: Dart looks up $sym but it has no REFERENCED_DYNAMICALLY marker');
+          }
         }
       });
 

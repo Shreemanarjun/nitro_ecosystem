@@ -1,6 +1,7 @@
 import 'package:nitro_annotations/nitro_annotations.dart' show CppImpl, KotlinImpl, SwiftImpl;
 
 import '../../../bridge_item_kind.dart';
+import '../../../apple_system_names.dart';
 import '../../../bridge_spec.dart';
 import '../../code_writer.dart';
 import '../../generator_metadata.dart';
@@ -44,7 +45,8 @@ class CppBridgeGenerator {
     final libStem = spec.lib.replaceAll('-', '_');
     final nameRe = RegExp('\\b${RegExp.escape(libStem)}_\\w+(?=\\s*\\()');
     final syms = <String>{};
-    for (final line in cpp.split('\n')) {
+    // The header is read as well: it declares every export `NITRO_EXPORT`, and a method's definition here does not repeat it.
+    for (final line in '$cpp\n${CppHeaderGenerator.generate(spec)}'.split('\n')) {
       if (!line.contains('NITRO_EXPORT')) continue;
       final m = nameRe.firstMatch(line);
       if (m != null) syms.add(m.group(0)!);
@@ -411,8 +413,20 @@ class CppBridgeGenerator {
     writer.line('#include <stdlib.h>');
     writer.line('#include <string>'); // _g_str_ret
     if (hasApple) {
+      // Foundation already defines some of the names a spec may give its structs and enums (`Point`, `Size`, `Duration`).
+      // The bridge header declares those under their Dart names, so Foundation's are renamed while it is imported here.
+      final renamed = [
+        for (final name in [...spec.structs.map((s) => s.name), ...spec.enums.map((e) => e.name)])
+          if (isRenamableFoundationName(name)) name,
+      ];
       writer.line('#if defined(__APPLE__)');
+      for (final name in renamed) {
+        writer.line('#define $name NitroSystem_$name');
+      }
       writer.line('#import <Foundation/Foundation.h>');
+      for (final name in renamed) {
+        writer.line('#undef $name');
+      }
       writer.line('#endif');
     }
     // dlfcn.h provides Dl_info/dladdr/dlopen used by enable_native_bindings on Android/Linux.
