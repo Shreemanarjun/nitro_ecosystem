@@ -146,6 +146,58 @@ void main() {
       final out = CppBridgeGenerator.generate(iosOnlySpec());
       expect(out, isNot(contains('JNI_OnLoad')));
     });
+
+    // The same file is compiled into the plugin's Android and desktop
+    // libraries. Unguarded, they failed to link: the Swift stubs it calls
+    // exist on Apple only.
+    test('guards the Swift section, so the file is inert off Apple', () {
+      final lines = CppBridgeGenerator.generate(iosOnlySpec()).split('\n');
+      var depth = 0;
+      int? stubDepth;
+      String? opener;
+      for (final l in lines) {
+        if (l.startsWith('#if')) {
+          depth++;
+          if (depth == 1) opener = l;
+        }
+        if (l.startsWith('#endif')) depth--;
+        if (stubDepth == null && l.startsWith('extern ') && l.contains('_call_capture(')) {
+          stubDepth = depth;
+          expect(opener, '#if defined(__APPLE__)');
+        }
+      }
+      expect(stubDepth, 1);
+      expect(depth, 0, reason: 'every #if is closed');
+    });
+
+    test('with C++ on Windows and Linux and no Android, the chain has an #if to hang its #elif on', () {
+      final out = CppBridgeGenerator.generate(
+        BridgeSpec(
+          dartClassName: 'Desk',
+          lib: 'desk',
+          namespace: 'desk',
+          macosImpl: NativeImpl.swift,
+          windowsImpl: NativeImpl.cpp,
+          linuxImpl: NativeImpl.cpp,
+          sourceUri: 'desk.native.dart',
+          functions: [
+            BridgeFunction(
+              dartName: 'ping',
+              cSymbol: 'desk_ping',
+              isAsync: false,
+              returnType: BridgeType(name: 'int'),
+              params: [],
+            ),
+          ],
+        ),
+      );
+      final elif = out.indexOf('\n#elif defined(_WIN32)');
+      expect(elif, isNot(-1));
+      final opener = out.lastIndexOf('\n#if defined(__APPLE__)\n', elif);
+      expect(opener, isNot(-1));
+      expect(out.substring(opener, elif), isNot(contains('\n#endif\n#elif')), reason: 'the #elif belongs to the Apple #if');
+      expect(out.trimRight().split('\n').where((l) => l.startsWith('#if')).length, out.split('\n').where((l) => l.startsWith('#endif')).length);
+    });
   });
 
   group('CppBridgeGenerator — Android only (Kotlin)', () {
@@ -155,9 +207,38 @@ void main() {
       expect(out, contains('android_sensor_get_error'));
     });
 
-    test('does NOT emit #ifdef __ANDROID__', () {
+    // `nitrogen link` compiles every module's bridge into the plugin's iOS and
+    // macOS targets too. Unguarded, this one stopped those builds at <jni.h>.
+    test('guards the JNI section, so the file is inert off Android', () {
       final out = CppBridgeGenerator.generate(androidOnlySpec());
-      expect(out, isNot(contains('#ifdef __ANDROID__')));
+      expect(out.indexOf('#ifdef __ANDROID__'), isNot(-1));
+      expect(out.indexOf('#ifdef __ANDROID__'), lessThan(out.indexOf('#include <jni.h>')));
+      expect(out.trimRight(), endsWith('#endif'));
+    });
+
+    test('with C++ on Linux and no Apple target, the chain it closes is one it opened', () {
+      final out = CppBridgeGenerator.generate(
+        BridgeSpec(
+          dartClassName: 'Mix',
+          lib: 'mix',
+          namespace: 'mix',
+          androidImpl: NativeImpl.kotlin,
+          linuxImpl: NativeImpl.cpp,
+          sourceUri: 'mix.native.dart',
+          functions: [
+            BridgeFunction(
+              dartName: 'ping',
+              cSymbol: 'mix_ping',
+              isAsync: false,
+              returnType: BridgeType(name: 'int'),
+              params: [],
+            ),
+          ],
+        ),
+      );
+      final elif = out.indexOf('#elif defined(__linux__)');
+      expect(elif, isNot(-1));
+      expect(out.indexOf('#ifdef __ANDROID__'), allOf(isNot(-1), lessThan(elif)));
     });
 
     test('does NOT emit #elif __APPLE__', () {

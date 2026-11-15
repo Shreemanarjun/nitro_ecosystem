@@ -548,12 +548,12 @@ Pod::Spec.new do |s|
     'DEFINES_MODULE'               => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'CLANG_CXX_LIBRARY'           => 'libc++',
-    'HEADER_SEARCH_PATHS'         => '$(inherited) "${PODS_ROOT}/../.symlinks/plugins/nitro/src/native"'
+    'HEADER_SEARCH_PATHS'         => '$(inherited) "${PODS_TARGET_SRCROOT}/../src/native" "${PODS_TARGET_SRCROOT}/../src" "${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"'
   }
 end
 ```
 
-> **Why `PODS_ROOT/../.symlinks/...`?** This path resolves correctly whether `nitro` is a local path dependency or installed from pub.dev. CocoaPods creates `.symlinks/plugins/<name>/` automatically for all plugin dependencies.
+> **Why `PODS_TARGET_SRCROOT/../src/native`?** `nitrogen link` keeps a copy of the nitro runtime headers in your plugin's `src/native/`, so the pod builds from the plugin alone. `nitro` is a pure Dart package, not a Flutter plugin, so there is no `nitro` pod to depend on and no `.symlinks/plugins/nitro` to point at. A podspec written by nitrogen 0.8.7 or earlier has both; run `nitrogen link` to update it.
 
 `ios/Podfile` (in your example or consumer app):
 
@@ -575,8 +575,8 @@ let package = Package(
         // C/C++ bridge — SPM requires Swift and C++ in separate targets
         .target(name: "MySensorCpp", path: "Sources/MySensorCpp",
             publicHeadersPath: "include",
-            cxxSettings: [.unsafeFlags(["-std=c++17",
-                "-I../../.symlinks/plugins/nitro/src/native"])]),
+            // nitrogen link copies the nitro runtime headers into include/
+            cxxSettings: [.headerSearchPath("include"), .unsafeFlags(["-std=c++17"])]),
         // Swift implementation + generated bridge
         .target(name: "my_sensor", dependencies: ["MySensorCpp"],
             path: "Sources/MySensor"),

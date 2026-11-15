@@ -309,6 +309,26 @@ void main() {
       expect(NitroSpinStats.instance.spins, 0);
     });
 
+    // Generated code passes this for a method that takes a callback: the spin
+    // would complete the future before the event loop delivered the callback.
+    test('spin: false skips the spin for that call, whatever the config says', () async {
+      NitroConfig.instance.nativeAsyncSpinUs = 500;
+      var armed = 0, polled = 0;
+      final batch = NitroCompletionBatch(
+        bind: (_) => 1,
+        ack: (_) {},
+        arm: (_) => armed++,
+        disarm: (_) {},
+        poll: (i, o, g) {
+          polled++;
+          return 2;
+        },
+      );
+      final f = NitroRuntime.openNativeAsync<int>(call: (id) => batch.sendPort.send([id, 9]), unpack: (raw) => raw as int, batch: batch, spin: false);
+      expect(await f, 9);
+      expect([armed, polled], [0, 0]);
+    });
+
     test('a pathological cap is clamped so the spin cannot hang', () {
       final batch = make(<int>[]);
       batch.armSpin(6000); // never completes → spins the whole (clamped) window

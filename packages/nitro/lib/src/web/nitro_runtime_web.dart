@@ -539,6 +539,7 @@ class NitroRuntime {
     String methodName = '',
 
     NitroCompletionBatch? batch,
+    bool spin = true,
   }) {
     final cfg = NitroConfig.instance;
     final effective = cfg.effectiveLogLevel;

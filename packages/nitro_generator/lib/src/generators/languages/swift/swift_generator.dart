@@ -4,7 +4,7 @@ import '../../enum_generator.dart';
 import '../../generator_metadata.dart';
 import '../../record_generator.dart';
 import '../../struct_generator.dart';
-import 'package:nitro_annotations/nitro_annotations.dart' show CppImpl;
+import 'package:nitro_annotations/nitro_annotations.dart' show CppImpl, SwiftImpl;
 import 'emitters/swift_function_emitter.dart';
 import 'emitters/swift_property_emitter.dart';
 import 'emitters/swift_stream_emitter.dart';
@@ -20,7 +20,8 @@ part 'emitters/swift_cpp_module_generator.dart';
 class SwiftGenerator {
   static String generate(BridgeSpec spec) {
     if (spec.isTypeOnly) return _generateTypeOnly(spec);
-    if (spec.iosImpl == null) {
+    // One Swift file serves iOS and macOS, so a module that is Swift on macOS alone still needs it.
+    if (spec.iosImpl == null && spec.macosImpl is! SwiftImpl) {
       return '${generatedFileHeader('//', sourceUri: spec.sourceUri, sourceHash: spec.sourceHash)}\n'
           '// iOS not targeted — no Swift bridge generated.\n';
     }

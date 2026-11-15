@@ -95,7 +95,7 @@ extension _DoctorAppleChecks on DoctorCommand {
       ctx.info(iosSec, 'ios/ directory not present — skipped');
       return;
     }
-    _checkIosPodspec(ctx, iosSec, iosDir, allSpecsCpp);
+    _checkIosPodspec(ctx, iosSec, iosDir, allSpecsCpp, spmStatus.iosHasSpm);
     final classesDir = Directory(p.join(iosDir.path, 'Classes'));
     _checkIosSwiftBridge(ctx, iosSec, iosDir, classesDir, allSpecsCpp, hasAnyNonCppSpec);
     _checkIosDartApi(ctx, iosSec, iosDir, spmStatus);
@@ -108,18 +108,39 @@ extension _DoctorAppleChecks on DoctorCommand {
     final cppDir = Directory(p.join(ctx.root.path, 'lib', 'src', 'generated', 'cpp'));
     if (!cppDir.existsSync()) return;
     var checked = 0, missing = 0;
-    final markerRe = RegExp(r'\.desc\s+_\w+,\s*0x10');
+    final markerRe = RegExp(r'\.desc\s+_(\w+),\s*0x10');
     for (final f in cppDir.listSync().whereType<File>().where((f) => f.path.endsWith('.bridge.g.cpp'))) {
       final src = f.readAsStringSync();
       if (!src.contains('init_dart_api_dl')) continue;
       if (src.contains('#ifdef __ANDROID__') && !src.contains('__APPLE__')) continue;
       checked++;
-      if (!markerRe.hasMatch(src)) {
+      final marked = markerRe.allMatches(src).map((m) => m.group(1)!).toSet();
+      if (marked.isEmpty) {
         missing++;
         ctx.warn(
           iosSec,
           '${p.basename(f.path)} is missing the archive-strip-survival marker — an Xcode archive (TestFlight/App Store/`flutter build ipa`) may strip its FFI exports and crash on first use',
           hint: 'Regenerate with nitro_generator 0.8.1+ (`nitrogen generate`). See nitro_http#3',
+        );
+        continue;
+      }
+      // 0.8.1–0.8.7 marked only the exports whose definition repeats `NITRO_EXPORT`, which leaves out the methods Dart calls.
+      // The header declares every export, and is what the generator marks from since 0.8.8.
+      final header = File(p.setExtension(f.path, '.h'));
+      final lib = RegExp(r'\b(\w+)_init_dart_api_dl\s*\(').firstMatch(src)?.group(1);
+      if (lib == null || !header.existsSync()) continue;
+      final nameRe = RegExp('\\b${RegExp.escape(lib)}_\\w+(?=\\s*\\()');
+      final unmarked = <String>{};
+      for (final line in header.readAsLinesSync()) {
+        final sym = line.contains('NITRO_EXPORT') ? nameRe.firstMatch(line)?.group(0) : null;
+        if (sym != null && !marked.contains(sym)) unmarked.add(sym);
+      }
+      if (unmarked.isNotEmpty) {
+        missing++;
+        ctx.warn(
+          iosSec,
+          '${p.basename(f.path)} marks only some of its FFI exports — an Xcode archive (TestFlight/App Store/`flutter build ipa`) strips the other ${unmarked.length} (${unmarked.first}, …) and the app fails with `Failed to lookup symbol` on first use',
+          hint: 'Regenerate with nitro_generator 0.8.8+ (`nitrogen generate`)',
         );
       }
     }
@@ -128,10 +149,15 @@ extension _DoctorAppleChecks on DoctorCommand {
     }
   }
 
-  void _checkIosPodspec(_DoctorCtx ctx, DoctorSection iosSec, Directory iosDir, bool allSpecsCpp) {
+  void _checkIosPodspec(_DoctorCtx ctx, DoctorSection iosSec, Directory iosDir, bool allSpecsCpp, bool hasSpm) {
     final podFiles = iosDir.listSync().whereType<File>().where((f) => f.path.endsWith('.podspec')).toList();
     if (podFiles.isEmpty) {
-      ctx.err(iosSec, 'No .podspec found in ios/', hint: 'Run: nitrogen init');
+      // A plugin may ship SwiftPM alone. Only a plugin with neither build system is broken.
+      if (hasSpm) {
+        ctx.info(iosSec, 'No .podspec in ios/ — SwiftPM only: an app that turns SwiftPM off cannot build this plugin');
+      } else {
+        ctx.err(iosSec, 'No .podspec found in ios/', hint: 'Run: nitrogen init');
+      }
     } else {
       ctx.checkFilePermissions(
         iosSec,
@@ -140,10 +166,12 @@ extension _DoctorAppleChecks on DoctorCommand {
       );
       final pod = podFiles.first.readAsStringSync();
       final podName = p.basename(podFiles.first.path);
+      // nitro is not a Flutter plugin, so there is no `nitro` pod to depend on:
+      // the podspec reads the runtime headers from the plugin's own src/native/.
       if (pod.contains("s.dependency 'nitro'")) {
-        ctx.ok(iosSec, "s.dependency 'nitro' in $podName");
+        ctx.err(iosSec, "s.dependency 'nitro' in $podName — there is no `nitro` pod, so `pod install` fails", hint: 'Run: nitrogen link  (removes it)');
       } else {
-        ctx.err(iosSec, "s.dependency 'nitro' missing in $podName", hint: 'Run: nitrogen link');
+        ctx.ok(iosSec, '$podName does not depend on a `nitro` pod');
       }
       if (pod.contains('HEADER_SEARCH_PATHS')) {
         ctx.ok(iosSec, 'HEADER_SEARCH_PATHS in $podName');
@@ -169,7 +197,7 @@ extension _DoctorAppleChecks on DoctorCommand {
       }
 
       // Check for complete HEADER_SEARCH_PATHS
-      if (pod.contains('lib/src/generated/cpp') && pod.contains('src/native')) {
+      if (pod.contains('lib/src/generated/cpp') && pod.contains('PODS_TARGET_SRCROOT}/../src/native')) {
         ctx.ok(iosSec, 'Comprehensive HEADER_SEARCH_PATHS in podspec');
       } else {
         ctx.warn(iosSec, 'Incomplete HEADER_SEARCH_PATHS in podspec', hint: 'Run: nitrogen link');
@@ -225,18 +253,20 @@ extension _DoctorAppleChecks on DoctorCommand {
           ctx.info(iosSec, 'Registry.register not needed — all modules use NativeImpl.cpp');
         }
 
-        // Check for stale XxxRegistry.register() calls for C++ modules.
-        // AppleNativeImpl.cpp modules have no Swift Registry — the call causes
-        // "Cannot find 'XxxRegistry' in scope". nitrogen link auto-removes these.
-        for (final spec in ctx.specs.where(isCppModule)) {
+        // Check for stale XxxRegistry.register() calls for modules with no
+        // Swift side on iOS: C++ there, or on no Apple platform. They have no
+        // Swift Registry — the call causes "Cannot find 'XxxRegistry' in
+        // scope". nitrogen link auto-removes these. A module that is Swift on
+        // iOS and C++ elsewhere (macOS, Windows, Linux) keeps its call.
+        for (final spec in ctx.specs.where((s) => !isIosSwiftModule(s))) {
           final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
           final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
           final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
           if (swift.contains('${moduleName}Registry.register(')) {
             ctx.err(
               iosSec,
-              'Stale ${moduleName}Registry.register() in Plugin.swift — $moduleName is now NativeImpl.cpp',
-              hint: 'Run: nitrogen link  (auto-removes stale Swift registry calls for C++ modules)',
+              'Stale ${moduleName}Registry.register() in Plugin.swift — $moduleName has no Swift implementation on iOS',
+              hint: 'Run: nitrogen link  (auto-removes stale Swift registry calls)',
             );
           }
         }
@@ -425,7 +455,7 @@ extension _DoctorAppleChecks on DoctorCommand {
       ctx.info(macosSec, 'macos/ directory not present — skipped');
       return;
     }
-    _checkMacosPodspec(ctx, macosSec, macosDir, allSpecsCpp);
+    _checkMacosPodspec(ctx, macosSec, macosDir, allSpecsCpp, spmStatus.macosHasSpm);
     final macosClassesDir = Directory(p.join(macosDir.path, 'Classes'));
     _checkMacosSwiftBridge(ctx, macosSec, macosDir, macosClassesDir, allSpecsCpp, hasAnyNonCppSpec);
     _checkMacosDartApi(ctx, macosSec, macosDir, spmStatus);
@@ -433,10 +463,15 @@ extension _DoctorAppleChecks on DoctorCommand {
     _checkMacosSpm(ctx, macosSec, spmStatus);
   }
 
-  void _checkMacosPodspec(_DoctorCtx ctx, DoctorSection macosSec, Directory macosDir, bool allSpecsCpp) {
+  void _checkMacosPodspec(_DoctorCtx ctx, DoctorSection macosSec, Directory macosDir, bool allSpecsCpp, bool hasSpm) {
     final podFiles = macosDir.listSync().whereType<File>().where((f) => f.path.endsWith('.podspec')).toList();
     if (podFiles.isEmpty) {
-      ctx.err(macosSec, 'No .podspec found in macos/', hint: 'Run: nitrogen init');
+      // A plugin may ship SwiftPM alone. Only a plugin with neither build system is broken.
+      if (hasSpm) {
+        ctx.info(macosSec, 'No .podspec in macos/ — SwiftPM only: an app that turns SwiftPM off cannot build this plugin');
+      } else {
+        ctx.err(macosSec, 'No .podspec found in macos/', hint: 'Run: nitrogen init');
+      }
     } else {
       ctx.checkFilePermissions(
         macosSec,
@@ -445,10 +480,12 @@ extension _DoctorAppleChecks on DoctorCommand {
       );
       final pod = podFiles.first.readAsStringSync();
       final podName = p.basename(podFiles.first.path);
+      // nitro is not a Flutter plugin, so there is no `nitro` pod to depend on:
+      // the podspec reads the runtime headers from the plugin's own src/native/.
       if (pod.contains("s.dependency 'nitro'")) {
-        ctx.ok(macosSec, "s.dependency 'nitro' in $podName");
+        ctx.err(macosSec, "s.dependency 'nitro' in $podName — there is no `nitro` pod, so `pod install` fails", hint: 'Run: nitrogen link  (removes it)');
       } else {
-        ctx.err(macosSec, "s.dependency 'nitro' missing in $podName", hint: 'Run: nitrogen link');
+        ctx.ok(macosSec, '$podName does not depend on a `nitro` pod');
       }
       if (pod.contains('HEADER_SEARCH_PATHS')) {
         ctx.ok(macosSec, 'HEADER_SEARCH_PATHS in $podName');
@@ -464,7 +501,7 @@ extension _DoctorAppleChecks on DoctorCommand {
           hint: "Set: 'CLANG_CXX_LANGUAGE_STANDARD' => '${BuildVersions.podCxxStandard}' in pod_target_xcconfig",
         );
       }
-      if (pod.contains('lib/src/generated/cpp') && pod.contains('src/native')) {
+      if (pod.contains('lib/src/generated/cpp') && pod.contains('PODS_TARGET_SRCROOT}/../src/native')) {
         ctx.ok(macosSec, 'Comprehensive HEADER_SEARCH_PATHS in podspec');
       } else {
         ctx.warn(macosSec, 'Incomplete HEADER_SEARCH_PATHS in podspec', hint: 'Run: nitrogen link');

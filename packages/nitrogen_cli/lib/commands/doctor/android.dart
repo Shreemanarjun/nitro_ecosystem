@@ -108,28 +108,29 @@ extension _DoctorAndroidChecks on DoctorCommand {
         ctx.info(androidSec, 'JniBridge.register not needed — all modules use NativeImpl.cpp');
       }
 
-      // Check for stale JniBridge.register() calls for C++ modules.
-      // When a module transitions from Kotlin/JNI to NativeImpl.cpp its
-      // JniBridge class no longer exists, causing "Unresolved reference" at
-      // compile time. nitrogen link auto-removes these, but doctor flags them
-      // so users know to re-run link.
-      for (final spec in ctx.specs.where(isCppModule)) {
+      // Check for stale JniBridge.register() / registerFactory() calls for
+      // modules with no Kotlin side on Android: C++ there, or not on Android
+      // at all. Their JniBridge class does not exist, causing "Unresolved
+      // reference" at compile time. nitrogen link auto-removes these, but
+      // doctor flags them so users know to re-run link. A module that is
+      // Kotlin on Android and C++ elsewhere keeps its call.
+      for (final spec in ctx.specs.where((s) => !isAndroidKotlinModule(s))) {
         final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
         final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());
         final moduleName = moduleMatch?.group(1) ?? _toPascalCase(stem);
-        if (kt.contains('${moduleName}JniBridge.register(')) {
+        if (kt.contains('${moduleName}JniBridge.register')) {
           ctx.err(
             androidSec,
-            'Stale ${moduleName}JniBridge.register() in Plugin.kt — $moduleName is now NativeImpl.cpp',
-            hint: 'Run: nitrogen link  (auto-removes stale registrations for C++ modules)',
+            'Stale ${moduleName}JniBridge registration in Plugin.kt — $moduleName has no Kotlin implementation on Android',
+            hint: 'Run: nitrogen link  (auto-removes stale registrations)',
           );
         }
       }
 
-      // For each non-cpp Kotlin module, verify the JniBridge import is present.
+      // For each Kotlin module, verify the JniBridge import is present.
       // Missing imports cause "Unresolved reference: FooJniBridge" Kotlin errors.
       // nitrogen link auto-injects these imports alongside the register() call.
-      for (final spec in ctx.specs.where((s) => !isCppModule(s))) {
+      for (final spec in ctx.specs.where(isAndroidKotlinModule)) {
         final stem = p.basename(spec.path).replaceAll(RegExp(r'\.native\.dart$'), '');
         final lib = (_extractLibName(spec) ?? stem).replaceAll('-', '_');
         final moduleMatch = RegExp(r'abstract class (\w+) extends HybridObject').firstMatch(spec.readAsStringSync());

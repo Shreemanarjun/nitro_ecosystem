@@ -21,6 +21,16 @@ void main() {
       expect(out, contains('} DeviceStatus;'));
     });
 
+    // One translation unit can reach the bridge header by two paths (a
+    // CocoaPods build does), so each enum has to tolerate being seen twice.
+    test('C enum is inside its own include guard', () {
+      final out = EnumGenerator.generateCEnums(enumSpec());
+      final guard = out.indexOf('#ifndef NITRO_ENUM_DEVICESTATUS_DEFINED\n#define NITRO_ENUM_DEVICESTATUS_DEFINED\n');
+      expect(guard, isNonNegative);
+      expect(out.indexOf('typedef enum {'), greaterThan(guard));
+      expect(out.indexOf('#endif // NITRO_ENUM_DEVICESTATUS_DEFINED'), greaterThan(out.indexOf('} DeviceStatus;')));
+    });
+
     test('Kotlin enum class has nativeValue Long field', () {
       final out = EnumGenerator.generateKotlin(enumSpec());
       expect(out, contains('enum class DeviceStatus(val nativeValue: Long)'));

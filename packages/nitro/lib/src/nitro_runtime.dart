@@ -669,12 +669,18 @@ class NitroRuntime {
   /// Swift `async`, C++ thread pool).
   ///
   /// The native side **must** post exactly one message to the port.
+  ///
+  /// [spin] false skips the completion spin (issue #57). The spin reads the
+  /// result before the event loop runs, so a callback the native method
+  /// invoked first would be delivered after the returned future completes.
+  /// Generated code passes false for a method that takes a callback.
   static Future<T> openNativeAsync<T>({
     required void Function(int dartPort) call,
     required T Function(dynamic raw) unpack,
     void Function()? cleanup,
     String methodName = '',
     NitroCompletionBatch? batch,
+    bool spin = true,
   }) {
     final cfg = NitroConfig.instance;
     final effective = cfg.effectiveLogLevel;
@@ -691,7 +697,7 @@ class NitroRuntime {
     // Generated bridges pass a per-library [batch]: the call gets an id on the
     // shared batch port instead of a port of its own, and completions that
     // land while this isolate is busy arrive together as one message.
-    if (batch != null) return _openBatched<T>(batch, call, unpack, cleanup, tag, sw, effective, traceTimeline, timeoutMs, cfg.nativeAsyncSpinUs ?? _defaultSpinUs);
+    if (batch != null) return _openBatched<T>(batch, call, unpack, cleanup, tag, sw, effective, traceTimeline, timeoutMs, spin ? cfg.nativeAsyncSpinUs ?? _defaultSpinUs : 0);
 
     final port = ReceivePort();
 

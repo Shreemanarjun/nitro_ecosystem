@@ -45,41 +45,25 @@
 
 class NitroCompletionBatch {
  public:
-  // ── Single-in-flight completion spin (issue #57) ───────────────────────────
-  // Client-side workaround for dart-lang/sdk#53156 (Dart_PostCObject_DL wake
-  // latency; closed not-planned). sdk#64229 (Isolate.onEvent) would be the
-  // principled fix if it ships.
-  //
-  // A lone serial @nitroNativeAsync completion pays a full isolate wake (~15-20
-  // µs) because the isolate is parked on `await` and the OS must reschedule it.
-  // When the Dart side arms the slot (only when exactly one call is in flight
-  // and NitroConfig.nativeAsyncSpinUs > 0), it busy-polls `poll()` for a short
-  // window instead of parking; a completion that lands inside the window is
-  // picked up with no port post and no OS wake. A CAS on `flag` arbitrates the
-  // boundary race, so exactly one of {slot delivery, port delivery} ever fires.
-  // Opt-in: spinning burns a CPU core, wrong default on battery.
+  // Single-in-flight completion spin (issue #57; workaround for dart-lang/sdk#53156).
+  // A lone @nitroNativeAsync completion otherwise pays a full isolate wake (~15-20µs
+  // to reschedule the awaiting isolate). When armed (single in flight, spin enabled)
+  // Dart busy-polls the slot instead of parking; a completion inside the window is
+  // taken with no port post. A `flag` CAS arbitrates the boundary race so delivery
+  // is exactly-once. Opt-in (NitroConfig.nativeAsyncSpinUs > 0): spinning burns a core.
   enum : int32_t { kPending = 0, kDone = 1, kParked = 2 };
   enum : int32_t { kTagNull = 0, kTagInt = 1, kTagDouble = 2, kTagBool = 3 };
 
-  // Dart, before a spin-eligible single-in-flight call: try to claim the one
-  // slot for [id]. Returns false if another isolate already owns it.
-  //
-  // There is ONE process-global batch per library (see the generated bridge),
-  // so the single slot is shared by every isolate that calls this library's
-  // @nitroNativeAsync. The single-in-flight contract is enforced *per isolate*
-  // (Dart's pendingCount==0), so two isolates could each think they may spin.
-  // A CAS on spinId_ (0→id) arbitrates: exactly one isolate owns the slot; the
-  // loser must NOT spin (poll() reads the owner's slot — a non-owner would see
-  // the owner's payload, see poll()'s id note). The claim is released when the
-  // owner's completion is delivered: post() resets spinId_ on every delivery
-  // path, and only *after* its flag-CAS resolves, so no other isolate can claim
-  // (and touch the slot) until this call's worker is done — collapsing the
-  // N-isolate case to the single-owner case the slot is written for. A call
-  // that throws before dispatching a worker frees its claim via disarm().
+  // Claim the one shared slot for [id]; false if another isolate already owns it
+  // (don't spin then — poll() would read the owner's result). The relaxed load
+  // skips the CAS when the slot is taken, so many concurrent callers (issue #58)
+  // don't fight over the cache line. Freed by poll() on a hit, post() on a park,
+  // or disarm() on throw.
   bool arm(int64_t id) noexcept {
+    if (spinId_.load(std::memory_order_relaxed) != 0) return false;
     int64_t expected = 0;
     if (!spinId_.compare_exchange_strong(expected, id, std::memory_order_acq_rel, std::memory_order_relaxed)) {
-      return false;  // another isolate owns the single slot; caller must not spin
+      return false;
     }
     spin_.tag = kTagNull;
     spin_.i = 0;
@@ -96,19 +80,11 @@ class NitroCompletionBatch {
     spinId_.compare_exchange_strong(expected, 0, std::memory_order_acq_rel, std::memory_order_relaxed);
   }
 
-  // Dart spin: poll the armed slot. With [giveUp] set, first try to claim the
-  // slot for the port (CAS kPending→kParked) so a later completion takes the
-  // port. Returns kPending (keep spinning), kDone (payload written to [out]:
-  // int32 tag @0, int64 @8, double @16 — matching the Dart read), or kParked
-  // (await the port). The delivery decision is read off the flag alone, never
-  // spinId_: the giveUp CAS and the worker's done-CAS both target the flag, so
-  // the flag is the single arbiter.
-  //
-  // On kDone the READER releases the slot (spinId_→0, release) after copying —
-  // NOT the worker. The worker frees the slot only on the park/non-scalar paths
-  // where Dart never reads it. If the worker freed on kDone, the next isolate
-  // could claim and overwrite this shared slot while this poll is still
-  // copying — a use-after-free the release-here/acquire-in-arm() pair closes.
+  // One poll of the slot. With [giveUp], first flip the flag to kParked so a late
+  // result goes to the port instead. Returns kPending / kDone (payload at out:
+  // tag@0, int64@8, double@16) / kParked. On a hit the reader frees the slot
+  // after copying (not the worker), so the next isolate can't overwrite it
+  // mid-copy.
   int32_t poll([[maybe_unused]] int64_t id, uint8_t* out, int32_t giveUp) noexcept {
     if (giveUp) {
       int32_t expected = kPending;
@@ -268,7 +244,7 @@ class NitroCompletionBatch {
         batchPort = idOrPort;
         stream = true;
       } else {
-        return (Dart_PostCObject_DL)(idOrPort, obj);
+        return postFlat(idOrPort, obj);
       }
       State& st = ports_[batchPort];
       if (st.inFlight && copyable(obj)) {
@@ -356,21 +332,74 @@ class NitroCompletionBatch {
     }
   }
 
+  // ── One message, one block ────────────────────────────────────────────────
+  // With compressed pointers (Android, iOS) the VM's message serializer tells
+  // two Dart_CObjects apart by the low 32 bits of their address: it keys them
+  // as ObjectPtr, and an untagged pointer compares as a Smi. Two nodes of one
+  // message that agree there are sent as one node. Heap nodes do agree, a few
+  // times in a hundred thousand batches: an id then arrives as the previous
+  // result and that call never completes, or a result arrives as its own id.
+  // So every node of a message is copied into one vector before the post.
+  // Addresses inside one block cannot agree in their low 32 bits.
+
+  static void countNodes(const Dart_CObject* o, size_t* nodes, size_t* links) {
+    *nodes += 1;
+    if (o->type != Dart_CObject_kArray) return;
+    *links += (size_t)o->value.as_array.length;
+    for (intptr_t i = 0; i < o->value.as_array.length; i++) countNodes(o->value.as_array.values[i], nodes, links);
+  }
+
+  // Copies [src] and everything below it into [nodes]; [links] holds the
+  // element pointers of its arrays. Both are reserved by the caller, so
+  // neither reallocates and the pointers handed out stay valid.
+  static Dart_CObject* flatten(const Dart_CObject* src, std::vector<Dart_CObject>& nodes, std::vector<Dart_CObject*>& links) {
+    nodes.push_back(*src);
+    Dart_CObject* dst = &nodes.back();
+    if (src->type == Dart_CObject_kArray) {
+      const size_t n = (size_t)src->value.as_array.length;
+      const size_t first = links.size();
+      links.resize(first + n);
+      for (size_t i = 0; i < n; i++) links[first + i] = flatten(src->value.as_array.values[i], nodes, links);
+      dst->value.as_array.values = links.data() + first;
+    }
+    return dst;
+  }
+
+  // A message the caller built itself (an unbound port).
+  static bool postFlat(int64_t port, Dart_CObject* message) {
+    size_t n = 0, l = 0;
+    countNodes(message, &n, &l);
+    if (n == 1) return (Dart_PostCObject_DL)(port, message);  // one node has nothing to collide with
+    std::vector<Dart_CObject> nodes;
+    std::vector<Dart_CObject*> links;
+    nodes.reserve(n);
+    links.reserve(l);
+    return (Dart_PostCObject_DL)(port, flatten(message, nodes, links));
+  }
+
   // [id0, obj0, id1, obj1, ...] as one kArray message.
   static bool postPairs(int64_t batchPort, const std::vector<std::pair<int64_t, Dart_CObject*>>& pairs) {
-    std::vector<Dart_CObject> ids(pairs.size());
-    std::vector<Dart_CObject*> values(pairs.size() * 2);
+    size_t n = 1 + pairs.size(), l = pairs.size() * 2;
+    for (const auto& p : pairs) countNodes(p.second, &n, &l);
+    std::vector<Dart_CObject> nodes;
+    std::vector<Dart_CObject*> links;
+    nodes.reserve(n);
+    links.reserve(l);
+    nodes.emplace_back();  // the array itself; filled in below
+    links.resize(pairs.size() * 2);
     for (size_t i = 0; i < pairs.size(); i++) {
-      ids[i].type = Dart_CObject_kInt64;
-      ids[i].value.as_int64 = pairs[i].first;
-      values[2 * i] = &ids[i];
-      values[2 * i + 1] = pairs[i].second;
+      nodes.emplace_back();
+      Dart_CObject* id = &nodes.back();
+      id->type = Dart_CObject_kInt64;
+      id->value.as_int64 = pairs[i].first;
+      links[2 * i] = id;
+      links[2 * i + 1] = flatten(pairs[i].second, nodes, links);
     }
-    Dart_CObject batch;
-    batch.type = Dart_CObject_kArray;
-    batch.value.as_array.length = (intptr_t)values.size();
-    batch.value.as_array.values = values.data();
-    return (Dart_PostCObject_DL)(batchPort, &batch);
+    Dart_CObject* batch = &nodes[0];
+    batch->type = Dart_CObject_kArray;
+    batch->value.as_array.length = (intptr_t)(pairs.size() * 2);
+    batch->value.as_array.values = links.data();
+    return (Dart_PostCObject_DL)(batchPort, batch);
   }
 
   static void freeItems(FreeItem freeItem, const std::vector<std::pair<int64_t, std::unique_ptr<Owned>>>& items) {
@@ -386,7 +415,13 @@ class NitroCompletionBatch {
     batch.type = Dart_CObject_kArray;
     batch.value.as_array.length = (intptr_t)items.size();
     batch.value.as_array.values = const_cast<Dart_CObject**>(items.data());
-    return (Dart_PostCObject_DL)(port, &batch);
+    size_t n = 0, l = 0;
+    countNodes(&batch, &n, &l);
+    std::vector<Dart_CObject> nodes;
+    std::vector<Dart_CObject*> links;
+    nodes.reserve(n);
+    links.reserve(l);
+    return (Dart_PostCObject_DL)(port, flatten(&batch, nodes, links));
   }
 
   std::mutex mu_;

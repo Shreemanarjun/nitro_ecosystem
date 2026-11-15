@@ -205,10 +205,58 @@ void main() {
       _writeSwiftKotlinSpec(root, 'my_plugin');
     });
 
-    test('linkPodspec adds nitro dependency', () {
+    // nitro is not a Flutter plugin, so there is no `nitro` pod and CocoaPods
+    // makes no `.symlinks/plugins/nitro` for it. A podspec that asked for
+    // either made `pod install` fail for every app that used the plugin.
+    test('linkPodspec depends on no nitro pod, and removes what an older link wrote', () {
       linkPodspec('my_plugin', ['my_plugin'], baseDir: root.path);
-      final pod = File(p.join(root.path, 'ios', 'my_plugin.podspec')).readAsStringSync();
-      expect(pod, contains("s.dependency 'nitro'"));
+      final podFile = File(p.join(root.path, 'ios', 'my_plugin.podspec'));
+      expect(podFile.readAsStringSync(), isNot(contains("s.dependency 'nitro'")));
+      expect(podFile.readAsStringSync(), contains(r'"${PODS_TARGET_SRCROOT}/../src/native"'));
+
+      // The shape 0.8.7 and earlier left behind.
+      podFile.writeAsStringSync(
+        podFile.readAsStringSync().replaceFirst('  s.pod_target_xcconfig', "  s.dependency 'nitro'\n  s.pod_target_xcconfig").replaceFirst(r'"${PODS_TARGET_SRCROOT}/../src/native"', r'"${PODS_ROOT}/../.symlinks/plugins/nitro/src/native"'),
+      );
+      expect(podFile.readAsStringSync(), contains("s.dependency 'nitro'"));
+      linkPodspec('my_plugin', ['my_plugin'], baseDir: root.path);
+      final pod = podFile.readAsStringSync();
+      expect(pod, isNot(contains("s.dependency 'nitro'")));
+      expect(pod, isNot(contains('.symlinks/plugins/nitro')));
+      expect(r'"${PODS_TARGET_SRCROOT}/../src/native"'.allMatches(pod).length, 1);
+      if (Process.runSync('which', ['ruby']).exitCode == 0) {
+        expect(Process.runSync('ruby', ['-c', podFile.path]).exitCode, 0, reason: 'the podspec must stay valid Ruby');
+      }
+    });
+
+    // A Swift-implemented module's bridge uses Dart_CObject. Under CocoaPods
+    // only the pod's own umbrella header can show it to Swift.
+    test('linkPodspec gives the pod one Dart API header under the plugin name', () {
+      // `nitrogen link` keeps the plugin's copy of the Dart headers in src/native/.
+      final native = Directory(p.join(root.path, 'src', 'native'))..createSync(recursive: true);
+      File(p.join(native.path, 'dart_api.h')).writeAsStringSync('#ifndef A\n#define A\ntypedef long Dart_Port;\n#endif\n');
+      File(
+        p.join(native.path, 'dart_native_api.h'),
+      ).writeAsStringSync('#ifndef B\n#define B\n#include "dart_api.h" /* NOLINT */\ntypedef int Dart_CObject;\n#endif\n');
+      // A plugin's own Swift posts with the Dart_*_DL functions.
+      File(
+        p.join(native.path, 'dart_api_dl.h'),
+      ).writeAsStringSync('#ifndef C\n#define C\n#include "dart_api.h"        /* NOLINT */\n#include "dart_native_api.h" /* NOLINT */\nextern int Dart_PostCObject_DL;\n#endif\n');
+      linkPodspec('my_plugin', ['my_plugin'], baseDir: root.path);
+      final classes = p.join(root.path, 'ios', 'Classes');
+      final header = File(p.join(classes, 'my_plugin_dart_api.g.h')).readAsStringSync();
+      expect(header, contains('typedef long Dart_Port;'));
+      expect(header, contains('typedef int Dart_CObject;'));
+      expect(header, contains('extern int Dart_PostCObject_DL;'));
+      expect(header.indexOf('Dart_Port'), lessThan(header.indexOf('Dart_PostCObject_DL')));
+      // An app that imports the pod's module cannot see src/native.
+      expect(header, isNot(contains('#include "dart_')));
+      // A header named like a Dart one captures every other pod's
+      // `#include "dart_api.h"` through Xcode's header map, and that pod
+      // then fails to build.
+      for (final name in ['dart_api.h', 'dart_api_dl.h', 'dart_native_api.h', 'dart_version.h']) {
+        expect(File(p.join(classes, name)).existsSync(), isFalse, reason: name);
+      }
     });
 
     test('linkPodspec sets HEADER_SEARCH_PATHS with all required paths', () {
@@ -293,7 +341,7 @@ void main() {
       expect(after1, equals(after2), reason: 'linkPodspec must be idempotent');
       expect("'DEFINES_MODULE'".allMatches(after2).length, equals(1));
       expect("'CLANG_CXX_LANGUAGE_STANDARD'".allMatches(after2).length, equals(1));
-      expect("s.dependency 'nitro'".allMatches(after2).length, equals(1));
+      expect(after2, isNot(contains("s.dependency 'nitro'")));
     });
   });
 
@@ -352,10 +400,20 @@ void main() {
       _writeSwiftKotlinSpec(root, 'my_plugin');
     });
 
-    test('linkMacosPodspec adds nitro dependency', () {
+    test('linkMacosPodspec depends on no nitro pod, and removes what an older link wrote', () {
       linkMacosPodspec('my_plugin', ['my_plugin'], baseDir: root.path);
-      final pod = File(p.join(root.path, 'macos', 'my_plugin.podspec')).readAsStringSync();
-      expect(pod, contains("s.dependency 'nitro'"));
+      final podFile = File(p.join(root.path, 'macos', 'my_plugin.podspec'));
+      expect(podFile.readAsStringSync(), isNot(contains("s.dependency 'nitro'")));
+
+      // The shape 0.8.7 and earlier left behind; macOS spelled the symlink path differently.
+      podFile.writeAsStringSync(
+        podFile.readAsStringSync().replaceFirst('  s.pod_target_xcconfig', "  s.dependency 'nitro'\n  s.pod_target_xcconfig").replaceFirst(r'"${PODS_TARGET_SRCROOT}/../src/native"', r'"${PODS_ROOT}/../Flutter/ephemeral/.symlinks/plugins/nitro/src/native"'),
+      );
+      linkMacosPodspec('my_plugin', ['my_plugin'], baseDir: root.path);
+      final pod = podFile.readAsStringSync();
+      expect(pod, isNot(contains("s.dependency 'nitro'")));
+      expect(pod, isNot(contains('.symlinks/plugins/nitro')));
+      expect(pod, contains(r'"${PODS_TARGET_SRCROOT}/../src/native"'));
     });
 
     test('linkMacosPodspec sets CLANG_CXX_LANGUAGE_STANDARD = c++17', () {
@@ -929,7 +987,7 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
 
       // iOS assertions
       final iosPod = File(p.join(root.path, 'ios', 'benchmark.podspec')).readAsStringSync();
-      expect(iosPod, contains("s.dependency 'nitro'"), reason: 'iOS podspec must declare nitro dependency');
+      expect(iosPod, isNot(contains("s.dependency 'nitro'")), reason: 'there is no nitro pod to depend on');
       expect(iosPod, contains('c++17'), reason: 'iOS podspec must set C++17 standard');
       expect(iosPod, isNot(contains('lib/src/generated/swift')), reason: 'iOS podspec should not have outer Swift glob');
       expect(File(p.join(root.path, 'ios', 'Classes', 'benchmark.bridge.g.swift')).existsSync(), isTrue);
@@ -938,7 +996,7 @@ target_include_directories(my_plugin PRIVATE "\${CMAKE_CURRENT_SOURCE_DIR}")
 
       // macOS assertions
       final macosPod = File(p.join(root.path, 'macos', 'benchmark.podspec')).readAsStringSync();
-      expect(macosPod, contains("s.dependency 'nitro'"), reason: 'macOS podspec must declare nitro dependency');
+      expect(macosPod, isNot(contains("s.dependency 'nitro'")), reason: 'there is no nitro pod to depend on');
       expect(macosPod, contains('c++17'), reason: 'macOS podspec must set C++17 standard');
       expect(File(p.join(root.path, 'macos', 'Classes', 'dart_api_dl.c')).existsSync(), isTrue);
       expect(File(p.join(root.path, 'macos', 'Classes', 'nitro.h')).existsSync(), isTrue);

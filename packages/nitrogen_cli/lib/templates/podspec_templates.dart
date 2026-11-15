@@ -3,6 +3,13 @@ library;
 
 import 'build_versions.dart';
 
+// The nitro runtime headers are read from the plugin's own copy in
+// `src/native/`, which `nitrogen link` keeps up to date. `nitro` is not a
+// Flutter plugin, so CocoaPods has no pod and no `.symlinks/plugins/nitro` for
+// it; the same path therefore serves iOS and macOS.
+const _podHeaderSearchPaths =
+    '\$(inherited) "\${PODS_TARGET_SRCROOT}/../src/native" "\${PODS_TARGET_SRCROOT}/../src" "\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"';
+
 // ── iOS xcconfig ──────────────────────────────────────────────────────────────
 
 /// The `pod_target_xcconfig` block for iOS podspecs.
@@ -14,19 +21,16 @@ String get iosPodTargetXcconfig =>
     'DEFINES_MODULE' => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => '${BuildVersions.podCxxStandard}',
     'CLANG_CXX_LIBRARY' => 'libc++',
-    'HEADER_SEARCH_PATHS' => '\$(inherited) "\${PODS_ROOT}/../.symlinks/plugins/nitro/src/native" "\${PODS_TARGET_SRCROOT}/../src" "\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"'
+    'HEADER_SEARCH_PATHS' => '$_podHeaderSearchPaths'
   }""";
 
 // ── macOS xcconfig ────────────────────────────────────────────────────────────
 
 /// The `pod_target_xcconfig` block for macOS podspecs.
-///
-/// Uses Flutter's macOS `.symlinks` path (`Flutter/ephemeral`) instead of the
-/// iOS CocoaPods root path.
 String get macosPodTargetXcconfig =>
     """s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => '${BuildVersions.podCxxStandard}',
     'CLANG_CXX_LIBRARY' => 'libc++',
-    'HEADER_SEARCH_PATHS' => '\$(inherited) "\${PODS_ROOT}/../Flutter/ephemeral/.symlinks/plugins/nitro/src/native" "\${PODS_TARGET_SRCROOT}/../src" "\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"'
+    'HEADER_SEARCH_PATHS' => '$_podHeaderSearchPaths'
   }""";

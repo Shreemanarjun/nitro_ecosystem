@@ -604,8 +604,9 @@ class CppBridgeGenerator {
       writer.blankLine();
     }
 
-    // Preprocessor branch for Android JNI vs iOS Swift
-    if (includeAndroid && includeIos) writer.line('#ifdef __ANDROID__');
+    // Preprocessor branch for Android JNI vs iOS Swift. The Android section is guarded even when it is the only one:
+    // `nitrogen link` compiles every module's bridge into the plugin's iOS and macOS targets, where there is no <jni.h>.
+    if (includeAndroid) writer.line('#ifdef __ANDROID__');
     if (includeAndroid && androidIsCpp) {
       // android: NativeImpl.cpp in a mixed spec — direct C++ dispatch, no JNI.
       _emitAppleCppDispatch(writer, spec, libStem, enumNames, structNames);
@@ -627,7 +628,13 @@ class CppBridgeGenerator {
     // The Apple section is emitted when iOS is Swift/C++ OR macOS is C++.
     final includeApple = includeIos || (macosIsCpp && spec.targetsMacos);
 
-    if (includeAndroid && includeApple) writer.line('#elif __APPLE__');
+    if (includeAndroid && includeApple) {
+      writer.line('#elif __APPLE__');
+    } else if (includeApple) {
+      // Apple is the first section. It is guarded for the same reason as the Android one: this file is also compiled
+      // into the plugin's Android and desktop libraries, where the Swift stubs it calls do not exist.
+      writer.line('#if defined(__APPLE__)');
+    }
 
     if (includeApple) {
       if (appleBothCpp) {
@@ -691,9 +698,8 @@ class CppBridgeGenerator {
       _emitAppleCppDispatch(writer, spec, libStem, enumNames, structNames);
     }
 
-    // Close the preprocessor ifdef chain when more than one platform section
-    // was opened (android+apple or android+standalone-cpp).
-    if (includeAndroid && (includeApple || hasStandaloneCpp)) writer.line('#endif');
+    // Close the preprocessor ifdef chain the first section opened.
+    if (includeAndroid || includeApple) writer.line('#endif');
     return writer.toString();
   }
 

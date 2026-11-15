@@ -120,6 +120,25 @@ class PlatformTargetAnalyzer {
     r'\bmacos\s*:\s*(?:NativeImpl|AppleNativeImpl)\.cpp\b',
   ).hasMatch(_annotation);
 
+  /// True when no `@NitroModule(...)` arguments were read: the spec is missing, or has no annotation.
+  bool get declaresNothing => _annotation.trim().isEmpty;
+
+  bool _appleImpl(String platform, String impl) => RegExp('\\b$platform\\s*:\\s*(?:NativeImpl|AppleNativeImpl)\\.$impl\\b').hasMatch(_annotation);
+
+  /// True when the module is implemented in Swift on iOS. The generator emits
+  /// one Swift bridge for both Apple platforms, so a module that does not
+  /// target iOS follows macOS; one on neither (Android-only, desktop-only) has
+  /// no Swift side at all.
+  bool get swiftOnIos => _appleImpl('ios', 'swift') || (!_appleImpl('ios', 'cpp') && _appleImpl('macos', 'swift'));
+
+  /// True when the module is implemented in Swift on macOS; one that does not
+  /// target macOS follows iOS.
+  bool get swiftOnMacos => _appleImpl('macos', 'swift') || (!_appleImpl('macos', 'cpp') && _appleImpl('ios', 'swift'));
+
+  /// True when the module is implemented in Kotlin on Android. Not the inverse
+  /// of [supportsAndroid]: a module that does not target Android is neither.
+  bool get kotlinOnAndroid => RegExp(r'\bandroid\s*:\s*(?:NativeImpl|AndroidNativeImpl)\.kotlin\b').hasMatch(_annotation);
+
   /// True when Android uses direct C++ (bypasses JNI bridge).
   bool get supportsAndroid => RegExp(
     r'\bandroid\s*:\s*(?:NativeImpl|AndroidNativeImpl)\.cpp\b',
@@ -518,19 +537,20 @@ class _LinkViewState extends State<LinkView> {
       return extractLibNameFromSpec(f) ?? stem;
     }
 
-    // Per-platform cpp sets: a module may be cpp on one Apple platform but
-    // Swift on the other (e.g. ios:swift, macos:cpp). Track them separately
-    // so each platform gets the correct Swift or C++ treatment.
-    final iosCppLibs = specFiles.where(isIosCppModule).map(libFrom).toSet();
-    final macosCppLibs = specFiles.where(isMacosCppModule).map(libFrom).toSet();
+    // Per-platform sets of modules with no Swift side: a module may be cpp on
+    // one Apple platform but Swift on the other (e.g. ios:swift, macos:cpp),
+    // or on no Apple platform at all (Android-only, desktop-only). Track them
+    // separately so each platform gets the correct treatment.
+    final iosCppLibs = specFiles.where((f) => !isIosSwiftModule(f)).map(libFrom).toSet();
+    final macosCppLibs = specFiles.where((f) => !isMacosSwiftModule(f)).map(libFrom).toSet();
 
-    // iOS Swift modules = NOT ios-cpp.
+    // iOS Swift modules = everything else.
     final iosSwiftModules = moduleInfos.where((m) => !iosCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
-    // macOS Swift modules = NOT macos-cpp.
+    // macOS Swift modules = everything else.
     final macosSwiftModules = moduleInfos.where((m) => !macosCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
-    // Modules whose iOS Swift registration should be REMOVED (now ios-cpp).
+    // Modules whose iOS Swift registration should be REMOVED (no Swift there).
     final iosCppModuleInfos = moduleInfos.where((m) => iosCppLibs.contains(m.lib)).toList();
-    // Modules whose macOS Swift registration should be REMOVED (now macos-cpp).
+    // Modules whose macOS Swift registration should be REMOVED (no Swift there).
     final macosCppModuleInfos = moduleInfos.where((m) => macosCppLibs.contains(m.lib)).toList();
 
     final noIosSwift = iosSwiftModules.isEmpty;
@@ -588,19 +608,20 @@ class _LinkViewState extends State<LinkView> {
   ) async {
     await _setRunning(5);
     if (Directory(p.join(Directory.current.path, 'android')).existsSync()) {
-      // For Android/Kotlin steps: split by whether the module uses AndroidNativeImpl.cpp
-      // (android/linux cpp). A module with windows:cpp but android:kotlin still needs
-      // JniBridge registration — isNativeCppModule checks android/linux only.
+      // For Android/Kotlin steps: split by whether the module is Kotlin on
+      // Android. A module with windows:cpp but android:kotlin still needs
+      // JniBridge registration; one that is C++ on Android, or not on Android
+      // at all (macOS-only, desktop-only), has no JniBridge to register.
       final libDir = Directory(p.join(Directory.current.path, 'lib'));
       final specFiles = moduleSpecFiles(libDir);
-      final androidCppLibs = specFiles.where(isAndroidCppModule).map((f) {
+      final androidCppLibs = specFiles.where((f) => !isAndroidKotlinModule(f)).map((f) {
         final stem = p.basename(f.path).replaceAll(RegExp(r'\.native\.dart$'), '');
         return extractLibNameFromSpec(f) ?? stem;
       }).toSet();
 
-      // Modules that need JniBridge.register = NOT android/linux C++ modules.
+      // Modules that need JniBridge.register = everything else.
       final kotlinModules = moduleInfos.where((m) => !androidCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
-      // Modules that should have JniBridge.register REMOVED = android/linux C++ modules.
+      // Modules that should have JniBridge.register REMOVED (no Kotlin there).
       final androidCppModuleInfos = moduleInfos.where((m) => androidCppLibs.contains(m.lib)).toList();
 
       if (kotlinModules.isNotEmpty) {
@@ -956,16 +977,15 @@ List<ManagedContentIssue> detectManagedContentIssues({String baseDir = '.'}) {
   final allSpecFiles = moduleSpecFiles(libDir);
   if (allSpecFiles.isEmpty) return issues;
 
-  // For Android Plugin.kt: a module needs JniBridge registration when it does NOT
-  // use a native C++ impl on android/linux (isNativeCppModule). A module like
-  // `benchmark` (android: kotlin, windows: cpp) is correctly included here because
-  // isNativeCppModule checks android/linux only — isCppModule (broad) would
-  // falsely exclude it due to the windows: cpp entry.
-  final androidSpecFiles = allSpecFiles.where((f) => !isNativeCppModule(f)).toList();
+  // For Android Plugin.kt: a module needs JniBridge registration when it is
+  // Kotlin on Android. A module like `benchmark` (android: kotlin, windows: cpp)
+  // is included — isCppModule (broad) would falsely exclude it due to the
+  // windows: cpp entry — and one that is not on Android at all is not.
+  final androidSpecFiles = allSpecFiles.where(isAndroidKotlinModule).toList();
 
-  // For iOS Plugin.swift: a module needs Registry.register when it does NOT use
-  // NativeImpl.cpp specifically on iOS (mixed ios:swift/macos:cpp still needs iOS registration).
-  final iosSpecFiles = allSpecFiles.where((f) => !isIosCppModule(f)).toList();
+  // For iOS Plugin.swift: a module needs Registry.register when it is Swift on
+  // iOS (mixed ios:swift/macos:cpp still needs iOS registration; an Android-only module does not).
+  final iosSpecFiles = allSpecFiles.where(isIosSwiftModule).toList();
 
   // ── Android: Plugin.kt ────────────────────────────────────────────────────
   final ktDir = Directory(p.join(baseDir, 'android', 'src', 'main', 'kotlin'));
@@ -1242,8 +1262,9 @@ class LinkCommand extends Command {
     void Function(String) log,
     void Function(String) logSkip,
   ) {
-    final iosCppLibs = specFiles.where(isIosCppModule).map(libFrom).toSet();
-    final macosCppLibs = specFiles.where(isMacosCppModule).map(libFrom).toSet();
+    // Modules with no Swift side on each platform: C++ there, or not on Apple at all.
+    final iosCppLibs = specFiles.where((f) => !isIosSwiftModule(f)).map(libFrom).toSet();
+    final macosCppLibs = specFiles.where((f) => !isMacosSwiftModule(f)).map(libFrom).toSet();
     final iosSwiftModules = moduleInfos.where((m) => !iosCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
     final macosSwiftModules = moduleInfos.where((m) => !macosCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
     final iosCppModuleInfos = moduleInfos.where((m) => iosCppLibs.contains(m.lib)).toList();
@@ -1281,7 +1302,8 @@ class LinkCommand extends Command {
   ) {
     if (Directory(p.join(baseDir, 'android')).existsSync()) {
       log('wiring Android Kotlin plugin...');
-      final androidCppLibs = specFiles.where(isAndroidCppModule).map(libFrom).toSet();
+      // Modules with no Kotlin side on Android: C++ there, or not on Android at all.
+      final androidCppLibs = specFiles.where((f) => !isAndroidKotlinModule(f)).map(libFrom).toSet();
       final kotlinModules = moduleInfos.where((m) => !androidCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
       final androidCppModuleInfos = moduleInfos.where((m) => androidCppLibs.contains(m.lib)).toList();
       if (kotlinModules.isNotEmpty) linkKotlinPlugin(pluginName, kotlinModules, baseDir: baseDir);

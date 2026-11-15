@@ -235,7 +235,7 @@ nitrogen link --no-ui     # headless (implies --yes)
 
 1. Discovers all modules by scanning `lib/**/*.native.dart` specs.
 2. **CMakeLists** (`src/CMakeLists.txt`) — adds `NITRO_NATIVE` path, `dart_api_dl.c`, bridge `.cpp` files, `CMAKE_CXX_STANDARD`, per-module `add_library` targets; creates `src/HybridXxx.cpp` implementation stubs if missing.
-3. **iOS Podspec** — normalises `source_files`, sets Swift version, iOS deployment target, `HEADER_SEARCH_PATHS`, `DEFINES_MODULE`, `CLANG_CXX_LANGUAGE_STANDARD`, adds `s.dependency 'nitro'`; copies `dart_api_dl.c`, `nitro.h`, and Swift bridges into `ios/Classes/`; ensures `ios/<name>/Package.swift` (SPM) exists.
+3. **iOS Podspec** — normalises `source_files`, sets Swift version, iOS deployment target, `HEADER_SEARCH_PATHS`, `DEFINES_MODULE`, `CLANG_CXX_LANGUAGE_STANDARD`, removes the `nitro` pod dependency an older link wrote (there is no such pod); copies `dart_api_dl.c`, `nitro.h`, and Swift bridges into `ios/Classes/`; ensures `ios/<name>/Package.swift` (SPM) exists.
 4. **macOS Podspec** — same as iOS with macOS-specific paths and deployment target.
 5. **Swift plugin registrars** — injects `Registry.register(...)` calls into `ios/*Plugin.swift` and `macos/*Plugin.swift` for Swift/Kotlin modules; removes stale registrations for modules that switched to `NativeImpl.cpp`.
 6. **Android Kotlin** — injects `System.loadLibrary(...)` and `JniBridge.register(...)` into `android/.../*Plugin.kt`; adds missing imports; removes stale registrations for Android C++ modules.
@@ -272,7 +272,7 @@ nitrogen doctor --no-ui   # headless, one line per check
 | **Generated Files** | Every expected output per spec — present and not stale |
 | **CMakeLists.txt** | `NITRO_NATIVE` variable, `dart_api_dl.c`, `add_library` targets, `HybridXxx.cpp` linked for native-cpp modules, redundant `#include` in `.cpp` files |
 | **Android** | `kotlin-android` plugin, `kotlinOptions` block, `generated/kotlin` sourceSets, `kotlinx-coroutines`, `System.loadLibrary`, `JniBridge.register`, missing imports, stale C++ registrations |
-| **iOS / macOS** | `.podspec` (`s.dependency 'nitro'`, `HEADER_SEARCH_PATHS`, `CLANG_CXX_LANGUAGE_STANDARD`, `swift_version`, `source_files`), `*Plugin.swift` + `Registry.register`, stale `.bridge.g.cpp` (must be `.mm`), `dart_api_dl.c`, `nitro.h` |
+| **iOS / macOS** | `.podspec` (`HEADER_SEARCH_PATHS` into the plugin's own `src/native/`, `CLANG_CXX_LANGUAGE_STANDARD`, `swift_version`, `source_files`), `*Plugin.swift` + `Registry.register`, stale `.bridge.g.cpp` (must be `.mm`), `dart_api_dl.c`, `nitro.h` |
 | **Windows / Linux** | `NITRO_NATIVE`, `dart_api_dl.c`, bridge `.cpp` inclusions, `add_library` targets with `HybridXxx.cpp` |
 | **Direct C++ modules** | `${lib}_register_impl` wired up; `.clangd` includes `generated/cpp/test/` |
 

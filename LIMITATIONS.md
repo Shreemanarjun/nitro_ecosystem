@@ -281,6 +281,11 @@ abstract class Counter {
 **Tests:** 18 unit tests in `test/nitro_custom_type_test.dart`.  
 **Merged:** 2026-06-29.
 
+### L17 — Foundation type names outside the generated bridge ⚠️
+**Status:** A `@HybridStruct` / `@HybridEnum` named after a Foundation type (`Point`, `Size`, `Rect`, `Style`, …) compiles in the generated bridge under SwiftPM (0.8.8). It does not compile in a file that imports Foundation or UIKit before a generated header.  
+**Reason:** The bridge renames Foundation's own names while it imports it. A file that has already imported Foundation holds the system type, so `<lib>.bridge.g.h` / `<lib>.native.g.h` then redefine it. That is your own `.mm` implementation of a `NativeImpl.cpp` module, and every file of a CocoaPods build, whose prefix header imports UIKit first.  
+**Workaround:** Rename the type, or wrap the framework imports in your file the way the bridge does: `#define Point NitroSystem_Point`, the `#import`s, `#undef Point`, then the generated header.
+
 ---
 
 ## Validator Error Code Reference
@@ -305,7 +310,8 @@ abstract class Counter {
 | W009 | Web impl + `@zeroCopy` | One bulk copy (snapshot) on web |
 | E017 | Web impl + struct field with no wasm32 layout (record/variant/map) | Use `@HybridRecord` for the whole type |
 | E018 | Nullable Map value that cannot carry a null | `Map<String, T?>` works for `int`/`double`/`bool`/`String` (tag 0). An int-keyed map's values are untagged, and enum/record/variant values are dropped by Swift's `compactMapValues` — use `NitroAnyMap` there |
-| E021 | `@HybridStruct` / `@HybridEnum` named `Protocol`, a type built into Objective-C, with an iOS or macOS target | Rename the type |
+| E021 | `@HybridStruct` / `@HybridEnum` named `Protocol` or `Nil`, names built into Objective-C, with an iOS or macOS target | Rename the type |
+| E022 | A method, parameter, property, field, enum value or variant case named with a word the Swift bridge cannot declare (`where`, `func`, `init`, …; a variant case class `ModeDefault` becomes `default`), in a module that gets a Swift bridge | Rename it |
 
 ---
 
@@ -319,3 +325,4 @@ abstract class Counter {
 | L10 | `Map<String, @HybridStruct>` — no pointer ownership in map encoder | N/A | Low |
 | ~~L12~~ | ~~Tuple types `(A, B, C)`~~ | ~~**Gap vs RN**~~ | ✅ Done |
 | ~~L13~~ | ~~`uint64_t` scalar~~ | ~~**Gap vs RN**~~ | ✅ Done |
+| L17 | Foundation type names (`Point`, `Size`, …) clash in a file that imports Foundation before a generated header | N/A | Low |

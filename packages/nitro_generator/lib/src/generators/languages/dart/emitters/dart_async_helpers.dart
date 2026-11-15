@@ -32,6 +32,7 @@ void _emitNativeAsyncBody(
     writer.line('        unpack: $wrappedUnpack,');
     writer.line('        cleanup: () => calloc.free(_nitroErr),');
     writer.line('        batch: _nitroBatch,');
+    if (_takesCallback(func)) writer.line('        spin: false,');
     writer.line("        methodName: '${func.dartName}',");
     writer.line('      );');
     writer.line('    } finally {');
@@ -71,10 +72,16 @@ void _emitNativeAsyncBody(
     writer.line('      unpack: $wrappedUnpack,');
     writer.line('      cleanup: () => calloc.free(_nitroErr),');
     writer.line('      batch: _nitroBatch,');
+    if (_takesCallback(func)) writer.line('      spin: false,');
     writer.line("      methodName: '${func.dartName}',");
     writer.line('    );');
   }
 }
+
+/// A callback the native method invokes before it returns reaches Dart through
+/// the event loop. The completion spin reads the result ahead of the event
+/// loop, so the future would complete before that callback ran.
+bool _takesCallback(BridgeFunction func) => func.params.any((p) => p.type.isFunction);
 
 /// The Dart type parameter for openNativeAsync`<T>` for this function.
 String _nativeAsyncOpenType(BridgeFunction func, BridgeSpec spec) {

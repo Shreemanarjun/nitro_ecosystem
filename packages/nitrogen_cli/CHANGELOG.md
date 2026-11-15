@@ -1,6 +1,9 @@
 ## 0.8.8
 
-- **Fix (SwiftPM, type names):** the bridge forwarder that `nitrogen init` and `nitrogen link` write into the SPM C++ target no longer imports Foundation. The generated bridge imports it itself and renames the Foundation names a `@HybridStruct` or `@HybridEnum` would clash with (`Point`, `Size`, `Style`, …); the forwarder's import came first and undid that. Re-run `nitrogen link`.
+- **Fix (CocoaPods):** `pod install` works again, including with two Nitro plugins in one app. The podspec no longer depends on a `nitro` pod. Re-run `nitrogen link`.
+- **Fix (SwiftPM):** the bridge forwarder no longer imports Foundation, which undid the generator's type-name fix. Re-run `nitrogen link`.
+- **Fix (per-platform modules):** `generate` and `link` register a module only on platforms where it has a Swift or Kotlin side.
+- `doctor` warns when a bridge marks only some of its exports (nitro_generator 0.8.1–0.8.7), reports the old `nitro` pod dependency, and accepts a SwiftPM-only plugin.
 
 ## 0.8.7
 

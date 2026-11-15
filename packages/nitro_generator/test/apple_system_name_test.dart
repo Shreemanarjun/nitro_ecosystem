@@ -86,6 +86,13 @@ void main() {
       expect(issues.single.message, contains('@HybridEnum Protocol'));
     });
 
+    test('so is Nil, a macro that Foundation does not declare as a type', () {
+      final issues = _e021(_spec(struct: 'Nil', ios: NativeImpl.swift));
+      expect(issues, hasLength(1));
+      expect(issues.single.message, contains('@HybridStruct Nil'));
+      expect(isRenamableFoundationName('Nil'), isFalse);
+    });
+
     test('a module with no Apple target is not affected', () {
       expect(_e021(_spec(struct: 'Protocol', android: NativeImpl.kotlin)), isEmpty);
     });

@@ -1,8 +1,12 @@
 ## 0.8.8
 
-- iOS/macOS: the generated bridge now marks every exported function REFERENCED_DYNAMICALLY, not only the ones whose definition repeats `NITRO_EXPORT`. The methods Dart calls were left unmarked, so an archived build that links the plugin statically into the app (SwiftPM) stripped them — `Failed to lookup symbol` on first use. Regenerate. Thanks [@JoniDS](https://github.com/JoniDS) for reporting (nitro_http#4).
-- iOS/macOS: a `@HybridStruct` or `@HybridEnum` named after a type Foundation defines (`Point`, `Size`, `Rect`, `Style`, `Duration`, …) no longer fails to compile with `typedef redefinition`. The bridge renames Foundation's name while it imports it. Needs the bridge forwarder from `nitrogen link` 0.8.8.
-- New validator error `E021`: a `@HybridStruct` or `@HybridEnum` named `Protocol`, a type built into Objective-C, in a module that targets iOS or macOS.
+- **Fix (iOS/macOS archives):** every exported bridge function is now kept by the archive strip; the methods Dart calls were stripped (`Failed to lookup symbol`). Regenerate. Thanks [@JoniDS](https://github.com/JoniDS) (nitro_http#4).
+- **Fix (iOS/macOS):** a `@HybridStruct` or `@HybridEnum` named like a Foundation type (`Point`, `Size`, `Style`, …) compiles. Needs `nitrogen link` 0.8.8.
+- **Fix (per-platform modules):** macOS-only Swift modules get their Swift bridge; Android-only and Apple-only bridges no longer break the other platform's build; a missing `#if` before `#elif` is fixed.
+- **Fix:** a C++ module using a `@NitroVariant` declares it in Swift; generated C enums have include guards (CocoaPods).
+- **Fix:** an async method that takes a callback delivers the callback before its future completes. Needs nitro 0.8.8.
+- New validator errors: `E021` (a type named `Protocol` or `Nil`) and `E022` (a name Swift reserves, such as `where` or `init`).
+- New `tool/verify_release_symbols.dart`: checks a built archive, APK or AAB for every symbol the generated code looks up at runtime.
 
 ## 0.8.7
 

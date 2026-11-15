@@ -50,12 +50,20 @@ class EnumGenerator {
   }
 
   /// Generates C typedef enums. Skips imported enums (declared in other bridge header).
+  ///
+  /// Each enum is wrapped in a `#ifndef NITRO_ENUM_<NAME>_DEFINED` guard, like
+  /// the structs. `#pragma once` does not help when one translation unit
+  /// reaches the header by two paths: a CocoaPods build compiles the copy in
+  /// `Classes/`, and `<lib>.native.g.h` includes the original next to itself.
   static String generateCEnums(BridgeSpec spec) {
     final enums = spec.localEnums;
     if (enums.isEmpty) return '';
     final s = CodeWriter();
     s.writeln('// --- Enums ---');
     for (final e in enums) {
+      final guard = 'NITRO_ENUM_${e.name.toUpperCase()}_DEFINED';
+      s.writeln('#ifndef $guard');
+      s.writeln('#define $guard');
       s.writeln('typedef enum {');
       for (var i = 0; i < e.values.length; i++) {
         s.writeln(
@@ -63,6 +71,7 @@ class EnumGenerator {
         );
       }
       s.writeln('} ${e.name};');
+      s.writeln('#endif // $guard');
       s.writeln();
     }
     return s.toString();

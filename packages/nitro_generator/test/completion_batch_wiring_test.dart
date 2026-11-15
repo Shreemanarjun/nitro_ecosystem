@@ -36,6 +36,20 @@ void main() {
     expect(RegExp(r'batch: _nitroBatch,').allMatches(dart).length, 2);
   });
 
+  // The spin reads a completion ahead of the event loop. A callback the native
+  // method invoked first arrives through the event loop, so it would run after
+  // the returned future completed.
+  test('Dart: a batched call that takes a callback opts out of the completion spin', () {
+    final withCallback = SpecFromSource.parse(
+      _spec.replaceFirst('Future<String> name(int id);', 'Future<String> name(int id, void Function(int) onProgress);'),
+      sourceUri: 'package:demo/src/demo.native.dart',
+    );
+    final dart = DartFfiGenerator.generate(withCallback);
+    expect(RegExp(r'batch: _nitroBatch,\n\s*spin: false,').allMatches(dart).length, 1);
+    expect(dart.indexOf('spin: false,'), greaterThan(dart.indexOf('_namePtr(')));
+    expect(DartFfiGenerator.generate(spec), isNot(contains('spin:')));
+  });
+
   test('Dart: a spec without native-async methods carries no batch', () {
     final dart = DartFfiGenerator.generate(SpecFromSource.parse(_spec.replaceAll('@nitroNativeAsync\n  ', '').replaceAll('Future<int> fetch', 'int fetch').replaceAll('Future<String> name', 'String name'), sourceUri: 'package:demo/src/demo.native.dart'));
     expect(dart, isNot(contains('NitroCompletionBatch')));

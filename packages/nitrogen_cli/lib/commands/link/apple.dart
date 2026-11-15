@@ -243,7 +243,7 @@ void linkPodspec(
     );
     modified = true;
   }
-  final xcResult = _patchApplePodspecXcconfig(content, isMacos: false);
+  final xcResult = _patchApplePodspecXcconfig(content);
   content = xcResult.content;
   if (xcResult.modified) modified = true;
   // Sync generated Swift bridges into ios/Classes/ so Xcode can compile them
@@ -253,6 +253,7 @@ void linkPodspec(
   if (modified) podspecFile.writeAsStringSync(content);
   createSharedHeaders(nitroNativePath, baseDir: baseDir);
   final classesDir = Directory(p.join(baseDir, 'ios', 'Classes'))..createSync(recursive: true);
+  _writeDartApiHeader(classesDir, baseDir, pluginName);
   File(
     p.join(classesDir.path, 'dart_api_dl.c'),
   ).writeAsStringSync(classesDartApiDlForwarder);
@@ -359,7 +360,7 @@ void linkMacosPodspec(
     }
     modified = true;
   }
-  final xcResult = _patchApplePodspecXcconfig(content, isMacos: true);
+  final xcResult = _patchApplePodspecXcconfig(content);
   content = xcResult.content;
   if (xcResult.modified) modified = true;
   // Sync generated Swift bridges into macos/Classes/ so Xcode compiles them
@@ -367,6 +368,7 @@ void linkMacosPodspec(
   if (modified) podspecFile.writeAsStringSync(content);
   createSharedHeaders(nitroNativePath, baseDir: baseDir);
   final classesDir = Directory(p.join(baseDir, 'macos', 'Classes'))..createSync(recursive: true);
+  _writeDartApiHeader(classesDir, baseDir, pluginName);
   File(
     p.join(classesDir.path, 'dart_api_dl.c'),
   ).writeAsStringSync(classesDartApiDlForwarder);
@@ -1200,39 +1202,42 @@ void _syncSwiftPluginToSpm(
   }
 }
 
+/// The plugin's own copy of the nitro runtime headers, which `nitrogen link`
+/// keeps in `src/native/`. The podspec points at it rather than at the `nitro`
+/// package: `nitro` is not a Flutter plugin, so CocoaPods has no pod and no
+/// `.symlinks/plugins/nitro` for it.
+const _podNitroNativePath = '"\${PODS_TARGET_SRCROOT}/../src/native"';
+
 /// Applies the shared `pod_target_xcconfig` patches to an Apple podspec
-/// [content]: HEADER_SEARCH_PATHS (inserted when absent — the macOS symlink
-/// path when [isMacos], else the iOS one — otherwise extended with the src/ +
-/// generated/cpp/ paths), DEFINES_MODULE, CLANG_CXX_LANGUAGE_STANDARD, and the
-/// `nitro` dependency. Returns the patched content and whether it changed.
-/// Shared by [linkPodspec] and [linkMacosPodspec].
-({String content, bool modified}) _patchApplePodspecXcconfig(
-  String content, {
-  required bool isMacos,
-}) {
+/// [content]: HEADER_SEARCH_PATHS (inserted when absent, otherwise extended
+/// with the src/native/ + src/ + generated/cpp/ paths), DEFINES_MODULE and
+/// CLANG_CXX_LANGUAGE_STANDARD. It also removes what an earlier link wrote
+/// for the `nitro` pod, which no longer exists: the dependency, and the
+/// header path into its symlink. Returns the patched content and whether it
+/// changed. Shared by [linkPodspec] and [linkMacosPodspec].
+({String content, bool modified}) _patchApplePodspecXcconfig(String content) {
   var modified = false;
   if (!content.contains('HEADER_SEARCH_PATHS')) {
     content = content.replaceFirst(
       's.pod_target_xcconfig = {',
-      isMacos
-          ? "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_ROOT}/../Flutter/ephemeral/.symlinks/plugins/nitro/src/native\" \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',"
-          : "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) \"\${PODS_ROOT}/../.symlinks/plugins/nitro/src/native\" \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',",
+      "s.pod_target_xcconfig = {\n    'HEADER_SEARCH_PATHS' => '\$(inherited) $_podNitroNativePath \"\${PODS_TARGET_SRCROOT}/../src\" \"\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp\"',",
     );
     modified = true;
   } else {
-    // If it exists, ensure it has the src/ and generated/cpp/ paths.
-    if (!content.contains('PODS_TARGET_SRCROOT}/../src') || !content.contains('lib/src/generated/cpp')) {
-      final match = RegExp(
-        r"'HEADER_SEARCH_PATHS'\s*=>\s*'([^']+)'",
-      ).firstMatch(content);
-      if (match != null) {
-        var paths = match.group(1)!;
-        if (!paths.contains('PODS_TARGET_SRCROOT}/../src')) {
-          paths += ' "\${PODS_TARGET_SRCROOT}/../src"';
-        }
-        if (!paths.contains('lib/src/generated/cpp')) {
-          paths += ' "\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"';
-        }
+    final match = RegExp(
+      r"'HEADER_SEARCH_PATHS'\s*=>\s*'([^']+)'",
+    ).firstMatch(content);
+    if (match != null) {
+      // The path into the nitro pod's symlink (iOS and macOS spell it differently) becomes the plugin's own copy.
+      var paths = match.group(1)!.replaceAll(RegExp(r'"\$\{PODS_ROOT\}/\.\./(?:Flutter/ephemeral/)?\.symlinks/plugins/nitro/src/native"'), _podNitroNativePath);
+      if (!paths.contains(_podNitroNativePath)) paths += ' $_podNitroNativePath';
+      if (!paths.contains('PODS_TARGET_SRCROOT}/../src"')) {
+        paths += ' "\${PODS_TARGET_SRCROOT}/../src"';
+      }
+      if (!paths.contains('lib/src/generated/cpp')) {
+        paths += ' "\${PODS_TARGET_SRCROOT}/../lib/src/generated/cpp"';
+      }
+      if (paths != match.group(1)) {
         content = content.replaceFirst(
           match.group(0)!,
           "'HEADER_SEARCH_PATHS' => '$paths'",
@@ -1255,14 +1260,40 @@ void _syncSwiftPluginToSpm(
     );
     modified = true;
   }
-  if (!content.contains("s.dependency 'nitro'")) {
-    content = content.replaceFirst(
-      's.pod_target_xcconfig = {',
-      "s.dependency 'nitro'\n  s.pod_target_xcconfig = {",
-    );
+  final nitroDependency = RegExp(r"^[ \t]*s\.dependency 'nitro'[ \t]*\r?\n", multiLine: true);
+  if (nitroDependency.hasMatch(content)) {
+    content = content.replaceAll(nitroDependency, '');
     modified = true;
   }
   return (content: content, modified: modified);
+}
+
+/// Writes `<plugin>_dart_api.g.h` into an Apple `Classes/` dir, where CocoaPods
+/// makes it a public header of the pod. A Swift-implemented module's bridge
+/// uses `Dart_CObject`, and a plugin's own Swift may post with
+/// `Dart_PostCObject_DL`; under SwiftPM they come from the C++ target's
+/// module, and under CocoaPods only the pod's own umbrella header can supply
+/// them.
+///
+/// It is one header under the plugin's name, not copies of the Dart ones.
+/// Xcode resolves a quoted include through a header map keyed by file name
+/// across every pod of the app, so a second plugin shipping its own
+/// `dart_api.h` has its `#include "dart_api.h"` sent to this pod's copy, which
+/// it cannot see, and its build fails. Only called for a platform that has a
+/// podspec.
+void _writeDartApiHeader(Directory classesDir, String baseDir, String pluginName) {
+  // In include order: each later one includes the ones before it.
+  const names = ['dart_api.h', 'dart_native_api.h', 'dart_api_dl.h'];
+  final parts = [for (final name in names) File(p.join(baseDir, 'src', 'native', name))];
+  if (parts.any((part) => !part.existsSync())) return;
+  // Each part keeps its own include guard, so a file that also includes the
+  // Dart headers from src/native still sees every declaration once.
+  final includesPart = RegExp(r'^#include "dart_(?:native_)?api\.h".*\r?\n', multiLine: true);
+  File(p.join(classesDir.path, '${pluginName}_dart_api.g.h')).writeAsStringSync(
+    '// Generated by nitrogen link — do not edit.\n'
+    '// ${names.join(', ')} in one header, for the Swift code of this pod.\n'
+    '${parts.map((part) => part.readAsStringSync().replaceAll(includesPart, '')).join('\n')}',
+  );
 }
 
 /// Writes/removes the per-module `HybridXxx.cpp` forwarders in an Apple

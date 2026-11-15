@@ -34,8 +34,9 @@ import 'link_command.dart'
         linkWindows,
         linkLinux,
         linkClangd,
-        isAppleCppModule,
-        isAndroidCppModule;
+        isIosSwiftModule,
+        isMacosSwiftModule,
+        isAndroidKotlinModule;
 
 class GenerateCommand extends Command {
   GenerateCommand() {
@@ -398,23 +399,25 @@ class GenerateCommand extends Command {
   }
 
   void _linkApplePlatforms(String projectRoot, String pluginName, List<ModuleInfo> moduleInfos, bool hasNonCpp) {
+    // Swift is decided per platform, as `nitrogen link` does: a module that is
+    // Swift on iOS and C++ on macOS keeps its iOS registration, and one on no
+    // Apple platform gets none.
+    bool swiftOn(ModuleInfo m, bool Function(File) isSwift) => isSwift(File(p.join(projectRoot, 'lib', 'src', '${m.lib}.native.dart')));
     // Patch iOS/macOS
     if (Directory(p.join(projectRoot, 'ios')).existsSync()) {
       linkPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: projectRoot, moduleInfos: moduleInfos);
       if (hasNonCpp) {
-        final appleCppLibs = moduleInfos.where((m) => isAppleCppModule(File(p.join(projectRoot, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
-        final swiftModules = moduleInfos.where((m) => !appleCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
-        linkSwiftPlugin(pluginName, swiftModules, baseDir: projectRoot);
-        purgeStaleCppSwiftRegistrations(moduleInfos.where((m) => appleCppLibs.contains(m.lib)).toList(), platform: 'ios', baseDir: projectRoot);
+        final swiftModules = moduleInfos.where((m) => swiftOn(m, isIosSwiftModule)).toList();
+        if (swiftModules.isNotEmpty) linkSwiftPlugin(pluginName, swiftModules.map((m) => m.toMap()).toList(), baseDir: projectRoot);
+        purgeStaleCppSwiftRegistrations(moduleInfos.where((m) => !swiftModules.contains(m)).toList(), platform: 'ios', baseDir: projectRoot);
       }
     }
     if (Directory(p.join(projectRoot, 'macos')).existsSync()) {
       linkMacosPodspec(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: projectRoot, moduleInfos: moduleInfos);
       if (hasNonCpp) {
-        final appleCppLibs = moduleInfos.where((m) => isAppleCppModule(File(p.join(projectRoot, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
-        final swiftModules = moduleInfos.where((m) => !appleCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
-        linkMacosSwiftPlugin(pluginName, swiftModules, baseDir: projectRoot);
-        purgeStaleCppSwiftRegistrations(moduleInfos.where((m) => appleCppLibs.contains(m.lib)).toList(), platform: 'macos', baseDir: projectRoot);
+        final swiftModules = moduleInfos.where((m) => swiftOn(m, isMacosSwiftModule)).toList();
+        if (swiftModules.isNotEmpty) linkMacosSwiftPlugin(pluginName, swiftModules.map((m) => m.toMap()).toList(), baseDir: projectRoot);
+        purgeStaleCppSwiftRegistrations(moduleInfos.where((m) => !swiftModules.contains(m)).toList(), platform: 'macos', baseDir: projectRoot);
       }
     }
     // Strip shared preamble from 2nd+ bridge files AFTER linkSwift* copies them
@@ -425,10 +428,11 @@ class GenerateCommand extends Command {
   void _linkAndroidPlatform(String projectRoot, String pluginName, List<ModuleInfo> moduleInfos, bool hasCpp) {
     // Patch Android
     if (Directory(p.join(projectRoot, 'android')).existsSync()) {
-      // Use isAndroidCppModule (android-only) — NOT isNativeCppModule (android+linux).
-      // A module with 'android: NativeImpl.kotlin, linux: NativeImpl.cpp' still needs
-      // a Kotlin JniBridge on Android and must not be excluded from kotlinModules.
-      final androidCppLibs = moduleInfos.where((m) => isAndroidCppModule(File(p.join(projectRoot, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
+      // Kotlin on Android is what decides, as in `nitrogen link`. A module with
+      // 'android: NativeImpl.kotlin, linux: NativeImpl.cpp' still needs a Kotlin
+      // JniBridge on Android; one that is C++ on Android, or not on Android at
+      // all (macOS-only, desktop-only), has none to register.
+      final androidCppLibs = moduleInfos.where((m) => !isAndroidKotlinModule(File(p.join(projectRoot, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
       final kotlinModules = moduleInfos.where((m) => !androidCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
       if (kotlinModules.isNotEmpty) {
         linkKotlinPlugin(pluginName, kotlinModules, baseDir: projectRoot);

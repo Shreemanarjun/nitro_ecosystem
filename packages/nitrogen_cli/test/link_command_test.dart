@@ -2784,6 +2784,48 @@ abstract class Cam extends HybridObject {}
     });
   });
 
+  // ── Swift on Apple ────────────────────────────────────────────────────────────
+  // "Not C++ on iOS" used to mean "Swift on iOS", so an Android-only module and
+  // a macOS-only C++ module both got a Registry.register() line in the iOS
+  // Plugin.swift, for a registry the generator never emits.
+
+  group('swiftOnIos / swiftOnMacos', () {
+    ({bool ios, bool macos}) swift(String args) {
+      final a = PlatformTargetAnalyzer.fromContent('@NitroModule($args)\nabstract class M extends HybridObject {}');
+      return (ios: a.swiftOnIos, macos: a.swiftOnMacos);
+    }
+
+    test('each platform as declared', () {
+      expect(swift('ios: NativeImpl.swift, macos: NativeImpl.swift'), (ios: true, macos: true));
+      expect(swift('ios: NativeImpl.cpp, macos: NativeImpl.cpp'), (ios: false, macos: false));
+      expect(swift('ios: NativeImpl.swift, macos: NativeImpl.cpp'), (ios: true, macos: false));
+      expect(swift('ios: AppleNativeImpl.cpp, macos: AppleNativeImpl.swift'), (ios: false, macos: true));
+    });
+
+    test('an Apple platform the module does not target follows the other one', () {
+      expect(swift('ios: NativeImpl.swift, android: NativeImpl.kotlin'), (ios: true, macos: true));
+      expect(swift('macos: NativeImpl.swift'), (ios: true, macos: true));
+      expect(swift('ios: NativeImpl.cpp'), (ios: false, macos: false));
+      expect(swift('macos: NativeImpl.cpp'), (ios: false, macos: false));
+    });
+
+    test('a module on no Apple platform has no Swift side', () {
+      expect(swift('android: NativeImpl.kotlin'), (ios: false, macos: false));
+      expect(swift('windows: NativeImpl.cpp, linux: NativeImpl.cpp'), (ios: false, macos: false));
+    });
+
+    test('so link asks for no iOS registration for it', () {
+      _writeSpec(_libDir(tmp), 'droid.native.dart', '@NitroModule(lib: "droid", android: NativeImpl.kotlin)\nabstract class Droid extends HybridObject {}\n');
+      _writeSpec(_libDir(tmp), 'cam.native.dart', '@NitroModule(lib: "cam", ios: NativeImpl.swift)\nabstract class Cam extends HybridObject {}\n');
+      File(p.join(tmp.path, 'ios', 'Classes', 'SwiftPPlugin.swift'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('public class SwiftPPlugin {}\n');
+      final wanted = detectManagedContentIssues(baseDir: tmp.path).map((i) => i.description).join('\n');
+      expect(wanted, contains('CamRegistry.register'));
+      expect(wanted, isNot(contains('DroidRegistry')));
+    });
+  });
+
   // ── isNativeCppModule ─────────────────────────────────────────────────────────
 
   group('isNativeCppModule', () {

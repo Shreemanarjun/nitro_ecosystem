@@ -171,8 +171,8 @@ abstract class $cls extends HybridObject {}
       expect(text, isNot(contains('user_target_xcconfig')));
       expect(text, isNot(contains('OTHER_LDFLAGS')));
       expect(text, isNot(contains('-Wl,-u')));
-      // nitro's own xcconfig carries \${PODS_ROOT} — a `}` inside the hash.
-      expect(text, contains(r'${PODS_ROOT}'));
+      // nitro's own xcconfig carries \${PODS_TARGET_SRCROOT} — a `}` inside the hash.
+      expect(text, contains(r'${PODS_TARGET_SRCROOT}'));
       if (Process.runSync('which', ['ruby']).exitCode == 0) {
         final r = Process.runSync('ruby', ['-c', podspec.path]);
         expect(r.exitCode, 0, reason: 'podspec is not valid Ruby:\n${r.stderr}');

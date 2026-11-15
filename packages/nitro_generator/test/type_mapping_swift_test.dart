@@ -600,19 +600,63 @@ void main() {
 
   // ── Section 8: macOS Swift ────────────────────────────────────────────────
   //
-  // SwiftGenerator.generate() checks spec.iosImpl only. A macOS-only spec
-  // (no iosImpl) returns an "iOS not targeted" comment rather than emitting
-  // a protocol. To generate Swift for macOS, the spec must include iosImpl.
+  // One Swift file serves iOS and macOS, so a macOS-only Swift spec (no
+  // iosImpl) gets the full bridge. It used to get an "iOS not targeted"
+  // comment, while the C bridge went on calling @_cdecl stubs nothing defined.
 
-  group('SwiftGenerator — macOS-only spec returns no-target comment', () {
-    test('macOS-only spec (no iosImpl) returns iOS-not-targeted comment', () {
+  group('SwiftGenerator — macOS-only Swift spec', () {
+    test('emits the protocol, the registry and the @_cdecl stubs', () {
       final out = SwiftGenerator.generate(_macosSpec());
-      expect(out, contains('iOS not targeted'));
+      expect(out, contains('public protocol HybridMacModProtocol'));
+      expect(out, contains('public class MacModRegistry'));
+      expect(out, contains('@_cdecl("_mac_mod_call_greet")'));
     });
 
-    test('macOS-only spec does not emit a protocol', () {
-      final out = SwiftGenerator.generate(_macosSpec());
-      expect(out, isNot(contains('public protocol')));
+    test('a macOS-only C++ spec still has no Swift bridge', () {
+      expect(SwiftGenerator.generate(macosOnlyCppSpec()), contains('iOS not targeted'));
+    });
+  });
+
+  // The protocol of a C++-implemented module names its @NitroVariant types.
+  // They were declared only in the Swift-implemented bridge, so a C++ module
+  // with a variant did not compile on iOS or macOS.
+  group('SwiftGenerator — C++-implemented module with a @NitroVariant', () {
+    test('declares the variant it names in the protocol', () {
+      final out = SwiftGenerator.generate(
+        BridgeSpec(
+          dartClassName: 'Shapes',
+          lib: 'shapes',
+          namespace: 'shapes',
+          iosImpl: NativeImpl.cpp,
+          macosImpl: NativeImpl.cpp,
+          sourceUri: 'shapes.native.dart',
+          variants: [
+            BridgeVariant(
+              name: 'Shape',
+              cases: [
+                BridgeVariantCase(
+                  name: 'ShapeCircle',
+                  label: 'circle',
+                  fields: [BridgeRecordField(name: 'r', dartType: 'double', kind: RecordFieldKind.primitive)],
+                ),
+                BridgeVariantCase(name: 'ShapeNone', label: 'none', fields: []),
+              ],
+            ),
+          ],
+          functions: [
+            BridgeFunction(
+              dartName: 'areaOf',
+              cSymbol: 'shapes_area_of',
+              isAsync: false,
+              returnType: BridgeType(name: 'double'),
+              params: [_p('Shape', 's')],
+            ),
+          ],
+        ),
+      );
+      expect(out, contains('func areaOf(s: Shape) -> Double'));
+      expect(out, contains('public enum Shape: NitroEncodable'));
+      expect(out.indexOf('public enum Shape'), lessThan(out.indexOf('public protocol HybridShapesProtocol')));
     });
   });
 

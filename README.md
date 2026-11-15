@@ -986,7 +986,8 @@ The generator validates your spec before emitting any code:
 | **E017** | Error | Web + `@HybridStruct` field with no wasm32 layout (record/variant/map) |
 | **E018** | Error | Nullable `Map` value the wire cannot carry — use `NitroAnyMap` |
 | **E020** | Error | Two `@HybridEnum` cases share a native value |
-| **E021** | Error | `@HybridStruct` / `@HybridEnum` named `Protocol`, a type built into Objective-C, in a module that targets iOS or macOS |
+| **E021** | Error | `@HybridStruct` / `@HybridEnum` named `Protocol` or `Nil`, names built into Objective-C, in a module that targets iOS or macOS |
+| **E022** | Error | A method, parameter, property, field, enum value or variant case named with a word the Swift bridge cannot declare (`where`, `func`, `init`, `default`, …), in a module that gets a Swift bridge |
 | **W001** | Warning | Non-nullable `int`/`double`/`bool` named param with no default |
 | **W002** | Warning | Non-nullable `@HybridEnum` named param with no default |
 | **W003** | Warning | Non-nullable `@HybridStruct` named param with no default |

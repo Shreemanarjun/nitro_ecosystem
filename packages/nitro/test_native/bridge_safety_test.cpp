@@ -84,7 +84,28 @@ void touch(const Dart_CObject* o) {
   }
 }
 
+// Every node of the last posted message, root first: where it was, and what it
+// held. Copied here because the message is gone once the post returns.
+struct Node {
+  const Dart_CObject* at;
+  int type;
+  int64_t i;       // kInt64 value, or kArray length
+  char first;      // first char of a kString
+};
+std::vector<Node> g_lastNodes;
+void collectNodes(const Dart_CObject* o) {
+  Node n{o, o->type, 0, 0};
+  if (o->type == Dart_CObject_kInt64) n.i = o->value.as_int64;
+  if (o->type == Dart_CObject_kArray) n.i = o->value.as_array.length;
+  if (o->type == Dart_CObject_kString) n.first = o->value.as_string[0];
+  g_lastNodes.push_back(n);
+  if (o->type != Dart_CObject_kArray) return;
+  for (intptr_t i = 0; i < o->value.as_array.length; i++) collectNodes(o->value.as_array.values[i]);
+}
+
 bool capturePost(Dart_Port port, Dart_CObject* m) {
+  g_lastNodes.clear();
+  collectNodes(m);
   Post p;
   p.port = port;
   p.type = m->type;
@@ -268,6 +289,90 @@ void test_bg_table() {
   CHECK(g_posts[2].arrayLen == 3);
   CHECK(t.activeCount() == 0);
 }
+
+// ── NitroCompletionBatch: one message, one block ─────────────────────────────
+// With compressed pointers the VM tells the Dart_CObjects of a message apart by
+// the low 32 bits of their address, so two heap nodes that agree there reach
+// Dart as one (an id read as the previous result: that call never completes).
+// Every node of a posted message must therefore sit in one contiguous array.
+void checkOneBlock(size_t expectedNodes) {
+  CHECK(g_lastNodes.size() == expectedNodes);
+  uintptr_t lo = UINTPTR_MAX, hi = 0;
+  for (const Node& n : g_lastNodes) {
+    const uintptr_t a = (uintptr_t)n.at;
+    lo = a < lo ? a : lo;
+    hi = a > hi ? a : hi;
+  }
+  // Exactly back to back: nothing else was allocated between them.
+  CHECK(hi - lo == (expectedNodes - 1) * sizeof(Dart_CObject));
+}
+
+void test_completion_batch_one_block() {
+  NitroCompletionBatch b;
+  g_posts.clear();
+  const int64_t P = 4242;
+
+  // Direct post of a bound id: [id, value].
+  Dart_CObject v{};
+  v.type = Dart_CObject_kInt64;
+  v.value.as_int64 = 11;
+  const int64_t id1 = b.bind(P);
+  CHECK(b.post(id1, &v));
+  checkOneBlock(3);
+  CHECK(g_lastNodes[1].i == id1);
+  CHECK(g_lastNodes[2].i == 11);
+  CHECK(g_lastNodes[2].at != &v);  // the caller's node is not part of the message
+
+  // Buffered while in flight, flushed on ack: [id2, 22, id3, [33, "x"]].
+  const int64_t id2 = b.bind(P);
+  const int64_t id3 = b.bind(P);
+  Dart_CObject w = v;
+  w.value.as_int64 = 22;
+  CHECK(b.post(id2, &w));
+  char text[] = "x";
+  Dart_CObject n33 = v;
+  n33.value.as_int64 = 33;
+  Dart_CObject str{};
+  str.type = Dart_CObject_kString;
+  str.value.as_string = text;
+  Dart_CObject* kids[2] = {&n33, &str};
+  Dart_CObject arr{};
+  arr.type = Dart_CObject_kArray;
+  arr.value.as_array.length = 2;
+  arr.value.as_array.values = kids;
+  CHECK(b.post(id3, &arr));
+  b.ack(P);
+  checkOneBlock(7);
+  CHECK(g_lastNodes[1].i == id2);
+  CHECK(g_lastNodes[2].i == 22);
+  CHECK(g_lastNodes[3].i == id3);
+  CHECK(g_lastNodes[4].type == Dart_CObject_kArray && g_lastNodes[4].i == 2);
+  CHECK(g_lastNodes[5].i == 33);
+  CHECK(g_lastNodes[6].type == Dart_CObject_kString && g_lastNodes[6].first == 'x');
+  b.ack(P);  // nothing pending: the port goes idle
+
+  // An array posted to a port that was never bound.
+  CHECK(b.post(987654, &arr));
+  checkOneBlock(3);
+  CHECK(g_lastNodes[1].i == 33);
+
+  // A lone scalar to an unbound port is posted as it is.
+  CHECK(b.post(987654, &v));
+  CHECK(g_lastNodes.size() == 1 && g_lastNodes[0].at == &v);
+
+  // Stream items: [item, item].
+  const int64_t S = 5151;
+  b.coalesce(S);
+  CHECK(b.post(S, &v));
+  checkOneBlock(2);
+  CHECK(b.post(S, &w));
+  CHECK(b.post(S, &n33));
+  b.ack(S);
+  checkOneBlock(3);
+  CHECK(g_lastNodes[1].i == 22);
+  CHECK(g_lastNodes[2].i == 33);
+  b.uncoalesce(S);
+}
 }  // namespace
 
 int main() {
@@ -286,6 +391,8 @@ int main() {
   std::printf("ok: completion_batch_deepcopy\n");
   test_completion_batch_coalesce_drop();
   std::printf("ok: completion_batch_coalesce_drop\n");
+  test_completion_batch_one_block();
+  std::printf("ok: completion_batch_one_block\n");
   test_nitrojob();
   std::printf("ok: nitrojob\n");
   test_worker_pool();

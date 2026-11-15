@@ -73,6 +73,16 @@ String _generateCppModuleBridge(BridgeSpec spec) {
   final swiftRecords = RecordGenerator.generateSwift(spec);
   if (swiftRecords.isNotEmpty) nodes.add(CodeSnippet(swiftRecords));
 
+  // @NitroVariant types, as in the Swift-impl bridge: the protocol below names
+  // them, and with no declaration here the file did not compile.
+  if (spec.localVariants.isNotEmpty) {
+    final varWriter = CodeWriter();
+    for (final variant in spec.localVariants) {
+      SwiftVariantEmitter.emit(varWriter, variant, mapper);
+    }
+    nodes.add(CodeSnippet(varWriter.toString()));
+  }
+
   // Protocol
   nodes.addAll([
     const CodeLine('/**'),

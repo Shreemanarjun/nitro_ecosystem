@@ -81,6 +81,31 @@ bool isIosCppModule(File specFile) => PlatformTargetAnalyzer.fromSpec(specFile).
 /// `ios: cpp, macos: swift` still needs the macOS Swift registration.
 bool isMacosCppModule(File specFile) => PlatformTargetAnalyzer.fromSpec(specFile).supportsMacosCpp;
 
+/// Returns true when the module has a Swift implementation on **iOS** and so
+/// needs a `Registry.register()` call in the iOS Plugin.swift. Not the inverse
+/// of [isIosCppModule]: a module that targets no Apple platform is neither.
+/// A spec that is not found, or declares nothing, keeps the Swift default.
+bool isIosSwiftModule(File specFile) {
+  final a = PlatformTargetAnalyzer.fromSpec(specFile);
+  return a.declaresNothing || a.swiftOnIos;
+}
+
+/// Returns true when the module has a Swift implementation on **macOS**.
+bool isMacosSwiftModule(File specFile) {
+  final a = PlatformTargetAnalyzer.fromSpec(specFile);
+  return a.declaresNothing || a.swiftOnMacos;
+}
+
+/// Returns true when the module has a Kotlin implementation on **Android** and
+/// so needs a `JniBridge.registerFactory()` call in Plugin.kt. Not the inverse
+/// of [isAndroidCppModule]: a module that does not target Android (macOS-only,
+/// desktop-only) is neither, and has no JniBridge to register. A spec that is
+/// not found, or declares nothing, keeps the Kotlin default.
+bool isAndroidKotlinModule(File specFile) {
+  final a = PlatformTargetAnalyzer.fromSpec(specFile);
+  return a.declaresNothing || a.kotlinOnAndroid;
+}
+
 /// Returns true when the spec file uses direct C++ for **Windows** only.
 /// Windows C++ modules use `windows/CMakeLists.txt` (not the shared `src/`)
 /// and need their own impl stub created in `windows/src/`.

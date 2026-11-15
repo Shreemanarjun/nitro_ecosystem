@@ -1,6 +1,7 @@
 ## 0.8.8
 
-- Coordinated 0.8.8 release; no changes.
+- **Fix (Android):** an async call could never complete, or complete with the wrong value (a Dart VM bug with compressed pointers). Re-run `nitrogen link`.
+- **Fix:** a callback invoked inside an async method could arrive after its future completed (since 0.7.10). Needs nitro_generator 0.8.8.
 
 ## 0.8.7
 

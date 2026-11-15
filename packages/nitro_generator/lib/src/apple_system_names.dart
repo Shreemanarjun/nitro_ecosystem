@@ -7,8 +7,9 @@
 // preprocessed `Foundation/Foundation.h` was declared after the import as
 // `typedef struct { double x; } <name>;`, and the ones clang rejected were kept.
 
-/// Built into Objective-C itself, so renaming it around the import does not help.
-const foundationNamesNotRenamable = <String>{'Protocol'};
+/// Built into Objective-C itself — `Protocol` a class the compiler defines,
+/// `Nil` a macro — so the rename around the import does not cover them.
+const foundationNamesNotRenamable = <String>{'Protocol', 'Nil'};
 
 /// True for a name the bridge has to rename, and can.
 bool isRenamableFoundationName(String name) =>
