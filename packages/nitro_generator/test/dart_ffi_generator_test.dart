@@ -71,7 +71,9 @@ void main() {
       );
     });
 
-    test('zero-copy TypedData return uses native finalizer-backed typed list', () {
+    test('zero-copy TypedData return hands its memory to the list through the module\'s adopt export', () {
+      // Not asTypedList(finalizer:): that frees when the creating isolate exits,
+      // which dangles a list returned from Isolate.run.
       final out = DartFfiGenerator.generate(
         BridgeSpec(
           dartClassName: 'Dsp',
@@ -93,9 +95,12 @@ void main() {
         ),
       );
 
-      expect(out, contains("lookup<NativeFinalizerFunction>('dsp_release_typed_data_return')"));
+      expect(out, contains("lookupFunction<Void Function(Handle, Pointer<Void>, IntPtr), void Function(Object, Pointer<Void>, int)>('dsp_nitro_adopt_typed_data_return')"));
       expect(out, contains('final dataAddress = Pointer<Int64>.fromAddress(res.address + 8).value;'));
-      expect(out, contains('return nitroRegisterZeroCopyView(payloadPtr.asTypedList(byteLength, finalizer: _typedDataReturnFinalizer, token: res.cast<Void>()), payloadPtr.cast<Void>());'));
+      expect(out, contains('final view = payloadPtr.asTypedList(byteLength);'));
+      expect(out, contains('_nitroAdoptTypedDataReturn(view, res.cast<Void>(), byteLength);'));
+      expect(out, contains('return nitroRegisterZeroCopyView(view, payloadPtr.cast<Void>());'));
+      expect(out, isNot(contains('finalizer:')));
       expect(out, isNot(contains('Uint8List.fromList(payloadPtr.asTypedList(byteLength))')));
     });
 

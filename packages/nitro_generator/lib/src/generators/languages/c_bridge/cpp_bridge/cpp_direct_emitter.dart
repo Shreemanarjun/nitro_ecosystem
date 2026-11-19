@@ -33,6 +33,35 @@ void _emitNullableStructPointerGuard(
 
 // ── Direct C++ path (NativeImpl.cpp on all targeted platforms) ─────────────
 
+/// The adopt exports: each ties native memory to the Dart typed list that views
+/// it. Emitted next to `<lib>_nitro_free` by every backend.
+///   `<lib>_nitro_adopt`                   a record buffer lent to one of its fields
+///   `<lib>_nitro_adopt_typed_data_return` a `@zeroCopy` typed-data return
+///
+/// A finalizable handle belongs to the isolate GROUP. dart:ffi's own
+/// `asTypedList(finalizer:)` frees when the isolate that created the list
+/// exits, which leaves a list returned from `Isolate.run` pointing at freed
+/// memory.
+void _emitNitroAdopt(CodeWriter writer, BridgeSpec spec, String libStem) {
+  if (!spec.lendsRecordBuffers && !spec.hasZeroCopyTypedDataReturn) return;
+  if (spec.webIsWasm) writer.line('#ifndef __EMSCRIPTEN__');
+  if (spec.lendsRecordBuffers) {
+    writer.line('static void ${libStem}_nitro_adopted_gone(void* isolate_data, void* ptr) { (void)isolate_data; free(ptr); }');
+    writer.line('NITRO_EXPORT void ${libStem}_nitro_adopt(void* list, void* ptr, intptr_t size) {');
+    writer.line('    Dart_NewFinalizableHandle_DL((Dart_Handle)list, ptr, size, ${libStem}_nitro_adopted_gone);');
+    writer.line('}');
+  }
+  if (spec.hasZeroCopyTypedDataReturn) {
+    writer.line(
+      'static void ${libStem}_nitro_typed_data_gone(void* isolate_data, void* ptr) { (void)isolate_data; ${libStem}_release_typed_data_return(ptr); }',
+    );
+    writer.line('NITRO_EXPORT void ${libStem}_nitro_adopt_typed_data_return(void* list, void* ptr, intptr_t size) {');
+    writer.line('    Dart_NewFinalizableHandle_DL((Dart_Handle)list, ptr, size, ${libStem}_nitro_typed_data_gone);');
+    writer.line('}');
+  }
+  if (spec.webIsWasm) writer.line('#endif');
+}
+
 String _generateCppDirect(BridgeSpec spec) {
   final writer = CodeWriter();
   final libStem = spec.lib.replaceAll('-', '_');
@@ -163,10 +192,11 @@ String _generateCppDirect(BridgeSpec spec) {
   // Universal free for native-owned memory handed to Dart. Dart must not use
   // package:ffi's malloc.free on these pointers (CoTaskMemFree on Windows).
   writer.line('NITRO_EXPORT void ${libStem}_nitro_free(void* ptr) { if (ptr) { free(ptr); } }');
+  _emitNitroAdopt(writer, spec, libStem);
   // Matching allocator for Dart-produced values that native code frees
   // (String/record/variant callback returns) — same rule in reverse.
   writer.line('NITRO_EXPORT void* ${libStem}_nitro_alloc(size_t size) { return malloc(size); }');
-  if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) {
+  if (spec.hasZeroCopyTypedDataReturn) {
     // Same envelope-freeing body as CppBridgeGenerator/_swift_shim/_jni —
     // the direct path previously declared this in the header (via
     // CppHeaderGenerator) but never emitted the definition, so Dart's

@@ -167,7 +167,8 @@ void main() {
     test('Map<int, String> encode emits utf8.encode for string value', () {
       final out = DartFfiGenerator.generateIntKeyMapHelpers('int', 'String', emptySpec);
       expect(out, contains('utf8.encode(e.value)'));
-      expect(out, contains('utf8.decode('));
+      // Not utf8.decode: it drops a leading U+FEFF, which here is data.
+      expect(out, contains('final v = decodeUtf8NoBomStrip('));
     });
 
     test('Map<int32, double> encode uses setInt32 for 4-byte key', () {

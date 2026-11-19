@@ -35,6 +35,10 @@ class RecordGenerator {
 
   static String generateKotlin(BridgeSpec spec) => _generateKotlinRecords(spec);
 
+  /// `NitroRecordOut` and friends, for a Kotlin file that has variants but no
+  /// records of its own (the records section emits them otherwise).
+  static String get kotlinRecordHelpers => _kotlinRecordOut.trim();
+
   static String generateSwift(BridgeSpec spec, {bool emitBoilerplate = true}) => _generateSwiftRecords(spec, emitBoilerplate: emitBoilerplate);
 
   /// Returns a byte-size estimate for one serialized [BridgeRecordType] instance.

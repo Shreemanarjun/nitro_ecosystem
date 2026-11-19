@@ -15,6 +15,9 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:nitro/src/web/record_codec_web.dart';
+import 'package:nitro_annotations/nitro_annotations.dart';
+import 'package:nitro_generator/src/bridge_spec.dart';
+import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
 // cpp_record_generator.dart is a `part of` record_generator.dart, so the
 // reader definition is reached through the enclosing library.
 import 'package:nitro_generator/src/generators/record_generator.dart';
@@ -28,43 +31,18 @@ const _rows = <_Row>[
   (9, 'ünïcødé ✓', 4.0),
 ];
 
-/// The writer struct is emitted by CppInterfaceGenerator inside a full header;
-/// re-declaring just the pieces under test keeps this gate independent of the
-/// surrounding module scaffolding.
-const _writerStruct = r'''
-struct NitroCppBuffer { const uint8_t* data; size_t size; };
-
-struct NitroRecordWriter {
-  std::vector<uint8_t> _buf;
-  NitroRecordWriter() { _buf.reserve(64); }
-  void writeInt(int64_t v) { _buf.insert(_buf.end(), reinterpret_cast<const uint8_t*>(&v), reinterpret_cast<const uint8_t*>(&v) + 8); }
-  void writeInt32(int32_t v) { _buf.insert(_buf.end(), reinterpret_cast<const uint8_t*>(&v), reinterpret_cast<const uint8_t*>(&v) + 4); }
-  void writeDouble(double v) { _buf.insert(_buf.end(), reinterpret_cast<const uint8_t*>(&v), reinterpret_cast<const uint8_t*>(&v) + 8); }
-  void writeString(const std::string& s) { int32_t n = (int32_t)s.size(); writeInt32(n); _buf.insert(_buf.end(), s.begin(), s.end()); }
-  uint8_t* toNative() const {
-      int32_t payloadLen = (int32_t)_buf.size();
-      uint8_t* out = (uint8_t*)::malloc(sizeof(int32_t) + (size_t)payloadLen);
-      if (!out) return nullptr;
-      ::memcpy(out, &payloadLen, sizeof(int32_t));
-      if (payloadLen > 0) ::memcpy(out + sizeof(int32_t), _buf.data(), (size_t)payloadLen);
-      return out;
-  }
-  template <typename T, typename WriteItem>
-  void writeIndexedList(const std::vector<T>& items, WriteItem writeItem) {
-      int32_t n = (int32_t)items.size();
-      writeInt32(n);
-      size_t tableStart = _buf.size();
-      for (int32_t i = 0; i < n; i++) writeInt(0);
-      std::vector<int64_t> offsets((size_t)n);
-      for (int32_t i = 0; i < n; i++) {
-          offsets[(size_t)i] = (int64_t)_buf.size();
-          writeItem(*this, items[(size_t)i]);
-      }
-      for (int32_t i = 0; i < n; i++)
-          ::memcpy(_buf.data() + tableStart + (size_t)i * 8, &offsets[(size_t)i], 8);
-  }
-};
-''';
+/// The writer is emitted inside a full module header; cut it out of a real one
+/// (from `NitroCppBuffer` to the end of the writer's namespace) so this gate
+/// compiles what plugins compile, without the surrounding module scaffolding.
+String _generatedWriter() {
+  final header = CppInterfaceGenerator.generate(
+    BridgeSpec(dartClassName: 'Probe', lib: 'probe', namespace: 'probe', macosImpl: NativeImpl.cpp, sourceUri: 'probe.native.dart'),
+  );
+  const first = 'struct NitroCppBuffer {', last = '} // namespace nitro_writer_v2';
+  final from = header.indexOf(first), to = header.indexOf(last);
+  if (from < 0 || to < from) throw StateError('NitroRecordWriter not found in the generated header');
+  return header.substring(from, to + last.length);
+}
 
 /// Reads Dart-encoded bytes on stdin, verifies them, re-encodes, writes stdout.
 const _main = r'''
@@ -96,10 +74,9 @@ int main() {
         ww.writeString(row.name + "|cpp");
         ww.writeDouble(row.score * 2.0);
     });
-    uint8_t* out = w.toNative();
-    int32_t outLen; std::memcpy(&outLen, out, 4);
-    std::cout.write(reinterpret_cast<const char*>(out), 4 + outLen);
-    ::free(out);
+    NitroCppBuffer out = w.takeNativeBuffer();
+    std::cout.write(reinterpret_cast<const char*>(out.data), (std::streamsize)out.size);
+    ::free((void*)out.data);
     return 0;
 }
 ''';
@@ -110,9 +87,9 @@ Future<void> main() async {
     final src = File('${tmp.path}/main.cpp');
     await src.writeAsString(
       '#include <cstdint>\n#include <cstring>\n#include <cstdlib>\n'
-      '#include <string>\n#include <vector>\n#include <stdexcept>\n'
+      '#include <new>\n#include <string>\n#include <vector>\n#include <stdexcept>\n'
       '#include <iostream>\n#include <iterator>\n\n'
-      '$_writerStruct\n$cppRecordReaderDefinition\n\n$_main',
+      '${_generatedWriter()}\n$cppRecordReaderDefinition\n\n$_main',
     );
 
     final bin = '${tmp.path}/a.out';

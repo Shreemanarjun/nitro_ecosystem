@@ -2,6 +2,13 @@ part of '../dart_ffi_generator.dart';
 
 /// Emits the `_${spec.dartClassName}Impl` class header, constructor,
 /// field declarations, and dispose()/callbackCache logic.
+/// `_nitroFree`: every release of a native buffer goes through it. When a
+/// record of this module can lend its buffer to a byte field, the buffer that
+/// was lent is skipped here and freed by that field's finalizer instead.
+String _nitroFreeWrapper(BridgeSpec spec) => spec.lendsRecordBuffers
+    ? '  void _nitroFree(Pointer<NativeType> ptr) { if (!RecordReader.keptAlive(ptr)) _nitroFreePtr(ptr.cast()); }'
+    : '  void _nitroFree(Pointer<NativeType> ptr) => _nitroFreePtr(ptr.cast());';
+
 void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   // ── Impl class ──────────────────────────────────────────────────────────
   final libStem = spec.lib.replaceAll('-', '_');
@@ -61,12 +68,11 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
     // accumulated) on every re-registration — see _emitCallbackHelpers.
     writer.line('  final Map<String, NativeCallable<dynamic>> _nativeCallbackCache = {};');
   }
-  final hasZeroCopyTypedDataReturn = spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData);
-  if (hasZeroCopyTypedDataReturn) {
+  if (spec.hasZeroCopyTypedDataReturn) {
+    // Gives a @zeroCopy return's native memory to the list that views it; the
+    // module releases it when the list is collected (see _emitNitroAdopt).
     writer.line(
-      // NativeFinalizerFunction is typedef NativeFunction<Void Function(Pointer<Void>)>,
-      // so lookup<NativeFinalizerFunction> is correct — NOT NativeFunction<NativeFinalizerFunction>.
-      "  late final Pointer<NativeFinalizerFunction> _typedDataReturnFinalizer = _dylib.lookup<NativeFinalizerFunction>('${libStem}_release_typed_data_return').cast();",
+      "  late final void Function(Object, Pointer<Void>, int) _nitroAdoptTypedDataReturn = _dylib.lookupFunction<Void Function(Handle, Pointer<Void>, IntPtr), void Function(Object, Pointer<Void>, int)>('${libStem}_nitro_adopt_typed_data_return');",
     );
   }
   // Frees NATIVE-owned memory (strings, record/variant blobs, struct copies,
@@ -77,12 +83,19 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   writer.line(
     "  late final void Function(Pointer<Void>) _nitroFreePtr = _dylib.lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>('${libStem}_nitro_free', isLeaf: true);",
   );
-  writer.line('  void _nitroFree(Pointer<NativeType> ptr) => _nitroFreePtr(ptr.cast());');
+  writer.line(_nitroFreeWrapper(spec));
   // Same symbol as a raw function pointer, for NativeFinalizer-based owners
   // (LazyRecordList) that outlive the decoding call.
   writer.line(
     "  late final Pointer<NativeFinalizerFunction> _nitroFreeFinalizer = _dylib.lookup<NativeFinalizerFunction>('${libStem}_nitro_free').cast();",
   );
+  if (spec.lendsRecordBuffers) {
+    // Hands a lent record buffer to the typed list that views it (see
+    // RecordReader.fromNative). Takes the list as a Dart handle, so not a leaf.
+    writer.line(
+      "  late final void Function(Object, Pointer<Void>, int) _nitroAdopt = _dylib.lookupFunction<Void Function(Handle, Pointer<Void>, IntPtr), void Function(Object, Pointer<Void>, int)>('${libStem}_nitro_adopt');",
+    );
+  }
   // The reverse direction: values Dart produces that NATIVE code frees with
   // C-runtime free() — String/record/variant callback returns. They must be
   // allocated by the module's C-runtime malloc, not package:ffi's allocators
@@ -407,8 +420,8 @@ String? _nativeAssetsIneligibility(BridgeSpec spec) {
   for (final f in spec.functions) {
     // @NitroOwned handles still excluded (NativeHandle wrapper + finalizer).
     if (f.isOwned) return "method '${f.dartName}' returns an @NitroOwned handle";
-    // @zeroCopy TypedData RETURNS are supported (release via Native.addressOf,
-    // the `_typedDataReturnFinalizer`); a non-TypedData @zeroCopy return is not.
+    // @zeroCopy TypedData RETURNS are supported (adopted by the list through
+    // `_nitroAdoptTypedDataReturn`); a non-TypedData @zeroCopy return is not.
     if (f.zeroCopyReturn && !f.returnType.isTypedData) {
       return "method '${f.dartName}' has a non-TypedData @zeroCopy return";
     }
@@ -466,13 +479,12 @@ void _emitNativeAssetsImplSetup(CodeWriter writer, BridgeSpec spec) {
   // Streams need the per-stream register/release externals + ack + DL-API init
   // (the coalescer posts items via Dart_PostCObject).
   final hasStreams = spec.streams.isNotEmpty;
-  final needsDlInit = hasAsync || hasStreams;
+  // Lent record buffers and @zeroCopy returns are adopted through a
+  // finalizable handle, which is a DL-API call too.
+  final needsDlInit = hasAsync || hasStreams || spec.lendsRecordBuffers || spec.hasZeroCopyTypedDataReturn;
   // Plain isolate-pool @nitroAsync (callAsync) uses the get/clear error symbols
   // as native pointers (portable across the pool isolate).
   final hasCallAsync = spec.functions.any((f) => f.isAsync && !spec.bridgeAsync(f) && !f.isFireAndForget);
-  // @zeroCopy TypedData returns are freed by a NativeFinalizer backed by the
-  // module's <lib>_release_typed_data_return symbol.
-  final hasZcTdReturn = spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData);
   String native(String type, String symbol, {bool leaf = false}) =>
       "@Native<$type>(symbol: '$symbol', assetId: '$assetId'${leaf ? ', isLeaf: true' : ''})";
 
@@ -491,9 +503,9 @@ void _emitNativeAssetsImplSetup(CodeWriter writer, BridgeSpec spec) {
   writer.line('external int _createInstancePtr(Pointer<Utf8> _key);');
   writer.line(native('Void Function(Int64)', '${libStem}_destroy_instance'));
   writer.line('external void _destroyInstancePtr(int _id);');
-  if (hasZcTdReturn) {
-    writer.line(native('Void Function(Pointer<Void>)', '${libStem}_release_typed_data_return', leaf: true));
-    writer.line('external void _releaseTypedDataReturnPtr(Pointer<Void> _p);');
+  if (spec.hasZeroCopyTypedDataReturn) {
+    writer.line(native('Void Function(Handle, Pointer<Void>, IntPtr)', '${libStem}_nitro_adopt_typed_data_return'));
+    writer.line('external void _nitroAdoptTypedDataReturn(Object _list, Pointer<Void> _ptr, int _size);');
   }
 
   // Method externals — same names the bodies call (_<name>Ptr).
@@ -530,8 +542,14 @@ void _emitNativeAssetsImplSetup(CodeWriter writer, BridgeSpec spec) {
   if (needsDlInit) {
     writer.line(native('IntPtr Function(Pointer<Void>)', '${libStem}_init_dart_api_dl'));
     writer.line('external int _initDartApiDlPtr(Pointer<Void> _data);');
+  }
+  if (hasAsync || hasStreams) {
     writer.line(native('Void Function(Int64)', '${libStem}_nitro_ack', leaf: true));
     writer.line('external void _nitroAckPtr(int _p);');
+  }
+  if (spec.lendsRecordBuffers) {
+    writer.line(native('Void Function(Handle, Pointer<Void>, IntPtr)', '${libStem}_nitro_adopt'));
+    writer.line('external void _nitroAdopt(Object _list, Pointer<Void> _ptr, int _size);');
   }
   // Completion-batch externals for the native-async path only.
   if (hasAsync) {
@@ -589,7 +607,7 @@ void _emitNativeAssetsImplSetup(CodeWriter writer, BridgeSpec spec) {
   writer.line('  final String _instanceKey;');
   writer.line('  late final int _instanceId;');
   writer.line('  final Pointer<NitroErrorFfi> _nitroErr = calloc<NitroErrorFfi>();');
-  writer.line('  void _nitroFree(Pointer<NativeType> ptr) => _nitroFreePtr(ptr.cast());');
+  writer.line(_nitroFreeWrapper(spec));
   writer.line('  // ignore: unused_field');
   writer.line('  late final NitroNativeAllocator _nitroNativeAllocator = NitroNativeAllocator(_nitroAllocPtr, _nitroFreePtr);');
   // Raw free pointer for NativeFinalizer-based owners (LazyRecordList, zero-copy
@@ -597,10 +615,6 @@ void _emitNativeAssetsImplSetup(CodeWriter writer, BridgeSpec spec) {
   // external — the native-assets equivalent of _dylib.lookup<...>.
   writer.line('  // ignore: unused_field');
   writer.line('  late final Pointer<NativeFinalizerFunction> _nitroFreeFinalizer = Native.addressOf<NativeFunction<Void Function(Pointer<Void>)>>(_nitroFreePtr).cast();');
-  if (hasZcTdReturn) {
-    writer.line('  // ignore: unused_field');
-    writer.line('  late final Pointer<NativeFinalizerFunction> _typedDataReturnFinalizer = Native.addressOf<NativeFunction<Void Function(Pointer<Void>)>>(_releaseTypedDataReturnPtr).cast();');
-  }
   if (hasCallbacks) {
     // One NativeCallable slot per "methodName.paramName", replaced (not
     // accumulated) on every re-registration — see _emitCallbackHelpers.

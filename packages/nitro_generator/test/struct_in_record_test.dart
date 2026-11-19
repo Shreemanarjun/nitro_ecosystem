@@ -366,9 +366,7 @@ void main() {
     });
 
     test('decodeFrom reads list via (0 until buf.int).map { BoundingBox.decodeFrom(buf) }', () {
-      expect(kotlin, contains('BoundingBox.decodeFrom(buf)'));
-      // Non-indexed read: count-then-items, no offset skip
-      expect(kotlin, contains('(0 until buf.int).map { BoundingBox.decodeFrom(buf) }'));
+      expect(kotlin, contains('(0 until r.int32()).map { r.via { BoundingBox.decodeFrom(it) } }'));
     });
 
     test('writeFieldsTo writes list count then iterates items with e.writeFieldsTo', () {
@@ -452,7 +450,7 @@ void main() {
     });
 
     test('Kotlin GeoResult uses Point3D.decodeFrom(buf) for origin', () {
-      expect(kotlin, contains('Point3D.decodeFrom(buf)'));
+      expect(kotlin, contains('r.via { Point3D.decodeFrom(it) }'));
     });
 
     test('Kotlin GeoResult.writeFieldsTo calls origin.writeFieldsTo', () {
@@ -526,7 +524,7 @@ void main() {
     });
 
     test('listRecordObject read uses (0 until buf.int).map', () {
-      expect(kotlin, contains('(0 until buf.int).map { Resolution.decodeFrom(buf) }'));
+      expect(kotlin, contains('(0 until r.int32()).map { Resolution.decodeFrom(r) }'));
     });
 
     test('no writeIndexedList in generated Kotlin (format is count-then-items)', () {
@@ -657,8 +655,9 @@ void main() {
         ],
       );
       final swift = RecordGenerator.generateSwift(spec);
-      expect(swift, contains('writer.writeInt32(Int32(boxes.count))'));
-      expect(swift, contains('for e in boxes { writer.writeDouble(e) }'));
+      // [4B count][8B x n], written as one block from the array's storage.
+      expect(swift, contains('writer.writeDoubleList(boxes)'));
+      expect(swift, contains('public func writeDoubleList(_ v: [Double]) {'));
       expect(swift, isNot(contains('writeIndexedList')));
     });
 
@@ -684,7 +683,8 @@ void main() {
         ],
       );
       final swift = RecordGenerator.generateSwift(spec);
-      expect(swift, contains('(0..<Int(r.readInt32())).map { _ in r.readDouble() }'));
+      expect(swift, contains('boxes: r.readDoubleList()'));
+      expect(swift, contains('public func readDoubleList() -> [Double] { return readValues(Int(readInt32()), of: Double.self) }'));
       expect(swift, isNot(matches(RegExp(r'for.*r\.readInt\(\)'))));
     });
   });

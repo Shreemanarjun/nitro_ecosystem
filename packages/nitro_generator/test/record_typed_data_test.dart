@@ -114,16 +114,16 @@ void main() {
       expect(dart, contains('extension DataRecordRecordExt on DataRecord'));
     });
 
-    test('Uint8List field uses r.readBlob()', () {
-      expect(dart, contains('bytes: r.readBlob()'));
+    test('Uint8List field uses r.readBlobView()', () {
+      expect(dart, contains('bytes: r.readBlobView()'));
     });
 
-    test('Int32List field uses Int32List.view(r.readBlob().buffer)', () {
-      expect(dart, contains('values: Int32List.view(r.readBlob().buffer)'));
+    test('Int32List field uses Int32List.view(r.readBlobView(4).buffer)', () {
+      expect(dart, contains('values: Int32List.view(r.readBlobView(4).buffer)'));
     });
 
-    test('Float64List field uses Float64List.view(r.readBlob().buffer)', () {
-      expect(dart, contains('scores: Float64List.view(r.readBlob().buffer)'));
+    test('Float64List field uses Float64List.view(r.readBlobView(8).buffer)', () {
+      expect(dart, contains('scores: Float64List.view(r.readBlobView(8).buffer)'));
     });
 
     test('Uint8List field write uses writeBlob(bytes)', () {
@@ -147,24 +147,24 @@ void main() {
     late String dart;
     setUpAll(() => dart = RecordGenerator.generateDartExtensions(_allTypedDataSpec()));
 
-    test('Uint8List uses readBlob() directly', () {
-      expect(dart, contains('u8: r.readBlob()'));
+    test('Uint8List uses readBlobView() directly', () {
+      expect(dart, contains('u8: r.readBlobView()'));
     });
 
-    test('Int8List uses Int8List.view(r.readBlob().buffer)', () {
-      expect(dart, contains('i8: Int8List.view(r.readBlob().buffer)'));
+    test('Int8List uses Int8List.view(r.readBlobView().buffer)', () {
+      expect(dart, contains('i8: Int8List.view(r.readBlobView().buffer)'));
     });
 
-    test('Int16List uses Int16List.view(r.readBlob().buffer)', () {
-      expect(dart, contains('i16: Int16List.view(r.readBlob().buffer)'));
+    test('Int16List uses Int16List.view(r.readBlobView(2).buffer)', () {
+      expect(dart, contains('i16: Int16List.view(r.readBlobView(2).buffer)'));
     });
 
-    test('Int64List uses Int64List.view(r.readBlob().buffer)', () {
-      expect(dart, contains('i64: Int64List.view(r.readBlob().buffer)'));
+    test('Int64List uses Int64List.view(r.readBlobView(8).buffer)', () {
+      expect(dart, contains('i64: Int64List.view(r.readBlobView(8).buffer)'));
     });
 
-    test('Float32List uses Float32List.view(r.readBlob().buffer)', () {
-      expect(dart, contains('f32: Float32List.view(r.readBlob().buffer)'));
+    test('Float32List uses Float32List.view(r.readBlobView(4).buffer)', () {
+      expect(dart, contains('f32: Float32List.view(r.readBlobView(4).buffer)'));
     });
 
     test('Uint8List write uses writeBlob(u8)', () {
@@ -185,11 +185,11 @@ void main() {
     setUpAll(() => dart = RecordGenerator.generateDartExtensions(_nullableTypedDataSpec()));
 
     test('nullable Uint8List uses readNullTag guard', () {
-      expect(dart, contains('optBytes: r.readNullTag() ? null : r.readBlob()'));
+      expect(dart, contains('optBytes: r.readNullTag() ? null : r.readBlobView()'));
     });
 
     test('nullable Int16List uses readNullTag guard', () {
-      expect(dart, contains('optInts: r.readNullTag() ? null : Int16List.view(r.readBlob().buffer)'));
+      expect(dart, contains('optInts: r.readNullTag() ? null : Int16List.view(r.readBlobView(2).buffer)'));
     });
 
     test('nullable Uint8List write emits writeNullTag', () {
@@ -219,15 +219,15 @@ void main() {
     });
 
     test('Uint8List read uses buf.get(b) into ByteArray', () {
-      expect(kotlin, contains('val bytes = { val _len = buf.int; val _b = ByteArray(_len); buf.get(_b); _b }()'));
+      expect(kotlin, contains('val bytes = r.bytes()'));
     });
 
-    test('Int32List read uses IntArray { buf.int }', () {
-      expect(kotlin, contains('val values = { val _len = buf.int; IntArray(_len / 4) { buf.int } }()'));
+    test('Int32List read is one bulk get through an IntBuffer view', () {
+      expect(kotlin, contains('val values = run { val _len = r.int32(); val _a = IntArray(_len / 4); r.take(_len).asIntBuffer().get(_a); _a }'));
     });
 
-    test('Float64List read uses DoubleArray { buf.double }', () {
-      expect(kotlin, contains('val scores = { val _len = buf.int; DoubleArray(_len / 8) { buf.double } }()'));
+    test('Float64List read is one bulk get through a DoubleBuffer view', () {
+      expect(kotlin, contains('val scores = run { val _len = r.int32(); val _a = DoubleArray(_len / 8); r.take(_len).asDoubleBuffer().get(_a); _a }'));
     });
 
     test('Uint8List write uses writeInt32 + out.write', () {
@@ -267,16 +267,16 @@ void main() {
       expect(kotlin, contains('val f64: DoubleArray'));
     });
 
-    test('Int16List read uses ShortArray { buf.short }', () {
-      expect(kotlin, contains('ShortArray(_len / 2) { buf.short }'));
+    test('Int16List read is one bulk get into a ShortArray', () {
+      expect(kotlin, contains('val _a = ShortArray(_len / 2); r.take(_len).asShortBuffer().get(_a)'));
     });
 
-    test('Int64List read uses LongArray { buf.long }', () {
-      expect(kotlin, contains('LongArray(_len / 8) { buf.long }'));
+    test('Int64List read is one bulk get into a LongArray', () {
+      expect(kotlin, contains('val _a = LongArray(_len / 8); r.take(_len).asLongBuffer().get(_a)'));
     });
 
-    test('Float32List read uses FloatArray { buf.float }', () {
-      expect(kotlin, contains('FloatArray(_len / 4) { buf.float }'));
+    test('Float32List read is one bulk get into a FloatArray', () {
+      expect(kotlin, contains('val _a = FloatArray(_len / 4); r.take(_len).asFloatBuffer().get(_a)'));
     });
   });
 
@@ -293,7 +293,7 @@ void main() {
     });
 
     test('nullable Uint8List write uses null check', () {
-      expect(kotlin, contains('out.write(if (optBytes == null) 0 else 1)'));
+      expect(kotlin, contains('writeBool(optBytes != null)'));
     });
   });
 
@@ -318,21 +318,21 @@ void main() {
       expect(swift, contains('bytes: r.readBlob()'));
     });
 
-    test('Int32List read uses bindMemory(to: Int32.self)', () {
-      expect(swift, contains('bindMemory(to: Int32.self)'));
+    test('Int32List read copies once into the array', () {
+      expect(swift, contains('r.readArray(of: Int32.self)'));
     });
 
-    test('Float64List read uses bindMemory(to: Double.self)', () {
-      expect(swift, contains('bindMemory(to: Double.self)'));
+    test('Float64List read copies once into the array', () {
+      expect(swift, contains('r.readArray(of: Double.self)'));
     });
 
     test('Uint8List write uses writer.writeBlob(bytes)', () {
       expect(swift, contains('writer.writeBlob(bytes)'));
     });
 
-    test('Int32List write uses withUnsafeBufferPointer + writeBlob', () {
-      expect(swift, contains('values.withUnsafeBufferPointer'));
-      expect(swift, contains('writeBlob(Data(buffer:'));
+    test('Int32List write appends the array\'s bytes once', () {
+      expect(swift, contains(r'values.withUnsafeBytes { writer.writeRaw($0) }'));
+      expect(swift, isNot(contains('writeBlob(Data(buffer:')));
     });
   });
 
@@ -368,16 +368,16 @@ void main() {
       expect(swift, contains('public var f64: [Double]'));
     });
 
-    test('Int16List read uses bindMemory(to: Int16.self)', () {
-      expect(swift, contains('bindMemory(to: Int16.self)'));
+    test('Int16List read copies once into the array', () {
+      expect(swift, contains('r.readArray(of: Int16.self)'));
     });
 
-    test('Int64List read uses bindMemory(to: Int64.self)', () {
-      expect(swift, contains('bindMemory(to: Int64.self)'));
+    test('Int64List read copies once into the array', () {
+      expect(swift, contains('r.readArray(of: Int64.self)'));
     });
 
-    test('Float32List read uses bindMemory(to: Float.self)', () {
-      expect(swift, contains('bindMemory(to: Float.self)'));
+    test('Float32List read copies once into the array', () {
+      expect(swift, contains('r.readArray(of: Float.self)'));
     });
   });
 
@@ -425,8 +425,8 @@ void main() {
       expect(cppRecordReaderDefinition, contains('void readBytes(uint8_t* dst, size_t n)'));
     });
 
-    test('bytes field read uses readBytes', () {
-      expect(cpp, contains('_r.readBytes(_obj.bytes.data()'));
+    test('bytes field read assigns straight from the payload', () {
+      expect(cpp, contains('{ size_t _n = _r.readCount(); const uint8_t* _p = _r.readSpan(_n); _obj.bytes.assign(_p, _p + _n); }'));
     });
   });
 

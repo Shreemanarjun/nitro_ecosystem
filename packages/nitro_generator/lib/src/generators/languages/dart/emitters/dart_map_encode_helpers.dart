@@ -138,7 +138,11 @@ void _emitIntKeyMapBinaryHelpers(
   // ── Decode helper ──────────────────────────────────────────────────────────
   writer.line('Map<${isEnum ? keyType : "int"}, $valueType> _nitroDecodeIntKeyMapBinary$ks$vs(Pointer<Uint8> ptr) {');
   writer.line('  final payLen = ByteData.sublistView(ptr.asTypedList(4)).getInt32(0, Endian.little);');
-  writer.line('  final bd = ByteData.sublistView(Uint8List.fromList((ptr + 4).asTypedList(payLen)));');
+  // Decoded where it lies: every access below goes through `bytes`/`bd` with
+  // payload-relative offsets (never `bd.buffer`, whose offset is not the
+  // payload's for native memory), so no up-front copy to the Dart heap.
+  writer.line('  final bytes = (ptr + 4).asTypedList(payLen);');
+  writer.line('  final bd = ByteData.sublistView(bytes);');
   writer.line('  int pos = 0;');
   writer.line('  final count = bd.getInt32(pos, Endian.little); pos += 4;');
   writer.line('  final result = <${isEnum ? keyType : "int"}, $valueType>{};');
@@ -187,26 +191,20 @@ void _emitIntKeyMapBinaryHelpers(
       writer.line('    final v = bd.getUint8(pos) != 0; pos += 1;');
     case 'String':
       writer.line('    final vLen = bd.getInt32(pos, Endian.little); pos += 4;');
-      writer.line('    final v = utf8.decode(bd.buffer.asUint8List(pos, vLen)); pos += vLen;');
+      writer.line('    final v = decodeUtf8NoBomStrip(Uint8List.sublistView(bytes, pos, pos + vLen)); pos += vLen;');
     case _ when isValueEnum:
       writer.line('    final v = bd.getInt64(pos, Endian.little).to$valueType(); pos += 8;');
     case _ when isValueRecord:
+      // The blob is a framed record inside the map's own buffer: decode it
+      // there (was a malloc, a copy and a free per entry).
       writer.line('    final _bLen = bd.getInt32(pos, Endian.little); pos += 4;');
-      writer.line('    final _bSlice = bd.buffer.asUint8List(pos, _bLen); pos += _bLen;');
-      writer.line('    final _bPtr = malloc<Uint8>(_bLen);');
-      writer.line('    _bPtr.asTypedList(_bLen).setAll(0, _bSlice);');
-      writer.line('    final v = ${_recordDecodeExtName(spec, valueType)}.fromNative(_bPtr);');
-      writer.line('    malloc.free(_bPtr);');
+      writer.line('    final v = ${_recordDecodeExtName(spec, valueType)}.fromNative(ptr + 4 + pos); pos += _bLen;');
     case _ when isValueVariant:
       writer.line('    final _bLen = bd.getInt32(pos, Endian.little); pos += 4;');
-      writer.line('    final _bSlice = bd.buffer.asUint8List(pos, _bLen); pos += _bLen;');
-      writer.line('    final _bPtr = malloc<Uint8>(_bLen);');
-      writer.line('    _bPtr.asTypedList(_bLen).setAll(0, _bSlice);');
-      writer.line('    final v = ${_variantDecodeExtName(spec, valueType)}.fromNative(_bPtr);');
-      writer.line('    malloc.free(_bPtr);');
+      writer.line('    final v = ${_variantDecodeExtName(spec, valueType)}.fromNative(ptr + 4 + pos); pos += _bLen;');
     default:
       writer.line('    final vLen = bd.getInt32(pos, Endian.little); pos += 4;');
-      writer.line('    final vs = utf8.decode(bd.buffer.asUint8List(pos, vLen)); pos += vLen;');
+      writer.line('    final vs = utf8.decode(Uint8List.sublistView(bytes, pos, pos + vLen)); pos += vLen;');
       writer.line('    final v = jsonDecode(vs);');
   }
   writer.line('    result[key] = v;');
@@ -339,17 +337,18 @@ void _emitMapBinaryEncodeViaBuilder(CodeWriter writer, String vt, String suffix,
 void _emitMapBinaryDecode(CodeWriter writer, String vt, String suffix, String base, bool nullable, bool isEnum, bool isRecord, bool isVariant, BridgeSpec spec) {
   // Decode helper: Pointer<Uint8> → Map<String, VT>
   writer.line('Map<String, $vt> _nitroDecodeMapBinary$suffix(Pointer<Uint8> ptr) {');
-  // Copy to Dart heap first — native-backed ByteData has bd.offsetInBytes = raw pointer address,
-  // causing bd.buffer.asUint8List(offset + pos, kLen) to compute a huge offset → OOM crash.
+  // Decoded where it lies, without a copy to the Dart heap first. The copy was
+  // there because `bd.buffer` of native memory does not start at the payload
+  // (an offset computed from it once ran far out of range); every access below
+  // goes through `bytes` / `bd` with payload-relative offsets instead.
   writer.line('  final payLen = ByteData.sublistView(ptr.asTypedList(4)).getInt32(0, Endian.little);');
-  writer.line('  final bytes = Uint8List.fromList((ptr + 4).asTypedList(payLen));');
+  writer.line('  final bytes = (ptr + 4).asTypedList(payLen);');
   writer.line('  final bd = ByteData.sublistView(bytes);');
   writer.line('  int pos = 0;');
   writer.line('  final count = bd.getInt32(pos, Endian.little); pos += 4;');
   writer.line('  final result = <String, $vt>{};');
   writer.line('  for (var i = 0; i < count; i++) {');
   writer.line('    final kLen = bd.getInt32(pos, Endian.little); pos += 4;');
-  // Use offset 0 (Uint8List.fromList gives offsetInBytes=0, so bd.buffer.asUint8List(pos) is correct)
   writer.line('    final key = _nitroMapStr(bytes, pos, kLen); pos += kLen;');
   // For typed maps: skip tag byte (we know the type); for dynamic: dispatch on
   // tag. A nullable value type reads the tag instead — 0 means null.
@@ -385,13 +384,11 @@ void _emitMapBinaryDecode(CodeWriter writer, String vt, String suffix, String ba
     // Both read an identical blob; only the decode entry point differs.
     case _ when isRecord || isVariant:
       skipTag('5=binary ${isRecord ? 'record' : 'variant'} for Map<String,$vt>');
+      // The blob is a framed record inside the map's own buffer: decode it
+      // there (was a malloc, a copy and a free per entry).
       writer.line('    final _bLen = bd.getInt32(pos, Endian.little); pos += 4;');
-      writer.line('    final _bSlice = bd.buffer.asUint8List(pos, _bLen); pos += _bLen;');
-      writer.line('    final _bPtr = malloc<Uint8>(_bLen);');
-      writer.line('    _bPtr.asTypedList(_bLen).setAll(0, _bSlice);');
       final decodeExt = isRecord ? _recordDecodeExtName(spec, base) : _variantDecodeExtName(spec, base);
-      writer.line('    final v = $decodeExt.fromNative(_bPtr);');
-      writer.line('    malloc.free(_bPtr);');
+      writer.line('    final v = $decodeExt.fromNative(ptr + 4 + pos); pos += _bLen;');
     default:
       // dynamic: dispatch on tag to decode the right type
       writer.line('    final tag = bd.getUint8(pos); pos += 1;');
@@ -400,7 +397,7 @@ void _emitMapBinaryDecode(CodeWriter writer, String vt, String suffix, String ba
       writer.line('    else if (tag == 2) { v = bd.getFloat64(pos, Endian.little); pos += 8; }');
       writer.line('    else if (tag == 3) { v = bd.getUint8(pos) != 0; pos += 1; }');
       writer.line('    else { final vLen = bd.getInt32(pos, Endian.little); pos += 4;');
-      writer.line('      final vs = utf8.decode(bd.buffer.asUint8List(pos, vLen)); pos += vLen;');
+      writer.line('      final vs = utf8.decode(Uint8List.sublistView(bytes, pos, pos + vLen)); pos += vLen;');
       writer.line('      v = jsonDecode(vs); }');
   }
   // No cast needed — v's type is already inferred correctly from the decode expression.

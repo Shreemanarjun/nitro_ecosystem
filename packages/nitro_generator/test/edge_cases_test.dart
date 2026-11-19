@@ -342,9 +342,10 @@ void main() {
     test('decode(bytes) wraps into ByteBuffer, skips 4-byte prefix, then delegates to decodeFrom', () {
       final out = RecordGenerator.generateKotlin(singleRecordSpec());
       // Must skip the 4-byte length prefix
-      expect(out, contains('buf.position(4)'));
-      // Must delegate to decodeFrom rather than re-implementing field reads
-      expect(out, contains('return decodeFrom(buf)'));
+      expect(out, contains('decodeFrom(NitroRecordIn(bytes, 4))'));
+      // The ByteBuffer entry point other emitters call still exists, and
+      // delegates to the same cursor decoder.
+      expect(out, contains(' = nitroDecode(buf) { decodeFrom(it) }'));
     });
 
     test('decode(bytes) does NOT inline field reads directly', () {
@@ -381,8 +382,11 @@ void main() {
 
     test('encode() prepends 4-byte little-endian length prefix', () {
       final out = RecordGenerator.generateKotlin(singleRecordSpec());
-      expect(out, contains('lenBuf.putInt(payload.size)'));
-      expect(out, contains('return lenBuf.array() + payload'));
+      // The prefix is reserved first and patched in place: no second copy.
+      expect(out, contains('out.write(buf.array(), 0, 4)'));
+      expect(out, contains('val n = bytes.size - 4'));
+      expect(out, contains('bytes[0] = n.toByte(); bytes[1] = (n shr 8).toByte(); bytes[2] = (n shr 16).toByte(); bytes[3] = (n shr 24).toByte()'));
+      expect(out, isNot(contains('lenBuf.array() + payload')));
     });
 
     test('listRecordObject field in decodeFrom uses ClassName.decodeFrom(buf)', () {
@@ -390,7 +394,7 @@ void main() {
       final out = RecordGenerator.generateKotlin(recordListSpec());
       expect(
         out,
-        contains('Resolution.decodeFrom(buf)'),
+        contains('Resolution.decodeFrom(r)'),
         reason: 'list items must share the enclosing ByteBuffer cursor',
       );
     });
@@ -429,7 +433,7 @@ void main() {
         ],
       );
       final out = RecordGenerator.generateKotlin(spec);
-      expect(out, contains('Inner.decodeFrom(buf)'));
+      expect(out, contains('Inner.decodeFrom(r)'));
       expect(out, isNot(contains('Inner.decode(')));
     });
 
@@ -462,17 +466,17 @@ void main() {
         ],
       );
       final out = RecordGenerator.generateKotlin(spec);
-      expect(out, contains('if (buf.get().toInt() == 0) null else Inner.decodeFrom(buf)'));
+      expect(out, contains('if (r.byte() == 0) null else Inner.decodeFrom(r)'));
     });
 
     test('int field reads via buf.long in decodeFrom', () {
       final out = RecordGenerator.generateKotlin(recordListSpec());
-      expect(out, contains('buf.long'));
+      expect(out, contains('r.int64()'));
     });
 
     test('bool field reads via buf.get().toInt() != 0 in decodeFrom', () {
       final out = RecordGenerator.generateKotlin(singleRecordSpec());
-      expect(out, contains('buf.get().toInt() != 0'));
+      expect(out, contains('r.byte() != 0'));
     });
 
     test('double field reads via buf.double in decodeFrom', () {
@@ -493,7 +497,7 @@ void main() {
         ],
       );
       final out = RecordGenerator.generateKotlin(spec);
-      expect(out, contains('buf.double'));
+      expect(out, contains('r.float64()'));
     });
   });
 

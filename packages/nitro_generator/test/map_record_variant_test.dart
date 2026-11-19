@@ -175,15 +175,18 @@ void main() {
       expect(out, contains('skip type tag (always 5=binary record'));
     });
 
-    test('§31.3 decode helper reads 4B blob_len', () {
+    test('§31.3 decode helper reads 4B blob_len and decodes the record in place', () {
       final out = DartFfiGenerator.generate(_mapRecordReturnSpec());
-      expect(out, contains('_bLen'));
-      expect(out, contains('malloc<Uint8>'));
+      expect(out, contains('final _bLen = bd.getInt32(pos, Endian.little); pos += 4;'));
+      // The blob is a framed record inside the map's buffer: no copy per entry.
+      expect(out, contains('.fromNative(ptr + 4 + pos); pos += _bLen;'));
     });
 
-    test('§31.4 decode helper frees allocated pointer', () {
+    test('§31.4 decode helper neither copies the payload nor allocates per entry', () {
       final out = DartFfiGenerator.generate(_mapRecordReturnSpec());
-      expect(out, contains('malloc.free(_bPtr)'));
+      expect(out, contains('final bytes = (ptr + 4).asTypedList(payLen);'));
+      expect(out, isNot(contains('_bPtr')));
+      expect(out, isNot(contains('bd.buffer')));
     });
 
     test('§31.5 encode helper uses tag 5 for record values', () {
@@ -230,10 +233,10 @@ void main() {
       expect(out, contains('skip type tag (always 5=binary variant'));
     });
 
-    test('§32.3 decode helper allocates and frees pointer', () {
+    test('§32.3 decode helper decodes the variant in place', () {
       final out = DartFfiGenerator.generate(_mapVariantReturnSpec());
-      expect(out, contains('malloc<Uint8>'));
-      expect(out, contains('malloc.free(_bPtr)'));
+      expect(out, contains('.fromNative(ptr + 4 + pos); pos += _bLen;'));
+      expect(out, isNot(contains('_bPtr')));
     });
 
     test('§32.4 encode helper uses tag 5 for variant values', () {

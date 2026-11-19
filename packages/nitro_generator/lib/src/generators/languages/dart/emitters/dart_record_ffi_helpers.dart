@@ -1,6 +1,9 @@
 part of '../dart_ffi_generator.dart';
 
-String _decodeRecordExpr(BridgeType type, String ptrVar, BridgeSpec spec) {
+/// [owned]: [ptrVar] is the buffer's own address and the caller releases it
+/// with `_nitroFree` right after this expression. Only then may the reader
+/// keep the buffer alive behind a byte field (see `RecordReader.keptAlive`).
+String _decodeRecordExpr(BridgeType type, String ptrVar, BridgeSpec spec, {bool owned = false}) {
   // A nullable LIST return arrives as nullptr when absent. Decode it through a
   // guard so the list decoders below always see a real buffer; without this a
   // null return would be read as a zero-address buffer.
@@ -82,6 +85,9 @@ String _decodeRecordExpr(BridgeType type, String ptrVar, BridgeSpec spec) {
   final libDecoder = libraryDecoders[rt];
   if (libDecoder != null) return '$libDecoder($ptrVar)';
   if (_nitroLibraryRecordTypes.contains(rt)) return '$rt.fromNative($ptrVar)';
+  if (owned && spec.recordLendsBytes(rt)) {
+    return '${rt}RecordExt.fromReader(RecordReader.fromNative($ptrVar, adopt: _nitroAdopt))';
+  }
   return '${_recordDecodeExtName(spec, rt)}.fromNative($ptrVar)';
 }
 
@@ -110,7 +116,11 @@ void _emitTypedDataDecodeReturn(
     writer.line('$indent final dataAddress = Pointer<Int64>.fromAddress($ptrVar.address + 8).value;');
     writer.line('$indent final payloadPtr = Pointer<$ffiElem>.fromAddress(dataAddress);');
     // Register the view so passing it back to a @zeroCopy param is pointer-only.
-    writer.line('$indent return nitroRegisterZeroCopyView(payloadPtr.asTypedList($lengthExpr, finalizer: _typedDataReturnFinalizer, token: $ptrVar.cast<Void>()), payloadPtr.cast<Void>());');
+    // The view owns the native memory through a finalizable handle, so it stays
+    // valid when returned from another isolate (see _emitNitroAdopt).
+    writer.line('$indent final view = payloadPtr.asTypedList($lengthExpr);');
+    writer.line('$indent _nitroAdoptTypedDataReturn(view, $ptrVar.cast<Void>(), byteLength);');
+    writer.line('$indent return nitroRegisterZeroCopyView(view, payloadPtr.cast<Void>());');
     return;
   }
   writer.line('${indent}try {');

@@ -258,6 +258,15 @@ void main() {
       expect(out, contains('#ifndef NITRO_OPT_DEFINED'));
     });
 
+    test('C++ interface header: a record hands its writer\'s block over', () {
+      // The copying toNativeBuffer() stays for callers that keep the writer.
+      final out = CppInterfaceGenerator.generate(_combos['all cpp everywhere']!);
+      expect(out, contains('NitroCppBuffer takeNativeBuffer() {'));
+      expect(out, contains('NitroCppBuffer toNativeBuffer() const {'));
+      expect(out, contains('return _w.takeNativeBuffer();'));
+      expect(out, isNot(contains('return _w.toNativeBuffer();')));
+    });
+
     test('C++ interface header: record/variant/reader/writer defined once', () {
       final out = CppInterfaceGenerator.generate(_combos['all cpp everywhere']!);
       _definedAtMostOnce(out, 'struct Track {', context: 'native.g.h');

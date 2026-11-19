@@ -80,7 +80,12 @@ class KotlinGenerator {
     // Emit RecordReader/RecordWriter Kotlin helper classes when variant bridge functions exist.
     final hasResultFunctions = spec.functions.any((f) => f.isResult);
     if (hasVariantBridge || hasResultFunctions) {
-      _emitKotlinBridgeHelpers(writer, hasVariantBridge: hasVariantBridge, hasResult: hasResultFunctions);
+      _emitKotlinBridgeHelpers(
+        writer,
+        hasVariantBridge: hasVariantBridge,
+        hasResult: hasResultFunctions,
+        emitRecordHelpers: spec.localRecordTypes.isEmpty,
+      );
     }
 
     // Emit NitroAnyMap binary codec helper when any function uses NitroAnyMap.
@@ -394,8 +399,15 @@ class KotlinGenerator {
     CodeWriter writer, {
     bool hasVariantBridge = false,
     bool hasResult = false,
+    // RecordWriter writes through NitroRecordOut, which the records section
+    // defines; a file with variants but no records of its own needs it here.
+    bool emitRecordHelpers = false,
   }) {
     if (hasVariantBridge) {
+      if (emitRecordHelpers) {
+        RecordGenerator.kotlinRecordHelpers.split('\n').forEach(writer.line);
+        writer.blankLine();
+      }
       writer.line('/** Minimal RecordReader for @NitroVariant bridge decode. */');
       writer.line('class RecordReader(val buf: java.nio.ByteBuffer) {');
       writer.line('    fun readInt8(): Byte = buf.get()');
@@ -403,24 +415,31 @@ class KotlinGenerator {
       writer.line('    fun readInt64(): Long = buf.long');
       writer.line('    fun readFloat64(): Double = buf.double');
       writer.line('    fun readBool(): Boolean = buf.get().toInt() != 0');
+      // Decoded where it lies in the buffer's array, ASCII through the Latin-1
+      // decoder — the same two savings as NitroRecordIn.string().
       writer.line('    fun readString(): String {');
       writer.line('        val len = buf.int');
-      writer.line('        val bytes = ByteArray(len)');
-      writer.line('        buf.get(bytes)');
-      writer.line('        return bytes.toString(Charsets.UTF_8)');
+      writer.line('        if (!buf.hasArray()) { val b = ByteArray(len); buf.get(b); return b.toString(Charsets.UTF_8) }');
+      writer.line('        val a = buf.array(); val from = buf.arrayOffset() + buf.position(); val to = from + len');
+      writer.line('        var i = from');
+      writer.line('        while (i < to && a[i] >= 0) i++');
+      writer.line('        buf.position(buf.position() + len)');
+      writer.line('        return String(a, from, len, if (i == to) Charsets.ISO_8859_1 else Charsets.UTF_8)');
       writer.line('    }');
       writer.line('}');
       writer.blankLine();
       writer.line('/** Minimal RecordWriter for @NitroVariant bridge encode. */');
+      // Values go straight into NitroRecordOut's array (see the record
+      // generator); `tmp` remains for the nested writeFieldsTo(out, tmp) calls.
       writer.line('class RecordWriter {');
-      writer.line('    val out = java.io.ByteArrayOutputStream()');
+      writer.line('    val out = NitroRecordOut(64)');
       writer.line('    val tmp = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)');
-      writer.line('    fun writeInt8(v: Byte) { out.write(v.toInt()) }');
-      writer.line('    fun writeInt32(v: Int) { tmp.clear(); tmp.putInt(v); out.write(tmp.array(), 0, 4) }');
-      writer.line('    fun writeInt64(v: Long) { tmp.clear(); tmp.putLong(v); out.write(tmp.array(), 0, 8) }');
-      writer.line('    fun writeFloat64(v: Double) { tmp.clear(); tmp.putDouble(v); out.write(tmp.array(), 0, 8) }');
-      writer.line('    fun writeBool(v: Boolean) { out.write(if (v) 1 else 0) }');
-      writer.line('    fun writeString(v: String) { val b = v.toByteArray(Charsets.UTF_8); writeInt32(b.size); out.write(b) }');
+      writer.line('    fun writeInt8(v: Byte) { out.putByte(v.toInt()) }');
+      writer.line('    fun writeInt32(v: Int) { out.putInt32(v) }');
+      writer.line('    fun writeInt64(v: Long) { out.putInt64(v) }');
+      writer.line('    fun writeFloat64(v: Double) { out.putFloat64(v) }');
+      writer.line('    fun writeBool(v: Boolean) { out.putByte(if (v) 1 else 0) }');
+      writer.line('    fun writeString(v: String) { out.putString(v) }');
       writer.line('    fun toByteArray(): ByteArray = out.toByteArray()');
       writer.line('}');
       writer.blankLine();
@@ -569,7 +588,7 @@ class KotlinGenerator {
     // (not in the runtime AAR; module files emit their own copy).
     if (spec.localVariants.isNotEmpty) {
       final helpers = CodeWriter();
-      _emitKotlinBridgeHelpers(helpers, hasVariantBridge: true);
+      _emitKotlinBridgeHelpers(helpers, hasVariantBridge: true, emitRecordHelpers: spec.localRecordTypes.isEmpty);
       nodes.add(CodeSnippet(helpers.toString()));
     }
 

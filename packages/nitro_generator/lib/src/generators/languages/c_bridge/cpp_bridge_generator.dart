@@ -754,12 +754,13 @@ class CppBridgeGenerator {
       // @NitroResult wire blob: [1B tag (0=ok, 1=err)][4B len][RecordWriter payload].
       // Dart reads res[0] then RecordReader.fromNative(res + 1), and frees res.
       writer.line('static uint8_t* _nitro_desktop_result_blob(uint8_t _tag, const NitroRecordWriter& _w) {');
-      writer.line('    int32_t _len = (int32_t)_w._buf.size();');
+      writer.line('    NitroCppBuffer _p = _w.toBuffer();');
+      writer.line('    int32_t _len = (int32_t)_p.size;');
       writer.line('    uint8_t* _out = (uint8_t*)malloc((size_t)(1 + 4 + _len));');
       writer.line('    if (!_out) { return nullptr; }');
       writer.line('    _out[0] = _tag;');
       writer.line('    memcpy(_out + 1, &_len, 4);');
-      writer.line('    if (_len > 0) { memcpy(_out + 5, _w._buf.data(), (size_t)_len); }');
+      writer.line('    if (_len > 0) { memcpy(_out + 5, _p.data, (size_t)_len); }');
       writer.line('    return _out;');
       writer.line('}');
       writer.line('static uint8_t* _nitro_desktop_result_err(const char* _msg) {');
@@ -777,10 +778,11 @@ class CppBridgeGenerator {
     // Universal free for native-owned memory handed to Dart. Dart must not use
     // package:ffi's malloc.free on these pointers (CoTaskMemFree on Windows).
     writer.line('NITRO_EXPORT void ${libStem}_nitro_free(void* ptr) { if (ptr) { free(ptr); } }');
+    _emitNitroAdopt(writer, spec, libStem);
     // Matching allocator for Dart-produced values that native code frees
     // (String/record/variant callback returns) — same rule in reverse.
     writer.line('NITRO_EXPORT void* ${libStem}_nitro_alloc(size_t size) { return malloc(size); }');
-    if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) {
+    if (spec.hasZeroCopyTypedDataReturn) {
       writer.line('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr) {');
       writer.line('    if (!ptr) { return; }');
       // Envelope layout: [0]=byte length, [1]=payload pointer, [2]=owner

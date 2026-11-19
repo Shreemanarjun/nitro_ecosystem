@@ -275,7 +275,7 @@ void main() {
 
     test('decode skips 4-byte length prefix', () {
       final out = KotlinGenerator.generate(singleRecordSpec());
-      expect(out, contains('buf.position(4)'));
+      expect(out, contains('NitroRecordIn(bytes, 4)'));
     });
 
     test('decode reads String fields with ByteBuffer', () {
@@ -285,7 +285,7 @@ void main() {
 
     test('decode reads bool field as byte comparison', () {
       final out = KotlinGenerator.generate(singleRecordSpec());
-      expect(out, contains('buf.get().toInt() != 0'));
+      expect(out, contains('r.byte() != 0'));
     });
 
     test('decode returns the constructed data class', () {
@@ -311,8 +311,11 @@ void main() {
 
     test('encode prepends 4-byte little-endian length prefix', () {
       final out = KotlinGenerator.generate(singleRecordSpec());
-      expect(out, contains('lenBuf.putInt(payload.size)'));
-      expect(out, contains('return lenBuf.array() + payload'));
+      // The prefix is reserved first and patched in place: no second copy.
+      expect(out, contains('out.write(buf.array(), 0, 4)'));
+      expect(out, contains('val n = bytes.size - 4'));
+      expect(out, contains('bytes[0] = n.toByte(); bytes[1] = (n shr 8).toByte(); bytes[2] = (n shr 16).toByte(); bytes[3] = (n shr 24).toByte()'));
+      expect(out, isNot(contains('lenBuf.array() + payload')));
     });
 
     test('encode uses sequential list format for List<@HybridRecord>', () {

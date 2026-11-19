@@ -42,6 +42,21 @@ jobs:
         run: dart run tool/verify_cpp_bridge_compiles.dart
         working-directory: packages/nitro_generator
 
+      # Typed-data record fields reach Dart as views of native memory. Compiles
+      # the adopt export as generated and checks that the memory stays valid
+      # after the decoding isolate exits (the result of Isolate.run) and is
+      # freed once the list is garbage.
+      - name: Verify lent record buffers outlive their isolate
+        run: dart run tool/verify_record_lend.dart
+        working-directory: packages/nitro_generator
+
+      # Every record field kind, every nullable form: each native codec must
+      # re-encode Dart's reference bytes exactly. C++ is required; Swift runs on
+      # macOS and Kotlin wherever kotlinc is installed.
+      - name: Verify record wire agreement across languages
+        run: dart run tool/verify_record_wire.dart --require=cpp
+        working-directory: packages/nitro_generator
+
       # Same rationale for the native-assets (@Native) path: string-assertion
       # unit tests prove WHAT is emitted, not that it COMPILES. This generates a
       # comprehensive all-C++ spec on the @Native path and `dart analyze`s the

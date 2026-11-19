@@ -1,6 +1,6 @@
 import '../bridge_spec.dart';
 import 'code_writer.dart';
-import 'record_generator.dart' show DartCodecSlice;
+import 'record_generator.dart' show DartCodecSlice, dartBulkListWriter, dartPrimitiveListRead;
 
 /// Generates binary encode/decode extension methods for every `@NitroVariant`
 /// sealed class declared in the spec.
@@ -262,7 +262,7 @@ class VariantGenerator {
         return '${base}RecordExt.fromReader(r)';
       case RecordFieldKind.listPrimitive:
         final item = f.itemTypeName ?? 'int';
-        return 'List.generate(r.readInt32(), (_) => ${_primitiveRead(item)})';
+        return dartPrimitiveListRead(item, _primitiveRead(item));
       case RecordFieldKind.listRecordObject:
         final item = f.itemTypeName ?? base;
         return 'List.generate(r.readInt32(), (_) => ${item}RecordExt.fromReader(r))';
@@ -328,6 +328,8 @@ class VariantGenerator {
         return '$expr.writeFields(writer);';
       case RecordFieldKind.listPrimitive:
         final item = itemType ?? 'int';
+        final bulk = dartBulkListWriter(item);
+        if (bulk != null) return 'writer.$bulk($expr);';
         return 'writer.writeInt32($expr.length); for (final e in $expr) { ${_primitiveWriteExpr(item, 'e')}; }';
       case RecordFieldKind.listRecordObject:
         return 'writer.writeInt32($expr.length); for (final e in $expr) { e.writeFields(writer); }';

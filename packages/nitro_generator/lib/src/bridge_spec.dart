@@ -247,6 +247,30 @@ class BridgeSpec {
   BridgeEnum? enumByName(String n) => _enumIndex[n];
   BridgeStruct? structByName(String n) => _structIndex[n];
   BridgeRecordType? recordByName(String n) => _recordIndex[n];
+
+  /// True when record [name] has a typed-data field, its own or a nested
+  /// record's: decoding it can hand that field out as a view of the record's
+  /// buffer, so the buffer may outlive the decode.
+  bool recordLendsBytes(String name, [Set<String>? seen]) {
+    final record = recordByName(name);
+    if (record == null || !(seen ??= {}).add(name)) return false;
+    return record.fields.any(
+      (f) => switch (f.kind) {
+        RecordFieldKind.typedData => true,
+        RecordFieldKind.recordObject => recordLendsBytes(bareTypeName(f.dartType), seen),
+        RecordFieldKind.listRecordObject => recordLendsBytes(f.itemTypeName ?? '', seen),
+        _ => false,
+      },
+    );
+  }
+  /// True when any record of this module can lend its buffer: the bridge then
+  /// exports `<lib>_nitro_adopt` and Dart routes frees through `keptAlive`.
+  late final bool lendsRecordBuffers = recordTypes.any((r) => recordLendsBytes(r.name));
+
+  /// True when a method returns `@zeroCopy` typed data: Dart views native
+  /// memory that `<lib>_release_typed_data_return` gives back.
+  late final bool hasZeroCopyTypedDataReturn = functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData);
+
   BridgeVariant? variantByName(String n) => _variantIndex[n];
   BridgeCustomType? customTypeByName(String n) => _customTypeIndex[n];
 

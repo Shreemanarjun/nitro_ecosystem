@@ -296,7 +296,12 @@ void _writeTupleFieldStmt(CodeWriter s, BridgeRecordField f, int index) {
     case RecordFieldKind.listPrimitive:
       final item = f.itemTypeName ?? 'dynamic';
       final writeCall = _primitiveWriteCall(item, 'e');
+      final bulk = dartBulkListWriter(item);
       _writeListField(s, f, accessor, (a) {
+        if (bulk != null) {
+          s.writeln('  writer.$bulk($a);');
+          return;
+        }
         s.writeln('  writer.writeInt32($a.length);');
         s.writeln('  for (final e in $a) { writer.$writeCall; }');
       });
@@ -363,7 +368,7 @@ String _readExpr(BridgeRecordField f) {
 
     case RecordFieldKind.listPrimitive:
       final item = f.itemTypeName ?? 'dynamic';
-      return _readListField(f, 'List.generate(r.readInt32(), (_) => ${_primitiveReadCall(item)})');
+      return _readListField(f, dartPrimitiveListRead(item, _primitiveReadCall(item)));
 
     case RecordFieldKind.listEnumValue:
       final item = f.itemTypeName!;
@@ -391,31 +396,39 @@ String _readExpr(BridgeRecordField f) {
   }
 }
 
+/// The writer method that encodes a whole `List<item>` in one call, if any.
+String? dartBulkListWriter(String item) => const {'int': 'writeIntList', 'double': 'writeDoubleList', 'bool': 'writeBoolList'}[item];
+
+/// Read expression for a `List<item>` of primitives: the reader's whole-list
+/// method where it has one. Shared with the variant codec.
+String dartPrimitiveListRead(String item, String itemRead) {
+  final bulk = const {'int': 'readIntList', 'double': 'readDoubleList', 'bool': 'readBoolList'}[item];
+  return bulk != null ? 'r.$bulk()' : 'List.generate(r.readInt32(), (_) => $itemRead)';
+}
+
 /// Read expression for a TypedData field from a RecordReader.
 /// All TypedData types are stored as [4B element_count][element_bytes].
-/// Uint8List uses readBlob() directly; others use buffer view over readBlob().
+/// Every typed list is read through readBlobView(elementSize): a reader that
+/// owns the buffer answers with a view of it (aligned for the element), any
+/// other reader with a private copy.
 String _typedDataReadCall(String dartType) {
+  const elementSize = {
+    'Int8List': 1,
+    'Int16List': 2,
+    'Uint16List': 2,
+    'Int32List': 4,
+    'Uint32List': 4,
+    'Float32List': 4,
+    'Int64List': 8,
+    'Uint64List': 8,
+    'Float64List': 8,
+  };
   switch (dartType) {
     case 'Uint8List':
-      return 'r.readBlob()';
-    case 'Int8List':
-      return 'Int8List.view(r.readBlob().buffer)';
-    case 'Int16List':
-      return 'Int16List.view(r.readBlob().buffer)';
-    case 'Uint16List':
-      return 'Uint16List.view(r.readBlob().buffer)';
-    case 'Int32List':
-      return 'Int32List.view(r.readBlob().buffer)';
-    case 'Uint32List':
-      return 'Uint32List.view(r.readBlob().buffer)';
-    case 'Int64List':
-      return 'Int64List.view(r.readBlob().buffer)';
-    case 'Uint64List':
-      return 'Uint64List.view(r.readBlob().buffer)';
-    case 'Float32List':
-      return 'Float32List.view(r.readBlob().buffer)';
-    case 'Float64List':
-      return 'Float64List.view(r.readBlob().buffer)';
+      return 'r.readBlobView()';
+    case final t when elementSize.containsKey(t):
+      final size = elementSize[t]!;
+      return '$t.view(r.readBlobView(${size == 1 ? '' : size}).buffer)';
     default:
       return 'r.readBlob()';
   }
@@ -482,7 +495,12 @@ void _writeFieldStmt(CodeWriter s, BridgeRecordField f) {
     case RecordFieldKind.listPrimitive:
       final item = f.itemTypeName ?? 'dynamic';
       final writeCall = _primitiveWriteCall(item, 'e');
+      final bulk = dartBulkListWriter(item);
       _writeListField(s, f, f.name, indent: '    ', (a) {
+        if (bulk != null) {
+          s.writeln('    writer.$bulk($a);');
+          return;
+        }
         s.writeln('    writer.writeInt32($a.length);');
         s.writeln('    for (final e in $a) { writer.$writeCall; }');
       });

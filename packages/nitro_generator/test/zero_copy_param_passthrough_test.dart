@@ -107,8 +107,7 @@ void main() {
 
   group('@zeroCopy TypedData return', () {
     test('registers the handed-out view so it can be passed back without a copy', () {
-      expect(out, contains('return nitroRegisterZeroCopyView(payloadPtr.asTypedList('));
-      expect(out, contains(', payloadPtr.cast<Void>());'));
+      expect(out, contains('return nitroRegisterZeroCopyView(view, payloadPtr.cast<Void>());'));
     });
   });
 }

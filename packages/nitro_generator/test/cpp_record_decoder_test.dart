@@ -320,10 +320,10 @@ void main() {
       expect(out, contains('std::vector<Item> items'));
     });
 
-    test('list read uses readInt32() for count and push_back in loop', () {
+    test('an int list is read in one bulk copy; other lists loop with push_back', () {
       final out = RecordGenerator.generateCpp(_listRecordSpec());
+      expect(out, contains('size_t _n = _r.readCount(); _target.resize(_n); if (_n) std::memcpy(_target.data(), _r.readSpan(_n * 8), _n * 8);'));
       expect(out, contains('int32_t _n = _r.readInt32()'));
-      expect(out, contains('push_back(_r.readInt())'));
     });
 
     test('list of record objects uses push_back(Item::fromReader(_r))', () {

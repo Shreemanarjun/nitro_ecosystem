@@ -39,7 +39,7 @@ void _emitSwiftMapHelpers(CodeWriter writer, BridgeSpec spec) {
     writer.line(r"    func readLE64() -> Int64 { let v = data[pos..<(pos+8)].withUnsafeBytes { Int64(bitPattern: $0.loadUnaligned(as: UInt64.self).littleEndian) }; pos += 8; return v }");
     writer.line('    let count = readLE32(); var result = [String: Any]()');
     writer.line('    for _ in 0..<count {');
-    writer.line('        let kLen = readLE32(); let k = String(data: data[pos..<(pos+kLen)], encoding: .utf8)!; pos += kLen');
+    writer.line('        let kLen = readLE32(); let k = String(decoding: data[pos..<(pos+kLen)], as: UTF8.self); pos += kLen');
     writer.line('        let tag = data[pos]; pos += 1');
     writer.line('        switch tag {');
     writer.line('        case ${MapValueWire.nul.tag}: result[k] = NSNull()');
@@ -51,8 +51,8 @@ void _emitSwiftMapHelpers(CodeWriter writer, BridgeSpec spec) {
     // The string wire is spelled out rather than left to `default`, so a tag
     // this decoder does not know is visibly the fallback (an ABI mismatch)
     // instead of being silently read as a string.
-    writer.line('        case ${MapValueWire.string.tag}: let vLen = readLE32(); result[k] = String(data: data[pos..<(pos+vLen)], encoding: .utf8); pos += vLen');
-    writer.line('        default: let vLen = readLE32(); result[k] = String(data: data[pos..<(pos+vLen)], encoding: .utf8); pos += vLen');
+    writer.line('        case ${MapValueWire.string.tag}: let vLen = readLE32(); result[k] = String(decoding: data[pos..<(pos+vLen)], as: UTF8.self); pos += vLen');
+    writer.line('        default: let vLen = readLE32(); result[k] = String(decoding: data[pos..<(pos+vLen)], as: UTF8.self); pos += vLen');
     writer.line('        }');
     writer.line('    }');
     writer.line('    return result');
@@ -106,7 +106,7 @@ void _emitSwiftAnyMapHelpers(CodeWriter writer, BridgeSpec spec) {
   writer.line('private func _nitroReadAnyValue(_ data: Data, _ pos: inout Int) -> Any {');
   writer.line(r"    func readLE32() -> Int { let v = data[pos..<(pos+4)].withUnsafeBytes { Int($0.loadUnaligned(as: UInt32.self).littleEndian) }; pos += 4; return v }");
   writer.line(r"    func readLE64() -> Int64 { let v = data[pos..<(pos+8)].withUnsafeBytes { Int64(bitPattern: $0.loadUnaligned(as: UInt64.self).littleEndian) }; pos += 8; return v }");
-  writer.line('    func readStr() -> String { let len = readLE32(); let s = String(data: data[pos..<(pos+len)], encoding: .utf8) ?? ""; pos += len; return s }');
+  writer.line('    func readStr() -> String { let len = readLE32(); let s = String(decoding: data[pos..<(pos+len)], as: UTF8.self); pos += len; return s }');
   writer.line('    let tag = data[pos]; pos += 1');
   writer.line('    switch tag {');
   writer.line('    case 0: return NSNull()');
@@ -149,7 +149,7 @@ void _emitSwiftAnyMapHelpers(CodeWriter writer, BridgeSpec spec) {
   writer.line('    let data = Data(bytes: ptr.advanced(by: 4), count: payLen)');
   writer.line('    var pos = 0');
   writer.line(r"    func readLE32() -> Int { let v = data[pos..<(pos+4)].withUnsafeBytes { Int($0.loadUnaligned(as: UInt32.self).littleEndian) }; pos += 4; return v }");
-  writer.line('    func readStr() -> String { let len = readLE32(); let s = String(data: data[pos..<(pos+len)], encoding: .utf8) ?? ""; pos += len; return s }');
+  writer.line('    func readStr() -> String { let len = readLE32(); let s = String(decoding: data[pos..<(pos+len)], as: UTF8.self); pos += len; return s }');
   writer.line('    let count = readLE32(); var result = [String: Any]()');
   writer.line('    for _ in 0..<count {');
   writer.line('        let k = readStr()');

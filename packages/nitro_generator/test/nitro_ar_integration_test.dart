@@ -356,7 +356,7 @@ void main() {
     });
 
     test('PackageBoxes.writeFields uses simple count+values format (not indexed)', () {
-      expect(swiftRecords, contains('writer.writeInt32(Int32(boxes.count))'));
+      expect(swiftRecords, contains('writer.writeDoubleList(boxes)'));
       expect(swiftRecords, isNot(contains('writeIndexedList')));
     });
 

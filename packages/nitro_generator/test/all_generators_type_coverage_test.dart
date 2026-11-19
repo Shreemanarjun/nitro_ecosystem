@@ -1466,7 +1466,7 @@ void main() {
       expect(out, contains('writer.writeBool(payload != null);'));
       expect(out, contains('payload.writeFields(writer);'));
       expect(out, contains('writer.writeBool(samples != null);'));
-      expect(out, contains('writer.writeInt32(samples.length); for (final e in samples)'));
+      expect(out, contains('writer.writeIntList(samples);'));
     });
 
     test('Kotlin: nullable variant fields decode with readBool presence flags', () {
@@ -1481,7 +1481,7 @@ void main() {
 
     test('Kotlin: nullable variant fields encode with safe calls', () {
       final out = KotlinGenerator.generate(spec);
-      expect(out, contains('val out = java.io.ByteArrayOutputStream()'));
+      expect(out, contains('val out = NitroRecordOut(64)'));
       expect(out, contains('val tmp = java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN)'));
       expect(out, contains('_nitroW.writeBool(count != null); count?.let { _nitroW.writeInt64(it) }'));
       expect(out, contains('_nitroW.writeBool(quality != null); quality?.let { _nitroW.writeInt64(it.nativeValue) }'));

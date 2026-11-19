@@ -586,13 +586,13 @@ void main() {
     test('encode() has a non-zero initial capacity for numeric record', () {
       final kotlin = RecordGenerator.generateKotlin(_specWithNumericRecord());
       // Vec3: 3 × double = 3 × 8 = 24 bytes
-      expect(kotlin, contains('java.io.ByteArrayOutputStream(24)'));
+      expect(kotlin, contains('NitroRecordOut(24)'));
     });
 
     test('encode() has correct capacity for mixed record (double + int + String)', () {
       final kotlin = RecordGenerator.generateKotlin(_specWithRecords());
       // SensorReading: double(8) + int(8) + String(36) = 52
-      expect(kotlin, contains('java.io.ByteArrayOutputStream(52)'));
+      expect(kotlin, contains('NitroRecordOut(52)'));
     });
 
     test('encode() does NOT use bare ByteArrayOutputStream() with no capacity', () {
