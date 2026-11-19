@@ -1,3 +1,12 @@
+## 0.8.9
+
+- **Perf:** a typed-data field (`Uint8List`, `Float32List`, …) of a returned `@HybridRecord` is a view of the record's buffer, not a copy, from 8 KiB up: 1 MiB `Uint8List` 192 → 51 µs, peak memory 4× → 2× (AOT, macOS). Regenerate with nitro_generator 0.8.9.
+- **Perf:** ASCII string fields decode 3× faster and encode 30% faster; `List<int>` / `List<double>` / `List<bool>` fields encode 2.7× faster and decode 1.3–1.9× faster. Regenerate for the list gains.
+- **Fix:** a `@zeroCopy` typed-data return that was the result of `Isolate.run` / `compute` pointed at freed memory. Regenerate.
+- **Fix:** a record string field starting with U+FEFF lost it on decode.
+- `RecordWriter` no longer keeps a scratch buffer over 4 MiB between records.
+- New `RecordReader.fromNative(ptr, adopt:)`, `readBlobView()`, `RecordReader.keptAlive`, `RecordReader.lendMinBytes` (8 KiB), and whole-list `writeIntList` / `writeDoubleList` / `writeBoolList` / `readIntList` / `readDoubleList` / `readBoolList`.
+
 ## 0.8.8
 
 - **Fix (Android):** an async call could never complete, or complete with the wrong value (a Dart VM bug with compressed pointers). Re-run `nitrogen link`.

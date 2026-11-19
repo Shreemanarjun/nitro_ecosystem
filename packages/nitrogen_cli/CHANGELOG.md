@@ -1,3 +1,7 @@
+## 0.8.9
+
+- Coordinated 0.8.9 release; no changes.
+
 ## 0.8.8
 
 - **Fix (CocoaPods):** `pod install` works again, including with two Nitro plugins in one app. The podspec no longer depends on a `nitro` pod. Re-run `nitrogen link`.
