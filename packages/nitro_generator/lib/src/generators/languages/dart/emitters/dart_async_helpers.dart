@@ -136,7 +136,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
 
   // @HybridRecord  — native posts kInt64 (pointer to binary buffer)
   if (func.returnType.isRecord) {
-    final decodeExpr = _decodeRecordExpr(func.returnType, 'rawPtr', spec);
+    final decodeExpr = _decodeRecordExpr(func.returnType, 'rawPtr', spec, owned: true);
     final isLazy = func.returnType.recordListItemType != null && !func.returnType.recordListItemIsPrimitive;
     if (isNullable) {
       if (isLazy) {
@@ -279,7 +279,7 @@ void _emitReturnDecode(
     case ReturnKind.voidType:
       return;
     case ReturnKind.record:
-      final decodeExpr = _decodeRecordExpr(returnType, resVar, spec);
+      final decodeExpr = _decodeRecordExpr(returnType, resVar, spec, owned: true);
       final isLazy = returnType.recordListItemType != null && !returnType.recordListItemIsPrimitive;
       // Nullable @HybridRecord: C returns nullptr when Kotlin returns null ByteArray?.
       final isNullableRecord = returnType.isNullable || returnType.name.endsWith('?');

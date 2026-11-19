@@ -444,7 +444,7 @@ void main() {
 
     test('BenchmarkStats encode() returns ByteArray with 4-byte length prefix', () {
       expect(out, contains('fun encode(): ByteArray'));
-      expect(out, contains('lenBuf.putInt(payload.size)'));
+      expect(out, contains('val n = bytes.size - 4'));
     });
 
     test('import android.app.Activity and android.content.Context are present', () {

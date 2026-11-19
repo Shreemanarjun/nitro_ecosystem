@@ -25,10 +25,10 @@ import 'swift_type_mapper.dart';
 ///     public func writeFields(to w: NitroRecordWriter) {
 ///         switch self {
 ///         case .accepted(let id):
-///             w.bytes.append(0)
+///             w.writeByte(0)
 ///             w.writeString(id)
 ///         case .rejected:
-///             w.bytes.append(1)
+///             w.writeByte(1)
 ///         }
 ///     }
 /// }
@@ -81,12 +81,12 @@ class SwiftVariantEmitter {
           final c = variant.cases[i];
           if (c.isUnit) {
             writer.line('case .${c.label}:');
-            writer.indent(() => writer.line('_nitroW.bytes.append(UInt8($i))'));
+            writer.indent(() => writer.line('_nitroW.writeByte(UInt8($i))'));
           } else {
             final pattern = c.fields.map((f) => 'let ${f.name}').join(', ');
             writer.line('case .${c.label}($pattern):');
             writer.indent(() {
-              writer.line('_nitroW.bytes.append(UInt8($i))');
+              writer.line('_nitroW.writeByte(UInt8($i))');
               for (final f in c.fields) {
                 writer.line(_fieldWriteStmt(f, mapper));
               }

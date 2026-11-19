@@ -101,7 +101,7 @@ String _generateCppRecords(BridgeSpec spec) {
     s.writeln('    NitroCppBuffer toNativeBuffer() const {');
     s.writeln('        NitroRecordWriter _w;');
     s.writeln('        encodeInto(_w);');
-    s.writeln('        return _w.toNativeBuffer();');
+    s.writeln('        return _w.takeNativeBuffer();');
     s.writeln('    }');
     s.writeln('};');
     s.writeln();
@@ -209,6 +209,11 @@ String _cppFieldType(BridgeRecordField f, Set<String> enumNames) {
   }
 }
 
+/// List items whose wire form (8 bytes, little-endian) is exactly how
+/// `std::vector<int64_t>` / `std::vector<double>` store them on every supported
+/// target, so a whole list is one memcpy.
+bool _cppBulkListItem(String dartType) => dartType == 'int' || dartType == 'double';
+
 String _cppPrimType(String dartType) {
   switch (dartType) {
     case 'int':
@@ -273,6 +278,16 @@ void _cppEmitFieldRead(CodeWriter s, BridgeRecordField f, Set<String> enumNames,
     // only when present — mirroring _cppEmitFieldWrite and the Dart codec.
     case RecordFieldKind.listPrimitive:
       final item = f.itemTypeName ?? 'int';
+      if (_cppBulkListItem(item)) {
+        // 8-byte little-endian items are the vector's own storage: one copy.
+        const fill = 'size_t _n = _r.readCount(); _target.resize(_n); if (_n) std::memcpy(_target.data(), _r.readSpan(_n * 8), _n * 8);';
+        s.writeln(
+          f.isNullable
+              ? '        { bool _null = _r.readNullTag(); if (!_null) { auto& _target = _obj.${f.name}.emplace(); $fill } }'
+              : '        { auto& _target = _obj.${f.name}; $fill }',
+        );
+        break;
+      }
       final read = _cppPrimRead(item);
       s.writeln(_cppListFieldRead(f, '_target.push_back(_r.$read());'));
       break;
@@ -287,9 +302,9 @@ void _cppEmitFieldRead(CodeWriter s, BridgeRecordField f, Set<String> enumNames,
       break;
     case RecordFieldKind.typedData:
       if (f.isNullable) {
-        s.writeln('        { bool _null = _r.readNullTag(); if (!_null) { int32_t _n = _r.readInt32(); _obj.${f.name}.emplace().resize((size_t)_n); _r.readBytes(_obj.${f.name}->data(), (size_t)_n); } }');
+        s.writeln('        { bool _null = _r.readNullTag(); if (!_null) { size_t _n = _r.readCount(); const uint8_t* _p = _r.readSpan(_n); _obj.${f.name}.emplace(_p, _p + _n); } }');
       } else {
-        s.writeln('        { int32_t _n = _r.readInt32(); _obj.${f.name}.resize((size_t)_n); _r.readBytes(_obj.${f.name}.data(), (size_t)_n); }');
+        s.writeln('        { size_t _n = _r.readCount(); const uint8_t* _p = _r.readSpan(_n); _obj.${f.name}.assign(_p, _p + _n); }');
       }
       break;
     case RecordFieldKind.struct:
@@ -332,14 +347,13 @@ void _cppEmitFieldWrite(CodeWriter s, BridgeRecordField f, Set<String> enumNames
       break;
     case RecordFieldKind.listPrimitive:
       final item = f.itemTypeName ?? 'int';
-      final itemWrite = item == 'String'
-          ? 'w.writeString(_e);'
-          : item == 'double'
-          ? 'w.writeDouble(_e);'
+      final itemWrite = item == 'String' ? 'w.writeString(_e);' : 'w.writeInt(_e);';
+      core = _cppBulkListItem(item)
+          ? '{ w.writeInt32((int32_t)$v.size()); w.writeBytes(reinterpret_cast<const uint8_t*>($v.data()), $v.size() * 8); }'
           : item == 'bool'
-          ? 'w.writeBool(_e);'
-          : 'w.writeInt(_e);';
-      core = '{ w.writeInt32((int32_t)$v.size()); for (const auto& _e : $v) { $itemWrite } }';
+          // Unpacked 256 at a time: one append per chunk, not one per bit.
+          ? '{ const size_t _n = $v.size(); w.writeInt32((int32_t)_n); uint8_t _c[256]; for (size_t _i = 0; _i < _n;) { size_t _k = 0; for (; _k < sizeof(_c) && _i < _n; _k++, _i++) { _c[_k] = $v[_i] ? 1 : 0; } w.writeBytes(_c, _k); } }'
+          : '{ w.writeInt32((int32_t)$v.size()); for (const auto& _e : $v) { $itemWrite } }';
       break;
     case RecordFieldKind.listEnumValue:
       final item = f.itemTypeName ?? 'int64_t';
@@ -383,8 +397,10 @@ struct NitroRecordReader {
   explicit NitroRecordReader(const uint8_t* data, size_t size)
       : _data(data), _size(size), _offset(0) {}
 private:
+  // `n > _size - _offset`, not `_offset + n > _size`: a corrupt length near
+  // SIZE_MAX would wrap the sum and pass.
   void _require(size_t n) const {
-      if (_offset + n > _size)
+      if (n > _size - _offset)
           throw std::runtime_error("NitroRecordReader: buffer underflow");
   }
 public:
@@ -418,6 +434,17 @@ public:
   // TypedData blob: [4B count][count bytes] → reads into caller-owned vector.
   void readBytes(uint8_t* dst, size_t n) {
       _require(n); std::memcpy(dst, _data + _offset, n); _offset += n;
+  }
+  // [n] bytes in place, bounds-checked: for one bulk copy out of the payload
+  // instead of a zero-fill plus copy, or one read per element.
+  const uint8_t* readSpan(size_t n) {
+      _require(n); const uint8_t* p = _data + _offset; _offset += n; return p;
+  }
+  // A list or blob length. Negative is corrupt; as a size_t it would be huge.
+  size_t readCount() {
+      int32_t n = readInt32();
+      if (n < 0) throw std::runtime_error("NitroRecordReader: negative length");
+      return (size_t)n;
   }
   // Repositions the cursor. Needed to follow an indexed list's offset table,
   // which is random-access rather than sequential.

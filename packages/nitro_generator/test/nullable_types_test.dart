@@ -289,7 +289,7 @@ void main() {
         ),
       ]);
       final out = RecordGenerator.generateKotlin(spec);
-      expect(out, contains('buf.get().toInt() == 0'));
+      expect(out, contains('r.byte() == 0'));
     });
 
     test('nullable recordObject field → Kotlin uses null-safe decode with decodeFrom', () {
@@ -330,7 +330,7 @@ void main() {
         ],
       );
       final out = RecordGenerator.generateKotlin(spec);
-      expect(out, contains('buf.get().toInt() == 0'));
+      expect(out, contains('r.byte() == 0'));
     });
   });
 

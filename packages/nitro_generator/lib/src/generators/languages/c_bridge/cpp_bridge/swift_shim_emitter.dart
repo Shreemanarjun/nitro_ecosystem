@@ -10,7 +10,7 @@ void _emitSwiftBridgeSection(
 ) {
   writer.line('extern "C" {');
 
-  if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) {
+  if (spec.hasZeroCopyTypedDataReturn) {
     writer.line('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr) {');
     writer.line('    if (!ptr) return;');
     writer.line('    free(ptr);');
@@ -354,6 +354,7 @@ void _emitSwiftBridgeSection(
   // Universal free for native-owned memory handed to Dart. Dart must not use
   // package:ffi's malloc.free on these pointers (CoTaskMemFree on Windows).
   writer.line('NITRO_EXPORT void ${libStem}_nitro_free(void* ptr) { if (ptr) { free(ptr); } }');
+  _emitNitroAdopt(writer, spec, libStem);
   // Matching allocator for Dart-produced values that native code frees
   // (String/record/variant callback returns) — same rule in reverse.
   writer.line('NITRO_EXPORT void* ${libStem}_nitro_alloc(size_t size) { return malloc(size); }');

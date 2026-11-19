@@ -104,7 +104,7 @@ void main() {
 
     test('Kotlin decodeFrom reads bool via buf.get().toInt() != 0', () {
       final out = RecordGenerator.generateKotlin(spec);
-      expect(out, contains("(buf.get().toInt() != 0)"));
+      expect(out, contains("(r.byte() != 0)"));
     });
 
     test('Kotlin data class declares field as Boolean', () {
@@ -152,8 +152,8 @@ void main() {
       final out = RecordGenerator.generateKotlin(spec);
       expect(out, contains('val quality: Quality'));
       expect(out, contains('val history: List<Quality>'));
-      expect(out, contains('val quality = Quality.fromNative(buf.long)'));
-      expect(out, contains('val history = (0 until buf.int).map { Quality.fromNative(buf.long) }'));
+      expect(out, contains('val quality = Quality.fromNative(r.int64())'));
+      expect(out, contains('val history = (0 until r.int32()).map { Quality.fromNative(r.int64()) }'));
       expect(out, contains('writeInt(quality.nativeValue)'));
       expect(out, contains('history.forEach { e -> writeInt(e.nativeValue) }'));
     });
@@ -197,7 +197,7 @@ void main() {
 
     test('Kotlin decodeFrom reads double via buf.double', () {
       final out = RecordGenerator.generateKotlin(spec);
-      expect(out, contains('buf.double'));
+      expect(out, contains('r.float64()'));
     });
 
     test('Kotlin data class declares field as Double', () {
@@ -243,8 +243,8 @@ void main() {
 
     test('Kotlin decodeFrom reads ByteArray via buf.int + buf.get(b)', () {
       final out = RecordGenerator.generateKotlin(spec);
-      expect(out, contains('ByteArray(len)'));
-      expect(out, contains('buf.get(b)'));
+      expect(out, contains('r.bytes()'));
+      expect(out, contains('fun bytes(): ByteArray { val n = int32(); val out = a.copyOfRange(p, p + n); p += n; return out }'));
     });
 
     test('Kotlin writeFieldsTo emits writeInt32(size) + out.write(data)', () {
@@ -283,7 +283,7 @@ void main() {
 
     test('Kotlin decodeFrom uses (0 until buf.int).map for String list', () {
       final out = RecordGenerator.generateKotlin(spec);
-      expect(out, contains('0 until buf.int'));
+      expect(out, contains('(0 until r.int32()).map { r.string() }'));
       // String decode in Kotlin involves b.toString(Charsets.UTF_8)
       expect(out, contains('Charsets.UTF_8'));
     });
@@ -322,16 +322,15 @@ void main() {
   group('RecordGenerator — List<double> primitive list field', () {
     final spec = _listPrimFieldSpec('double', 'values');
 
-    test('Dart fromReader uses List.generate + r.readDouble()', () {
+    test('Dart fromReader reads the whole list with r.readDoubleList()', () {
       final out = RecordGenerator.generateDartExtensions(spec);
-      expect(out, contains('List.generate(r.readInt32()'));
-      expect(out, contains('r.readDouble()'));
+      expect(out, contains('r.readDoubleList()'));
+      expect(out, isNot(contains('List.generate(r.readInt32()')));
     });
 
     test('Dart writeFields writes count then each double', () {
       final out = RecordGenerator.generateDartExtensions(spec);
-      expect(out, contains('writer.writeInt32(values.length)'));
-      expect(out, contains('writer.writeDouble(e)'));
+      expect(out, contains('writer.writeDoubleList(values);'));
     });
 
     test('Kotlin data class declares field as List<Double>', () {
@@ -339,9 +338,9 @@ void main() {
       expect(out, contains('val values: List<Double>'));
     });
 
-    test('Kotlin writeFieldsTo emits forEach writeDouble', () {
+    test('Kotlin writeFieldsTo stages the doubles in one buffer and writes once', () {
       final out = RecordGenerator.generateKotlin(spec);
-      expect(out, contains('writeDouble(e)'));
+      expect(out, contains('for (e in values) _bb.putDouble(e); out.write(_bb.array())'));
     });
 
     test('Swift struct declares field as [Double]', () {
@@ -349,14 +348,14 @@ void main() {
       expect(out, contains('public var values: [Double]'));
     });
 
-    test('Swift fromReader uses r.readDouble() inside map', () {
+    test('Swift fromReader reads the list in one copy', () {
       final out = RecordGenerator.generateSwift(spec, emitBoilerplate: false);
-      expect(out, contains('r.readDouble()'));
+      expect(out, contains('values: r.readDoubleList()'));
     });
 
-    test('Swift writeFields uses writer.writeDouble(e)', () {
+    test('Swift writeFields writes the list as one block', () {
       final out = RecordGenerator.generateSwift(spec, emitBoilerplate: false);
-      expect(out, contains('writer.writeDouble(e)'));
+      expect(out, contains('writer.writeDoubleList(values)'));
     });
   });
 
@@ -365,16 +364,15 @@ void main() {
   group('RecordGenerator — List<bool> primitive list field', () {
     final spec = _listPrimFieldSpec('bool', 'flags');
 
-    test('Dart fromReader uses List.generate + r.readBool()', () {
+    test('Dart fromReader reads the whole list with r.readBoolList()', () {
       final out = RecordGenerator.generateDartExtensions(spec);
-      expect(out, contains('List.generate(r.readInt32()'));
-      expect(out, contains('r.readBool()'));
+      expect(out, contains('r.readBoolList()'));
+      expect(out, isNot(contains('List.generate(r.readInt32()')));
     });
 
     test('Dart writeFields writes count then each bool', () {
       final out = RecordGenerator.generateDartExtensions(spec);
-      expect(out, contains('writer.writeInt32(flags.length)'));
-      expect(out, contains('writer.writeBool(e)'));
+      expect(out, contains('writer.writeBoolList(flags);'));
     });
 
     test('Kotlin data class declares field as List<Boolean>', () {
@@ -382,9 +380,9 @@ void main() {
       expect(out, contains('val flags: List<Boolean>'));
     });
 
-    test('Kotlin writeFieldsTo emits forEach writeBool', () {
+    test('Kotlin writeFieldsTo stages the bools in one array and writes once', () {
       final out = RecordGenerator.generateKotlin(spec);
-      expect(out, contains('writeBool(e)'));
+      expect(out, contains('for (e in flags) _b[_i++] = if (e) 1 else 0; out.write(_b)'));
     });
 
     test('Swift struct declares field as [Bool]', () {
@@ -392,14 +390,12 @@ void main() {
       expect(out, contains('public var flags: [Bool]'));
     });
 
-    test('Swift fromReader uses r.readBool() inside map', () {
-      final out = RecordGenerator.generateSwift(spec, emitBoilerplate: false);
-      expect(out, contains('r.readBool()'));
-    });
-
-    test('Swift writeFields uses writer.writeBool(e)', () {
-      final out = RecordGenerator.generateSwift(spec, emitBoilerplate: false);
-      expect(out, contains('writer.writeBool(e)'));
+    test('Swift reads and writes the whole list at once', () {
+      final out = RecordGenerator.generateSwift(spec);
+      expect(out, contains('r.readBoolList()'));
+      expect(out, contains('writer.writeBoolList(flags)'));
+      // Decoding compares each byte; it never reinterprets wire bytes as Bool.
+      expect(out, contains('buffer[i] = from[i] != 0'));
     });
   });
 
@@ -540,13 +536,13 @@ void main() {
     test('Dart writes and reads the tag', () {
       final out = RecordGenerator.generateDartExtensions(spec);
       expect(out, contains('writer.writeNullTag(tags == null)'));
-      expect(out, contains('r.readNullTag() ? null :'));
+      expect(out, contains('r.readNullTag() ? null : r.readIntList()'));
     });
 
     test('Kotlin writes and reads the tag', () {
       final out = RecordGenerator.generateKotlin(spec);
-      expect(out, contains('out.write(if (tags == null) 0 else 1)'));
-      expect(out, contains('if (buf.get().toInt() == 0) null else'));
+      expect(out, contains('writeBool(tags != null)'));
+      expect(out, contains('if (r.byte() == 0) null else'));
     });
 
     test('Swift writes and reads the tag', () {

@@ -35,6 +35,15 @@ class Info {
   const Info({required this.name, required this.count});
 }
 
+// A record with typed-data fields: its buffer is lent to the field through the
+// module's adopt export (a @Native call that takes the list as a Handle).
+@HybridRecord()
+class Blob {
+  final Uint8List bytes;
+  final Float32List samples;
+  const Blob({required this.bytes, required this.samples});
+}
+
 @NitroModule(ios: NativeImpl.cpp, android: NativeImpl.cpp, macos: NativeImpl.cpp)
 abstract class Comp extends HybridObject {
   static Comp get instance => _CompImpl();
@@ -52,6 +61,9 @@ abstract class Comp extends HybridObject {
   // struct + record (binary-blob / zero-copy proxy)
   Pt echoPt(Pt p);
   Info echoInfo(Info i);
+  Blob fetchBlob();
+  @zeroCopy
+  Uint8List snapshot();
   // TypedData (lever 2)
   int sumBytes(Uint8List data);
   // W1: TypedData zero-copy `.address` ALONGSIDE an arena-marshalled String in

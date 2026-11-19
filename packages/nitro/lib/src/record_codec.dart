@@ -109,6 +109,13 @@ class RecordWriter extends RecordWriterBase {
   ) => encodeIndexedList(items, writeItem, alloc);
 }
 
+/// Gives the native buffer at `token` to `list`: it is freed when `list` is
+/// collected, in whichever isolate of the group that happens. Bound by
+/// generated code to the module's `<lib>_nitro_adopt`, which registers a
+/// finalizable handle. Not `asTypedList(finalizer:)`: that frees when the
+/// creating isolate exits, even if the list was returned from `Isolate.run`.
+typedef NitroAdopt = void Function(Object list, Pointer<Void> token, int size);
+
 /// Streaming binary reader for @HybridRecord types (native dart:ffi edge).
 ///
 /// Counterpart to [RecordWriter].  Fields must be read in the same order
@@ -119,14 +126,67 @@ class RecordReader extends RecordReaderBase {
   ///
   /// Reads the 4-byte length prefix and creates a view over the payload
   /// without copying any bytes.
-  RecordReader.fromNative(Pointer<Uint8> ptr) : super.fromPayload(_payloadOf(ptr, 'RecordReader.fromNative'));
+  ///
+  /// Pass [adopt] when the caller owns [ptr] and frees it right after decoding:
+  /// the reader may then hand one large typed-data field out as a view of the
+  /// buffer ([readBlobView]) and give the buffer to that list with [adopt]
+  /// (the module's `<lib>_nitro_adopt`). Ask [keptAlive] before freeing.
+  RecordReader.fromNative(Pointer<Uint8> ptr, {NitroAdopt? adopt})
+      : _ptr = ptr,
+        _adopt = adopt,
+        super.fromPayload(_payloadOf(ptr, 'RecordReader.fromNative'));
 
   /// Creates a reader positioned at [byteOffset] within the payload
   /// (the region after the 4-byte outer length prefix).
   ///
   /// Used by [LazyRecordList] to jump directly to an item without scanning
   /// from the start.
-  RecordReader.fromPayloadOffset(Pointer<Uint8> ptr, int byteOffset) : super.fromPayload(_payloadOf(ptr, 'RecordReader.fromPayloadOffset'), byteOffset);
+  RecordReader.fromPayloadOffset(Pointer<Uint8> ptr, int byteOffset)
+      : _ptr = ptr,
+        _adopt = null,
+        super.fromPayload(_payloadOf(ptr, 'RecordReader.fromPayloadOffset'), byteOffset);
+
+  final Pointer<Uint8> _ptr;
+  final NitroAdopt? _adopt;
+
+  /// Typed-data fields below this many bytes are copied even by an owning
+  /// reader. Handing a buffer to a list costs about 0.15 µs, which copying beats
+  /// below roughly 4 KiB (measured, AOT, macOS); from 8 KiB lending wins by 9%
+  /// and the gap widens with size. A lent list also keeps its whole record
+  /// buffer alive, so very small fields are not worth it either way.
+  static int lendMinBytes = 8 * 1024;
+
+  // Buffers that now belong to a view, by address, until [keptAlive] asks.
+  static final _lent = <int>{};
+
+  /// True, once, when a byte field of the record at [ptr] was handed out as a
+  /// view: the buffer is freed with that view, so the caller must not free it.
+  static bool keptAlive(Pointer ptr) => _lent.isNotEmpty && _lent.remove(ptr.address);
+
+  @override
+  Uint8List? lendBytes(int offset, int length, int alignment) {
+    final adopt = _adopt;
+    // One field per record: a second view would need the first one's lifetime.
+    if (adopt == null || length < lendMinBytes || !_lent.add(_ptr.address)) return null;
+    if (offset + length > _ptr.cast<Int32>().value) {
+      _lent.remove(_ptr.address);
+      return null; // out of range: let the copying path throw
+    }
+    var start = _ptr + 4 + offset;
+    // A list wider than a byte needs an aligned address, and the wire does not
+    // pad. Slide the field back onto the boundary: at most 7 bytes, over bytes
+    // this reader has already decoded (the field's own length and the frame
+    // prefix alone are 8). An in-place move, not a copy into the Dart heap.
+    final over = start.address % alignment;
+    if (over != 0) {
+      final window = (start - over).asTypedList(length + over);
+      window.setRange(0, length, window, over);
+      start -= over;
+    }
+    final list = start.asTypedList(length);
+    adopt(list, _ptr.cast(), length);
+    return list;
+  }
 
   /// Upper bound on a single record payload. A `Pointer<Uint8>` carries no
   /// length, so a corrupt or attacker-influenced prefix cannot be checked

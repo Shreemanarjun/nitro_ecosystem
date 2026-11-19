@@ -142,6 +142,8 @@ class CppHeaderGenerator {
       // Dart must NOT use package:ffi's malloc.free on these — that binds to
       // CoTaskMemFree on Windows, which corrupts the heap on malloc'd pointers.
       CodeLine('NITRO_EXPORT void ${libStem}_nitro_free(void* ptr);'),
+      // `list` is a Dart_Handle; void* keeps this header free of dart_api.h.
+      if (spec.lendsRecordBuffers) CodeLine('NITRO_EXPORT void ${libStem}_nitro_adopt(void* list, void* ptr, intptr_t size);'),
       CodeLine('NITRO_EXPORT void* ${libStem}_nitro_alloc(size_t size);'),
       if (spec.entryPoints.isNotEmpty) ...[
         CodeLine('// @NitroEntryPoint background job table (see nitro_background.h).'),
@@ -172,7 +174,10 @@ class CppHeaderGenerator {
       CodeLine('NITRO_EXPORT int32_t ${libStem}_nitro_poll(int64_t id, uint8_t* out, int32_t giveUp);'),
       CodeLine('#define Dart_PostCObject_DL(port, obj) ${libStem}_nitro_post((port), (obj))'),
       if (spec.targetsWeb) CodeLine('#endif'),
-      if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) CodeLine('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr);'),
+      if (spec.hasZeroCopyTypedDataReturn) ...[
+        CodeLine('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr);'),
+        CodeLine('NITRO_EXPORT void ${libStem}_nitro_adopt_typed_data_return(void* list, void* ptr, intptr_t size);'),
+      ],
       // @NitroOwned: emit a _release symbol for each owned NativeHandle function.
       // The user implements these to free the native heap allocation.
       for (final f in spec.functions.where((f) => f.isOwned && f.returnType.isNativeHandle)) CodeLine('/// Release the handle returned by ${f.dartName}(). Called by Dart NativeFinalizer.'),

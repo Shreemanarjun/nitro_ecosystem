@@ -20,7 +20,7 @@ void _emitStreamImpls(CodeWriter writer, BridgeSpec spec) {
 
     switch (baseItemType) {
       case _ when isRecord:
-        final decodeExpr = _decodeRecordExpr(stream.itemType, 'rawPtr', spec);
+        final decodeExpr = _decodeRecordExpr(stream.itemType, 'rawPtr', spec, owned: true);
         final nullAction = stream.itemType.isNullable ? 'return null' : "throw StateError('Received null event on non-nullable stream ${stream.dartName}')";
         unpackExpr = '(message) { if (message == null) { $nullAction; } final rawPtr = Pointer<Uint8>.fromAddress(message as int); try { return $decodeExpr; } finally { _nitroFree(rawPtr); } }';
         streamItemType = baseItemType; // nullable suffix added by isNullable check at stream signature

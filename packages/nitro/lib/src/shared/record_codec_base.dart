@@ -97,16 +97,7 @@ class RecordWriterBase {
     final n = s.length;
     _ensureCapacity(4 + n);
     final base = _length + 4;
-    var ascii = true;
-    for (var i = 0; i < n; i++) {
-      final c = s.codeUnitAt(i);
-      if (c >= 0x80) {
-        ascii = false;
-        break;
-      }
-      _buffer[base + i] = c;
-    }
-    if (ascii) {
+    if (_writeAscii(s, n, base)) {
       _data.setInt32(_length, n, Endian.little);
       _length = base + n;
       return;
@@ -116,9 +107,82 @@ class RecordWriterBase {
     _writeBytes(encoded);
   }
 
+  /// Copies [s]'s code units to [base] if every one is ASCII; false otherwise
+  /// (what was written is then not committed).
+  bool _writeAscii(String s, int n, int base) {
+    var i = 0;
+    // Eight units per store from 16 characters up: about 35% less per
+    // character than a store each (measured, AOT). Shorter strings gain
+    // nothing from it, and dart2js has no 64-bit ByteData access.
+    if (!kNitroWeb && n >= 16) {
+      final data = _data;
+      for (final end = n - 7; i < end; i += 8) {
+        final c0 = s.codeUnitAt(i), c1 = s.codeUnitAt(i + 1), c2 = s.codeUnitAt(i + 2), c3 = s.codeUnitAt(i + 3);
+        final c4 = s.codeUnitAt(i + 4), c5 = s.codeUnitAt(i + 5), c6 = s.codeUnitAt(i + 6), c7 = s.codeUnitAt(i + 7);
+        // The units themselves, not the packed word: a unit like U+0100 has
+        // no bit 7 and would pass for ASCII once shifted into its lane.
+        // Checked per word, so text that is not ASCII leaves after eight units
+        // instead of paying for a full pass before the UTF-8 one.
+        if ((c0 | c1 | c2 | c3 | c4 | c5 | c6 | c7) >= 0x80) return false;
+        data.setUint64(base + i, c0 | c1 << 8 | c2 << 16 | c3 << 24 | c4 << 32 | c5 << 40 | c6 << 48 | c7 << 56, Endian.little);
+      }
+    }
+    final buffer = _buffer;
+    for (; i < n; i++) {
+      final c = s.codeUnitAt(i);
+      if (c >= 0x80) return false;
+      buffer[base + i] = c;
+    }
+    return true;
+  }
+
   void writeBlob(Uint8List blob) {
     writeInt32(blob.length);
     _writeBytes(blob);
+  }
+
+  // Whole primitive lists, `[4B count][items]`: one capacity check for the
+  // list instead of one per item (about 3x faster than a writeInt loop, AOT).
+
+  void writeIntList(List<int> items) {
+    final n = items.length;
+    _ensureCapacity(4 + n * 8);
+    final data = _data;
+    var o = _length;
+    data.setInt32(o, n, Endian.little);
+    o += 4;
+    for (var i = 0; i < n; i++) {
+      setInt64LE(data, o, items[i]);
+      o += 8;
+    }
+    _length = o;
+  }
+
+  void writeDoubleList(List<double> items) {
+    final n = items.length;
+    _ensureCapacity(4 + n * 8);
+    final data = _data;
+    var o = _length;
+    data.setInt32(o, n, Endian.little);
+    o += 4;
+    for (var i = 0; i < n; i++) {
+      data.setFloat64(o, items[i], Endian.little);
+      o += 8;
+    }
+    _length = o;
+  }
+
+  void writeBoolList(List<bool> items) {
+    final n = items.length;
+    _ensureCapacity(4 + n);
+    final buffer = _buffer;
+    var o = _length;
+    _data.setInt32(o, n, Endian.little);
+    o += 4;
+    for (var i = 0; i < n; i++) {
+      buffer[o++] = items[i] ? 1 : 0;
+    }
+    _length = o;
   }
 
   /// Writes a 1-byte null tag.  0 = null, 1 = value follows.
@@ -134,7 +198,19 @@ class RecordWriterBase {
   void copyPayloadTo(Uint8List dst, int dstOffset) => dst.setRange(dstOffset, dstOffset + _length, _buffer);
 
   /// Rewinds the writer so its buffer can be reused for the next payload.
-  void reset() => _length = 0;
+  ///
+  /// A buffer that one large payload grew past [_retainLimit] is dropped: the
+  /// shared scratch writer lives as long as its isolate, and would otherwise
+  /// hold the largest record ever sent.
+  void reset() {
+    _length = 0;
+    if (_buffer.length > _retainLimit) {
+      _buffer = Uint8List(_initialCapacity);
+      _data = ByteData.view(_buffer.buffer);
+    }
+  }
+
+  static const _retainLimit = 4 * 1024 * 1024;
 
   /// A view of the payload written so far. Valid only until the next write —
   /// a capacity grow replaces the backing buffer.
@@ -241,6 +317,27 @@ class RecordReaderBase {
 
   int readInt64() => readInt();
 
+  // Whole-list readers. The closure indexes the payload from locals: reading
+  // each item through readInt() (a position store per item) cost 1.4–1.9×
+  // more (AOT).
+  List<int> readIntList() {
+    final n = readInt32(), p = _pos, data = _data;
+    _pos = p + n * 8;
+    return List<int>.generate(n, (i) => getInt64LE(data, p + i * 8));
+  }
+
+  List<double> readDoubleList() {
+    final n = readInt32(), p = _pos, data = _data;
+    _pos = p + n * 8;
+    return List<double>.generate(n, (i) => data.getFloat64(p + i * 8, Endian.little));
+  }
+
+  List<bool> readBoolList() {
+    final n = readInt32(), p = _pos, bytes = _bytes;
+    _pos = p + n;
+    return List<bool>.generate(n, (i) => bytes[p + i] != 0);
+  }
+
   int readInt8() {
     final v = _bytes[_pos];
     _pos += 1;
@@ -265,9 +362,45 @@ class RecordReaderBase {
 
   String readString() {
     final len = readInt32();
-    final s = _utf8Decoder.convert(_bytes, _pos, _pos + len);
-    _pos += len;
+    final start = _pos, end = start + len;
+    // ASCII, the common case, needs no decoder: check eight bytes at a time and
+    // build the string from the bytes directly (about 3x faster at 1 KiB, AOT).
+    // dart2js has no 64-bit ByteData access, so the web keeps the decoder.
+    final s = !kNitroWeb && _isAscii(start, end) ? String.fromCharCodes(_bytes, start, end) : _decodeUtf8(start, end);
+    _pos = end;
     return s;
+  }
+
+  /// UTF-8 to String, keeping any leading U+FEFF. dart:convert's decoder takes
+  /// a leading BOM for a stream signature and drops it; a field's text is data,
+  /// so count the BOMs, decode the rest, and put them back.
+  String _decodeUtf8(int start, int end) {
+    final bytes = _bytes;
+    var from = start;
+    while (from + 3 <= end && bytes[from] == 0xEF && bytes[from + 1] == 0xBB && bytes[from + 2] == 0xBF) {
+      from += 3;
+    }
+    final decoded = _utf8Decoder.convert(bytes, from, end);
+    return from == start ? decoded : String.fromCharCode(0xFEFF) * ((from - start) ~/ 3) + decoded;
+  }
+
+  // 0x80 in every byte. Built by shifting: as one literal it is not
+  // representable on the web, where this file also compiles.
+  static const _highBits = (0x80808080 << 32) | 0x80808080;
+
+  /// True when no byte in `[start, end)` has its high bit set.
+  bool _isAscii(int start, int end) {
+    final data = _data;
+    var i = start;
+    var seen = 0;
+    for (final lastWord = end - 8; i <= lastWord; i += 8) {
+      seen |= data.getUint64(i, Endian.host);
+    }
+    final bytes = _bytes;
+    while (i < end) {
+      seen |= bytes[i++];
+    }
+    return seen & _highBits == 0;
   }
 
   Uint8List readBlob() {
@@ -276,6 +409,23 @@ class RecordReaderBase {
     _pos += len;
     return blob;
   }
+
+  /// The bytes of a typed-data field the caller keeps. Copies like [readBlob],
+  /// unless the reader owns the buffer under its payload and can lend them
+  /// ([lendBytes]). [alignment] is the element size of the list the caller
+  /// builds on the result (`Float32List.view(r.readBlobView(4).buffer)`).
+  Uint8List readBlobView([int alignment = 1]) {
+    final len = readInt32();
+    final blob = lendBytes(_pos, len, alignment) ?? _bytes.sublist(_pos, _pos + len);
+    _pos += len;
+    return blob;
+  }
+
+  /// [length] payload bytes at [offset], at an address that is a multiple of
+  /// [alignment], without copying into the Dart heap and kept alive for as long
+  /// as the returned list is; or null to have them copied. Only a reader that
+  /// owns its buffer can lend; this one does not.
+  Uint8List? lendBytes(int offset, int length, int alignment) => null;
 
   /// Returns `true` if the next value is null (tag byte == 0).
   bool readNullTag() => _bytes[_pos++] == 0;

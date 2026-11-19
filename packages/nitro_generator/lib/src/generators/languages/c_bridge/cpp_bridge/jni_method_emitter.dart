@@ -1987,7 +1987,7 @@ void _emitJniMethods(
 ) {
   final recordNames = spec.recordTypes.map((r) => r.name).toSet();
 
-  if (spec.functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData)) {
+  if (spec.hasZeroCopyTypedDataReturn) {
     writer.line('NITRO_EXPORT void ${libStem}_release_typed_data_return(void* ptr) {');
     writer.line('    if (!ptr) { return; }');
 
@@ -2017,6 +2017,7 @@ void _emitJniMethods(
   // Universal free for native-owned memory handed to Dart. Dart must not use
   // package:ffi's malloc.free on these pointers (CoTaskMemFree on Windows).
   writer.line('NITRO_EXPORT void ${libStem}_nitro_free(void* ptr) { if (ptr) { free(ptr); } }');
+  _emitNitroAdopt(writer, spec, libStem);
   writer.line('NITRO_EXPORT void* ${libStem}_nitro_alloc(size_t size) { return malloc(size); }');
   writer.blankLine();
 

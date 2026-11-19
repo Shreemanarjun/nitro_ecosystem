@@ -47,6 +47,10 @@ BridgeSpec _zeroCopyCppSpec() => BridgeSpec(
 /// Web-targeting all-cpp module with a stream + native-async — exercises the
 /// __EMSCRIPTEN__ seam (nitro_wasm_compat.h include, post-fn setter, posts
 /// routed through the compat shim). Compiled with em++ when emsdk is on PATH.
+///
+/// The record with a typed-data field and the @zeroCopy return make the bridge
+/// emit both adopt exports (finalizable handles), which must compile natively
+/// and stay out of the wasm build.
 BridgeSpec _webWasmSpec() => BridgeSpec(
   dartClassName: 'WebRepro',
   lib: 'web_repro',
@@ -74,6 +78,12 @@ BridgeSpec _webWasmSpec() => BridgeSpec(
       backpressure: Backpressure.bufferDrop,
     ),
   ],
+  recordTypes: [
+    BridgeRecordType(
+      name: 'Blob',
+      fields: [BridgeRecordField(name: 'bytes', dartType: 'Uint8List', kind: RecordFieldKind.typedData)],
+    ),
+  ],
   functions: [
     BridgeFunction(
       dartName: 'echoAsync',
@@ -82,6 +92,21 @@ BridgeSpec _webWasmSpec() => BridgeSpec(
       isNativeAsync: true,
       returnType: BridgeType(name: 'int'),
       params: [BridgeParam(name: 'value', type: BridgeType(name: 'int'))],
+    ),
+    BridgeFunction(
+      dartName: 'blob',
+      cSymbol: 'web_repro_blob',
+      isAsync: false,
+      returnType: BridgeType(name: 'Blob', isRecord: true),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'snapshot',
+      cSymbol: 'web_repro_snapshot',
+      isAsync: false,
+      returnType: BridgeType(name: 'Uint8List'),
+      zeroCopyReturn: true,
+      params: [],
     ),
   ],
 );
@@ -151,7 +176,52 @@ BridgeSpec _nullableListFieldsSpec() => BridgeSpec(
   ],
 );
 
-Future<int> main() async {
+/// Kotlin/Swift on mobile, C++ on desktop, with a @NitroResult method and a
+/// record return. The Windows/Linux dispatch block is the one place generated
+/// code builds a result blob from a NitroRecordWriter, and it is only compiled
+/// when the host is one of those (the Linux CI job): it once read a writer
+/// member that had been removed, and every text-level test still passed.
+BridgeSpec _desktopResultSpec() => BridgeSpec(
+  dartClassName: 'Desk',
+  lib: 'desk',
+  namespace: 'desk',
+  androidImpl: NativeImpl.kotlin,
+  iosImpl: NativeImpl.swift,
+  macosImpl: NativeImpl.swift,
+  windowsImpl: NativeImpl.cpp,
+  linuxImpl: NativeImpl.cpp,
+  sourceUri: 'desk.native.dart',
+  recordTypes: [
+    BridgeRecordType(
+      name: 'Reply',
+      fields: [
+        BridgeRecordField(name: 'status', dartType: 'int', kind: RecordFieldKind.primitive),
+        BridgeRecordField(name: 'body', dartType: 'Uint8List', kind: RecordFieldKind.typedData),
+      ],
+    ),
+  ],
+  functions: [
+    BridgeFunction(
+      dartName: 'fetch',
+      cSymbol: 'desk_fetch',
+      isAsync: false,
+      returnType: BridgeType(name: 'Reply', isRecord: true),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'tryCount',
+      cSymbol: 'desk_try_count',
+      isAsync: false,
+      isResult: true,
+      returnType: BridgeType(name: 'int'),
+      params: [BridgeParam(name: 'code', type: BridgeType(name: 'int'))],
+    ),
+  ],
+);
+
+// Dart ignores what main returns: the result has to go through [exitCode], or
+// a failed compile leaves the CI step green.
+Future<void> main() async {
   final cc = Platform.environment['CXX'] ?? 'clang++';
   final dartApiDl = Directory('benchmark/src/native').existsSync()
       ? 'benchmark/src/native'
@@ -161,6 +231,7 @@ Future<int> main() async {
     'zero_copy_all_cpp (#40)': _zeroCopyCppSpec(),
     'web_wasm_all_cpp': _webWasmSpec(),
     'nullable_list_record_fields': _nullableListFieldsSpec(),
+    'desktop_cpp_nitro_result': _desktopResultSpec(),
   };
 
   // em++ is optional locally, required in the web CI job (NITRO_REQUIRE_EMCC=1).
@@ -168,7 +239,8 @@ Future<int> main() async {
   final requireEmcc = Platform.environment['NITRO_REQUIRE_EMCC'] == '1';
   if (!emcc && requireEmcc) {
     stderr.writeln('NITRO_REQUIRE_EMCC=1 but em++ is not on PATH');
-    return 1;
+    exitCode = 1;
+    return;
   }
   final nitroNative = Directory('../nitro/src/native').existsSync()
       ? '../nitro/src/native'
@@ -186,8 +258,15 @@ Future<int> main() async {
 
       // No -I for jni.h: an all-cpp bridge must not need it. Android defines
       // __ANDROID__, so compile with it set to reach any guarded block.
+      // A Kotlin/Swift module's mobile blocks need jni.h or Foundation; only
+      // its desktop block compiles here, and only a Linux host selects it.
+      final desktopBlockOnly = spec.androidImpl != NativeImpl.cpp;
+      if (desktopBlockOnly && !Platform.isLinux) {
+        stdout.writeln('SKIP  ${entry.key} (desktop block needs a Linux host)');
+        continue;
+      }
       final r = Process.runSync(cc, [
-        '-fsyntax-only', '-std=c++17', '-D__ANDROID__',
+        '-fsyntax-only', '-std=c++17', if (!desktopBlockOnly) '-D__ANDROID__',
         '-I', dir.path, '-I', dartApiDl, src.path,
       ]);
       if (r.exitCode == 0) {
@@ -217,5 +296,5 @@ Future<int> main() async {
     }
   }
   stdout.writeln(failures == 0 ? '\nall bridges compile' : '\n$failures bridge(s) failed to compile');
-  return failures == 0 ? 0 : 1;
+  exitCode = failures == 0 ? 0 : 1;
 }

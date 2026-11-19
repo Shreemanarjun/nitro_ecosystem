@@ -277,7 +277,9 @@ String _swiftRead(BridgeRecordField f) {
     // an absent list and an empty list are distinct values.
     case RecordFieldKind.listPrimitive:
       final item = f.itemTypeName ?? 'int';
-      return _swiftListRead(f, '(0..<Int(r.readInt32())).map { _ in ${_swiftReadCall(item)} }');
+      // [Int64] / [Double] storage is the wire form: one copy for the list.
+      final bulk = const {'int': 'r.readIntList()', 'double': 'r.readDoubleList()', 'bool': 'r.readBoolList()'}[item];
+      return _swiftListRead(f, bulk ?? '(0..<Int(r.readInt32())).map { _ in ${_swiftReadCall(item)} }');
     case RecordFieldKind.listEnumValue:
       final item = f.itemTypeName!;
       return _swiftListRead(f, '(0..<Int(r.readInt32())).map { _ in $item(rawValue: r.readInt())! }');
@@ -297,26 +299,23 @@ String _swiftRead(BridgeRecordField f) {
 }
 
 String _swiftTypedDataRead(String dartType) {
-  // Note: \$0 uses raw string escaping so the generated Swift gets literal $0.
-  const d0 = r'$0';
+  // Wider arrays are copied once, straight into the array's storage; going
+  // through Data and then Array(...) copied the bytes twice.
   switch (dartType) {
-    case 'Uint8List':
-    case 'Int8List':
-      return 'r.readBlob()';
     case 'Int16List':
     case 'Uint16List':
-      return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Int16.self)) } }()';
+      return 'r.readArray(of: Int16.self)';
     case 'Int32List':
     case 'Uint32List':
-      return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Int32.self)) } }()';
+      return 'r.readArray(of: Int32.self)';
     case 'Int64List':
     case 'Uint64List':
-      return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Int64.self)) } }()';
+      return 'r.readArray(of: Int64.self)';
     case 'Float32List':
-      return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Float.self)) } }()';
+      return 'r.readArray(of: Float.self)';
     case 'Float64List':
-      return '{ let d = r.readBlob(); return d.withUnsafeBytes { Array($d0.bindMemory(to: Double.self)) } }()';
-    default:
+      return 'r.readArray(of: Double.self)';
+    default: // Uint8List, Int8List
       return 'r.readBlob()';
   }
 }
@@ -350,7 +349,12 @@ void _swiftWriteStmt(CodeWriter s, BridgeRecordField f) {
       break;
     case RecordFieldKind.listPrimitive:
       final item = f.itemTypeName ?? 'int';
+      final bulk = const {'int': 'writeIntList', 'double': 'writeDoubleList', 'bool': 'writeBoolList'}[item];
       _swiftWriteListField(s, f, (a) {
+        if (bulk != null) {
+          s.writeln('    writer.$bulk($a)');
+          return;
+        }
         s.writeln('    writer.writeInt32(Int32($a.count))');
         s.writeln('    for e in $a { writer.${_swiftWriterCall(item, 'e')} }');
       });
@@ -393,21 +397,8 @@ String _swiftTypedDataWrite(String dartType, String expr, String writer) {
     case 'Uint8List':
     case 'Int8List':
       return '$writer.writeBlob($expr)';
-    case 'Int16List':
-    case 'Uint16List':
-      return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
-    case 'Int32List':
-    case 'Uint32List':
-      return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
-    case 'Int64List':
-    case 'Uint64List':
-      return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
-    case 'Float32List':
-      return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
-    case 'Float64List':
-      return '$expr.withUnsafeBufferPointer { $writer.writeBlob(Data(buffer: \$0)) }';
-    default:
-      return '$writer.writeBlob($expr)';
+    default: // wider arrays: the array's bytes, once (was Data(buffer:) + Array(...))
+      return '$expr.withUnsafeBytes { $writer.writeRaw(\$0) }';
   }
 }
 
@@ -464,44 +455,95 @@ void _swiftStructWriteStmt(CodeWriter s, BridgeField f, Set<String> enumNames, S
 
 const _swiftRecordWriterReader = '''
 public class NitroRecordWriter {
-  public var bytes: [UInt8] = []
+  // One malloc'd block laid out as [4B length][payload]: toNative() hands it to
+  // Dart as it is, with no second allocation and no copy. (It was a [UInt8]
+  // copied into a fresh block per record.)
+  private var block: UnsafeMutablePointer<UInt8>?
+  private var count = 0
+  private var capacity = 0
   public init() {}
+  deinit { free(block) }
+  /// Room for [n] more payload bytes; returns where they go.
+  private func room(_ n: Int) -> UnsafeMutablePointer<UInt8> {
+      if block == nil || count + n > capacity {
+          capacity = max(capacity * 2, count + n, 252)
+          block = realloc(block, 4 + capacity)!.assumingMemoryBound(to: UInt8.self)
+      }
+      let at = block! + 4 + count
+      count += n
+      return at
+  }
+  private func put(_ from: UnsafeRawBufferPointer) {
+      if from.count > 0 { memcpy(room(from.count), from.baseAddress!, from.count) }
+  }
+  /// The payload written so far, as a copy (no length prefix).
+  public var bytes: [UInt8] {
+      guard let block = block else { return [] }
+      return Array(UnsafeBufferPointer(start: block + 4, count: count))
+  }
   public func writeInt(_ v: Int64) {
       var val = v.littleEndian
-      withUnsafeBytes(of: &val) { bytes.append(contentsOf: \$0) }
+      memcpy(room(8), &val, 8)
   }
   public func writeInt32(_ v: Int32) {
       var val = v.littleEndian
-      withUnsafeBytes(of: &val) { bytes.append(contentsOf: \$0) }
+      memcpy(room(4), &val, 4)
   }
   public func writeDouble(_ v: Double) {
       var val = v.bitPattern.littleEndian
-      withUnsafeBytes(of: &val) { bytes.append(contentsOf: \$0) }
+      memcpy(room(8), &val, 8)
   }
   public func writeBool(_ v: Bool) {
-      bytes.append(v ? 1 : 0)
+      room(1).pointee = v ? 1 : 0
+  }
+  public func writeByte(_ v: UInt8) {
+      room(1).pointee = v
   }
   public func writeString(_ v: String) {
-      let utf8 = Array(v.utf8)
-      writeInt32(Int32(utf8.count))
-      bytes.append(contentsOf: utf8)
+      var s = v
+      s.withUTF8 { utf8 in
+          writeInt32(Int32(utf8.count))
+          put(UnsafeRawBufferPointer(utf8))
+      }
   }
   public func writeNullTag(_ isNull: Bool) {
-      bytes.append(isNull ? 0 : 1)
+      room(1).pointee = isNull ? 0 : 1
   }
   public func writeBlob(_ v: Data) {
       writeInt32(Int32(v.count))
-      bytes.append(contentsOf: Array(v))
+      v.withUnsafeBytes { put(\$0) }
   }
+  /// Raw bytes behind a 4-byte byte count: one copy, for typed arrays.
+  public func writeRaw(_ raw: UnsafeRawBufferPointer) {
+      writeInt32(Int32(raw.count))
+      put(raw)
+  }
+  /// `[4B count][8B x n]`. The array's storage is the wire form (little-endian
+  /// on every Apple target), so the whole list is one copy.
+  public func writeIntList(_ v: [Int64]) {
+      writeInt32(Int32(v.count))
+      v.withUnsafeBytes { put(\$0) }
+  }
+  public func writeDoubleList(_ v: [Double]) {
+      writeInt32(Int32(v.count))
+      v.withUnsafeBytes { put(\$0) }
+  }
+  /// `[4B count][1B x n]`: a Bool is stored as the byte 0 or 1, the wire form.
+  public func writeBoolList(_ v: [Bool]) {
+      writeInt32(Int32(v.count))
+      v.withUnsafeBytes { put(\$0) }
+  }
+  /// The finished record, `[4B length][payload]`, for Dart to free. Gives up
+  /// this writer's block: the writer is empty afterwards.
   public func toNative() -> UnsafeMutablePointer<UInt8>? {
-      let total = 4 + bytes.count
-      let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: total)
-      var length = Int32(bytes.count).littleEndian
-      _ = memcpy(ptr, &length, 4)
-      if bytes.count > 0 {
-          _ = memcpy(ptr.advanced(by: 4), bytes, bytes.count)
-      }
-      return ptr
+      _ = room(0)
+      var length = Int32(count).littleEndian
+      memcpy(block!, &length, 4)
+      let out = block
+      block = nil
+      count = 0
+      capacity = 0
+      return out
   }
   public static func encodeList<T>(_ items: [T], writeItem: (NitroRecordWriter, T) -> Void) -> UnsafeMutablePointer<UInt8>? {
       let w = NitroRecordWriter()
@@ -526,22 +568,16 @@ public class NitroRecordWriter {
   ///   [int32 count][int64 × count offsets from payload start][item bytes...]
   /// Counterpart: Dart LazyRecordList.decode / RecordWriter.encodeIndexedList.
   public static func encodeIndexedList<T>(_ items: [T], writeItem: (NitroRecordWriter, T) -> Void) -> UnsafeMutablePointer<UInt8>? {
-      var blobs: [[UInt8]] = []
-      for item in items {
-          let w = NitroRecordWriter()
-          writeItem(w, item)
-          blobs.append(w.bytes)
-      }
-      var pos = 4 + 8 * blobs.count
-      var offsets: [Int64] = []
-      for blob in blobs {
-          offsets.append(Int64(pos))
-          pos += blob.count
-      }
+      // One writer: reserve the offset table, write each item straight after
+      // it, then fill the table in. (It was a writer and a byte array per item.)
       let w = NitroRecordWriter()
-      w.writeInt32(Int32(blobs.count))
-      for off in offsets { w.writeInt(off) }
-      for blob in blobs { w.bytes.append(contentsOf: blob) }
+      w.writeInt32(Int32(items.count))
+      _ = w.room(8 * items.count)
+      for (i, item) in items.enumerated() {
+          var offset = Int64(w.count).littleEndian
+          memcpy(w.block! + 4 + 4 + 8 * i, &offset, 8)
+          writeItem(w, item)
+      }
       return w.toNative()
   }
 }
@@ -581,7 +617,10 @@ public class NitroRecordReader {
   public func readString() -> String {
       let len = Int(readInt32())
       guard len > 0 else { return "" }
-      let s = String(bytes: UnsafeBufferPointer(start: bytes.advanced(by: pos), count: len), encoding: .utf8) ?? ""
+      // The standard library's decoder, not Foundation's String(bytes:encoding:):
+      // several times faster on short strings (measured), and Dart only sends
+      // valid UTF-8.
+      let s = String(decoding: UnsafeBufferPointer(start: bytes.advanced(by: pos), count: len), as: UTF8.self)
       pos += len
       return s
   }
@@ -595,6 +634,34 @@ public class NitroRecordReader {
       let data = Data(bytes: bytes.advanced(by: pos), count: len)
       pos += len
       return data
+  }
+  /// [n] fixed-size values copied once into a new array's storage.
+  private func readValues<T>(_ n: Int, of type: T.Type) -> [T] {
+      let byteCount = n * MemoryLayout<T>.stride
+      let out = [T](unsafeUninitializedCapacity: n) { buffer, count in
+          if n > 0 { memcpy(buffer.baseAddress!, bytes.advanced(by: pos), byteCount) }
+          count = n
+      }
+      pos += byteCount
+      return out
+  }
+  /// A typed array field: `[4B byteCount][bytes]`.
+  public func readArray<T>(of type: T.Type) -> [T] {
+      return readValues(Int(readInt32()) / MemoryLayout<T>.stride, of: type)
+  }
+  /// `[4B count][8B x n]`.
+  public func readIntList() -> [Int64] { return readValues(Int(readInt32()), of: Int64.self) }
+  public func readDoubleList() -> [Double] { return readValues(Int(readInt32()), of: Double.self) }
+  /// `[4B count][1B x n]`. Each byte is compared, not reinterpreted: a Bool
+  /// holding anything but 0 or 1 is undefined behaviour.
+  public func readBoolList() -> [Bool] {
+      let n = Int(readInt32())
+      let from = bytes.advanced(by: pos)
+      pos += n
+      return [Bool](unsafeUninitializedCapacity: n) { buffer, count in
+          for i in 0..<n { buffer[i] = from[i] != 0 }
+          count = n
+      }
   }
   public func readBlobAsPointer() -> UnsafeMutablePointer<UInt8>? {
       let len = Int(readInt32())

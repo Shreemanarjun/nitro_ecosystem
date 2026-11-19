@@ -327,8 +327,8 @@ void main() {
       expect(code, contains('func writeFields(to _nitroW: NitroRecordWriter)'));
       expect(code, contains('case .accepted'));
       expect(code, contains('case .rejected'));
-      expect(code, contains('_nitroW.bytes.append(UInt8(0))'));
-      expect(code, contains('_nitroW.bytes.append(UInt8(1))'));
+      expect(code, contains('_nitroW.writeByte(UInt8(0))'));
+      expect(code, contains('_nitroW.writeByte(UInt8(1))'));
       expect(code, contains('func toNative() -> UnsafeMutablePointer<UInt8>?'));
     });
   });
@@ -413,7 +413,7 @@ void main() {
       expect(code, contains('writer.writeBool(payload != null);'));
       expect(code, contains('payload.writeFields(writer);'));
       expect(code, contains('writer.writeBool(samples != null);'));
-      expect(code, contains('writer.writeInt32(samples.length); for (final e in samples)'));
+      expect(code, contains('writer.writeIntList(samples);'));
     });
 
     test('Kotlin reads nullable fields using presence flags', () {
