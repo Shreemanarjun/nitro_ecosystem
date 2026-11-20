@@ -175,12 +175,7 @@ final class KotlinImpl extends NativeImpl implements AndroidNativeImpl {
 /// Direct C++ via CMake/FFI. Valid on all native platforms.
 /// Implements all native-platform sealed interfaces so it is accepted by
 /// every [NitroModule] platform field except [NitroModule.web].
-final class CppImpl extends NativeImpl
-    implements
-        AppleNativeImpl,
-        AndroidNativeImpl,
-        WindowsNativeImpl,
-        LinuxNativeImpl {
+final class CppImpl extends NativeImpl implements AppleNativeImpl, AndroidNativeImpl, WindowsNativeImpl, LinuxNativeImpl {
   const CppImpl._() : super._();
 }
 
@@ -382,7 +377,6 @@ const nitroFast = NitroFast();
 class NitroFast {
   const NitroFast();
 }
-
 
 /// Runs the Kotlin/Swift implementation of this method on the platform's
 /// main/UI thread instead of the calling thread.

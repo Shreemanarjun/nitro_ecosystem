@@ -1,41 +1,11 @@
 part of '../cpp_bridge_generator.dart';
 
-String _typeToC(String dartType) => CppBridgeGenerator._typeToC(dartType);
-
-String _callbackParamToC(BridgeParam param, Set<String> enumNames, {Set<String>? structNames, Set<String>? recordNames}) =>
-    CppBridgeGenerator._callbackParamToC(param, enumNames, structNames: structNames, recordNames: recordNames);
-
-String _defaultValue(String cType) => CppBridgeGenerator._defaultValue(cType);
-
-bool _isNullableStructType(BridgeType type, Set<String> structNames) => CppBridgeGenerator._isNullableStructType(type, structNames);
-
-void _emitNullableStructParamGuards(
-  CodeWriter writer,
-  List<BridgeParam> params,
-  Set<String> structNames,
-  String functionName,
-  String returnStatement,
-) => CppBridgeGenerator._emitNullableStructParamGuards(writer, params, structNames, functionName, returnStatement);
-
-void _emitNullableStructPointerGuard(
-  CodeWriter writer, {
-  required String paramName,
-  required String ownerName,
-  required String returnStatement,
-  required String indent,
-}) => CppBridgeGenerator._emitNullableStructPointerGuard(
-  writer,
-  paramName: paramName,
-  ownerName: ownerName,
-  returnStatement: returnStatement,
-  indent: indent,
-);
-
 // ── Direct C++ path (NativeImpl.cpp on all targeted platforms) ─────────────
 
 /// The adopt exports: each ties native memory to the Dart typed list that views
 /// it. Emitted next to `<lib>_nitro_free` by every backend.
-///   `<lib>_nitro_adopt`                   a record buffer lent to one of its fields
+///   `<lib>_nitro_adopt`                   a record buffer lent to one of its fields,
+///                                         or a copied typed-data return
 ///   `<lib>_nitro_adopt_typed_data_return` a `@zeroCopy` typed-data return
 ///
 /// A finalizable handle belongs to the isolate GROUP. dart:ffi's own
@@ -43,9 +13,9 @@ void _emitNullableStructPointerGuard(
 /// exits, which leaves a list returned from `Isolate.run` pointing at freed
 /// memory.
 void _emitNitroAdopt(CodeWriter writer, BridgeSpec spec, String libStem) {
-  if (!spec.lendsRecordBuffers && !spec.hasZeroCopyTypedDataReturn) return;
+  if (!spec.exportsAdopt && !spec.hasZeroCopyTypedDataReturn) return;
   if (spec.webIsWasm) writer.line('#ifndef __EMSCRIPTEN__');
-  if (spec.lendsRecordBuffers) {
+  if (spec.exportsAdopt) {
     writer.line('static void ${libStem}_nitro_adopted_gone(void* isolate_data, void* ptr) { (void)isolate_data; free(ptr); }');
     writer.line('NITRO_EXPORT void ${libStem}_nitro_adopt(void* list, void* ptr, intptr_t size) {');
     writer.line('    Dart_NewFinalizableHandle_DL((Dart_Handle)list, ptr, size, ${libStem}_nitro_adopted_gone);');
@@ -112,13 +82,13 @@ String _generateCppDirect(BridgeSpec spec) {
     writer.line('#include "dart_api_dl.h"');
   }
   writer.line('#include "$headerName"');
-  CppBridgeGenerator._emitCompletionBatch(writer, spec);
+  _emitCompletionBatch(writer, spec);
   emitBackgroundTable(writer, spec, libStem);
   writer.line('#include "$ifaceHeader"');
   writer.blankLine();
 
   // Dart API DL init
-  CppBridgeGenerator._emitOwnedReleaseExports(writer, spec);
+  _emitOwnedReleaseExports(writer, spec);
   writer.line('extern "C" {');
   writer.line('NITRO_EXPORT uint32_t ${libStem}_nitro_abi_version(void) {');
   writer.line('    return 1;');
@@ -164,7 +134,7 @@ String _generateCppDirect(BridgeSpec spec) {
   // where thread-local storage is a different slot, so those keep malloc.
   writer.line('alignas(8) static thread_local uint8_t _g_opt_ret[16];');
   writer.line('static thread_local std::string _g_str_ret;');
-  CppBridgeGenerator._emitStructCloneHelpers(writer, spec);
+  _emitStructCloneHelpers(writer, spec);
   writer.blankLine();
   writer.line('extern "C" {');
   writer.line('NitroError* ${libStem}_get_error() { return &g_nitro_error; }');
@@ -188,7 +158,7 @@ String _generateCppDirect(BridgeSpec spec) {
   writer.line('}');
   writer.blankLine();
 
-  CppBridgeGenerator._emitInstanceRegistry(writer, libStem, className);
+  _emitInstanceRegistry(writer, libStem, className);
   // Universal free for native-owned memory handed to Dart. Dart must not use
   // package:ffi's malloc.free on these pointers (CoTaskMemFree on Windows).
   writer.line('NITRO_EXPORT void ${libStem}_nitro_free(void* ptr) { if (ptr) { free(ptr); } }');
@@ -214,12 +184,12 @@ String _generateCppDirect(BridgeSpec spec) {
 
   // Stream state: a multi-subscriber port registry per stream — shared shape
   // with the mixed-platform desktop dispatch (CppBridgeGenerator).
-  CppBridgeGenerator._emitStreamPortRegistry(writer, spec);
+  _emitStreamPortRegistry(writer, spec);
 
   // Stream emit helpers (called by user's C++ implementation) — shared with
   // the mixed-platform desktop dispatch so definitions always match the
   // declarations in *.native.g.h (signatures via CppInterfaceGenerator).
-  CppBridgeGenerator._emitCppStreamEmitters(
+  _emitCppStreamEmitters(
     writer,
     spec,
     className,
@@ -249,6 +219,7 @@ String _generateCppDirect(BridgeSpec spec) {
       '_nitro_out_err(_nitro_err, "NotInitialized", '
       '"No C++ implementation registered. Call ${libStem}_register_factory() or ${libStem}_register_impl().")';
 
+  if (spec.functions.any((f) => f.isResult)) _emitCppResultHelpers(writer);
   writer.line('extern "C" {');
   writer.blankLine();
 
@@ -380,7 +351,12 @@ String _generateCppDirect(BridgeSpec spec) {
     // Nullable primitives (int?/double?/bool?) use NitroNullable binary → uint8_t*.
     final retBase = bareTypeName(func.returnType.name);
     final isNullablePrimRet = (func.returnType.isNullable || func.returnType.name.endsWith('?')) && (retBase == 'int' || retBase == 'double' || retBase == 'bool');
-    final cRet = isNullablePrimRet
+    // @NitroResult: a malloc'd [1B tag][4B len][payload] blob, as the header
+    // declares. Dart reads the tag unconditionally, so every early return is
+    // an error blob, never nullptr.
+    final cRet = func.isResult
+        ? 'uint8_t*'
+        : isNullablePrimRet
         ? 'uint8_t*'
         : isVariantRet
         ? 'uint8_t*'
@@ -391,7 +367,7 @@ String _generateCppDirect(BridgeSpec spec) {
         : isNativeHandleRet
         ? 'void*'
         : _typeToC(func.returnType.name);
-    final dflt = _defaultValue(cRet);
+    final dflt = func.isResult ? '_nitro_desktop_result_err("native error")' : _defaultValue(cRet);
 
     // instanceId is included for API consistency with the JNI path; g_impl ignores it.
     final paramParts = <String>['int64_t instanceId'];
@@ -443,6 +419,8 @@ String _generateCppDirect(BridgeSpec spec) {
     writer.line('    auto _impl = _nitro_get_instance(instanceId);');
     if (func.returnType.name == 'void') {
       writer.line('    if (!_impl) { $notInit; return; }');
+    } else if (func.isResult) {
+      writer.line('    if (!_impl) { $notInit; return _nitro_desktop_result_err("No C++ implementation registered."); }');
     } else {
       writer.line('    if (!_impl) { $notInit; return $dflt; }');
     }
@@ -464,9 +442,13 @@ String _generateCppDirect(BridgeSpec spec) {
       final base = bareTypeName(p.type.name);
       switch (base) {
         case _ when p.type.isFunction:
-          // std::function<R(Args...)> in the abstract class accepts raw C fn ptrs implicitly.
-          // C++ constructs the std::function from the raw pointer at the call site.
-          callArgs.add(p.name);
+          // The same adapter the mixed-module C++ dispatch uses. The raw
+          // pointer's real ABI is not its declared C type: every scalar
+          // crosses as int64 bits, a struct as one int64 per field, a record
+          // or struct return as a malloc'd block. Handing the raw pointer to
+          // std::function converted those by VALUE (a double's bits read as
+          // an integer) or did not compile at all.
+          callArgs.add(_emitDesktopCallbackWrapper(writer, spec, p, enumNames, structNames, recordNames, variantNames));
         case _ when isNullableParam && (base == 'int' || base == 'double' || base == 'bool'):
           // Unmarshal NitroOpt binary → std::optional<T>
           final nitroType = base == 'int'
@@ -497,7 +479,7 @@ String _generateCppDirect(BridgeSpec spec) {
         case _ when structNames.contains(base):
           callArgs.add('*static_cast<const $base*>(${p.name})');
         case _ when p.type.isRecord || variantNames.contains(base):
-          callArgs.add(CppBridgeGenerator._emitRecordParamUnpack(writer, p, isNullable: p.type.isNullable));
+          callArgs.add(_emitRecordParamUnpack(writer, p, isNullable: p.type.isNullable));
         case _ when p.type.isTypedData:
           callArgs.add(p.name);
           callArgs.add('static_cast<size_t>(${p.name}_length)');
@@ -536,6 +518,8 @@ String _generateCppDirect(BridgeSpec spec) {
     final callArgStr = callArgs.join(', ');
 
     switch (func.returnType.name) {
+      case _ when func.isResult:
+        _emitCppResultOk(writer, spec, func, callArgStr);
       case 'void':
         writer.line('        _impl->${func.dartName}($callArgStr);');
       case _ when isNativeHandleRet:
@@ -593,21 +577,30 @@ String _generateCppDirect(BridgeSpec spec) {
         writer.line('        _env[1] = (int64_t)(intptr_t)(_res.data != nullptr ? _res.data : (const uint8_t*)_env);');
         writer.line('        _env[2] = 0;');
         writer.line('        return (uint8_t*)_env;');
+      case _ when func.returnType.isTypedData:
+        _emitCppTypedDataCopy(writer, func, callArgStr);
+      case _ when func.returnType.isAnyMap:
+        // The interface hands the block back as void*.
+        writer.line('        return (uint8_t*)_impl->${func.dartName}($callArgStr);');
       default:
         writer.line('        return _impl->${func.dartName}($callArgStr);');
     }
 
-    writer.line('    } catch (const std::exception& e) {');
-    writer.line('        _nitro_out_err(_nitro_err, "CppException", e.what());');
-    if (func.returnType.name != 'void') {
-      writer.line('        return $dflt;');
+    if (func.isResult) {
+      _emitCppResultCatch(writer);
+    } else {
+      writer.line('    } catch (const std::exception& e) {');
+      writer.line('        _nitro_out_err(_nitro_err, "CppException", e.what());');
+      if (func.returnType.name != 'void') {
+        writer.line('        return $dflt;');
+      }
+      writer.line('    } catch (...) {');
+      writer.line('        _nitro_out_err(_nitro_err, "CppException", "Unknown C++ exception");');
+      if (func.returnType.name != 'void') {
+        writer.line('        return $dflt;');
+      }
+      writer.line('    }');
     }
-    writer.line('    } catch (...) {');
-    writer.line('        _nitro_out_err(_nitro_err, "CppException", "Unknown C++ exception");');
-    if (func.returnType.name != 'void') {
-      writer.line('        return $dflt;');
-    }
-    writer.line('    }');
     writer.line('}');
     writer.blankLine();
   }
@@ -622,12 +615,12 @@ String _generateCppDirect(BridgeSpec spec) {
   // overwrite the first.
   for (final stream in spec.streams) {
     writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
-    CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'coalesce', stream);
+    _emitStreamCoalesce(writer, spec, 'coalesce', stream);
     writer.line('    g_ports_${stream.dartName}.add(_nitro_get_instance(instanceId), dart_port);');
     writer.line('}');
     writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
     writer.line('    g_ports_${stream.dartName}.remove(dart_port);');
-    CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'uncoalesce');
+    _emitStreamCoalesce(writer, spec, 'uncoalesce');
     writer.line('}');
     writer.blankLine();
   }
@@ -639,7 +632,7 @@ String _generateCppDirect(BridgeSpec spec) {
     writer.line('void ${libStem}_release_${st.name}(void* ptr) {');
     writer.line('    if (!ptr) { return; }');
 
-    CppBridgeGenerator._emitStructFieldReleases(writer, st, structNames);
+    _emitStructFieldReleases(writer, st, structNames);
     // No JNI cleanup here: g_zero_copy_refs holds global refs to JVM
     // DirectByteBuffers and exists only on the JNI bridge. A cpp NativeImpl has
     // no JVM object backing a @zeroCopy field, so there is nothing to release —

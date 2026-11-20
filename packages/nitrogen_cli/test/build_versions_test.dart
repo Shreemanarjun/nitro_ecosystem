@@ -153,6 +153,46 @@ void main() {
       expect(gradleOut, contains('kotlinx-coroutines-core:${BuildVersions.kotlinCoroutines}'));
     });
 
+    test('Android scaffold builds under Flutter and under a host with a trimmed embedding (DartNative)', () {
+      final gradle = scaffold.androidBuildGradleTemplate('com.example', 'camera');
+      // Kotlin is applied only where the host gave the project none.
+      expect(gradle, contains('if (extensions.findByName("kotlin") == null) {\n    pluginManager.apply("org.jetbrains.kotlin.android")\n}'));
+      // Flutter reads the file for these two shapes; a match makes it leave
+      // Kotlin to the plugin and warn that the plugin applies KGP. (The
+      // patterns are kgpRegexGroovy in Flutter's FlutterPluginUtils.kt.)
+      final applyLine = RegExp(r'''^[ \t]*apply[ \t]+plugin[ \t]*:[ \t]*(['"])(?:kotlin-android|org\.jetbrains\.kotlin\.android)\1''', multiLine: true);
+      final pluginsBlockId = RegExp(r'''^[ \t]*plugins[ \t]*\{[^{}]*?(?<=[\n{])[ \t]*(?:id|alias)(?:[ \t]*\(\s*|[ \t]+)['"](?:kotlin-android|org\.jetbrains\.kotlin\.android)['"]''', multiLine: true);
+      expect(applyLine.hasMatch(gradle), isFalse);
+      expect(pluginsBlockId.hasMatch(gradle), isFalse);
+      // The same patterns do catch the shapes Flutter warns about.
+      expect(applyLine.hasMatch('apply plugin: "kotlin-android"\n'), isTrue);
+      expect(pluginsBlockId.hasMatch('plugins {\n    id "org.jetbrains.kotlin.android"\n}\n'), isTrue);
+
+      final plugin = scaffold.androidPluginKtTemplate('com.example', 'camera', 'Camera', 'camera_module');
+      // DartNative's embedding has FlutterPlugin but no plugins.activity package.
+      expect(plugin, contains('class CameraPlugin : FlutterPlugin {'));
+      expect(plugin, isNot(contains('plugins.activity')));
+      expect(plugin, isNot(contains('ActivityPluginBinding')));
+      // The Activity still reaches the bridge, once per Activity.
+      expect(plugin, contains('app.registerActivityLifecycleCallbacks(this)'));
+      expect(plugin, contains('CameraJniBridge.onActivityAttached(activity)'));
+      expect(plugin, contains('CameraJniBridge.onActivityDetached()'));
+      expect(plugin, contains('CameraJniBridge.registerFactory({ CameraImpl() }, binding.applicationContext)'));
+    });
+
+    test('Swift plugin class registers the implementation with or without register(with:)', () {
+      for (final plugin in [scaffold.iosSwiftPluginTemplate('Camera'), scaffold.macosSwiftPluginTemplate('Camera')]) {
+        // The generated registry looks for a class that adopts the provider
+        // when nothing registered an implementation (DartNative never calls
+        // the plugin registrant).
+        expect(plugin, contains('public class SwiftCameraPlugin: NSObject, FlutterPlugin, CameraImplementationProvider {'));
+        expect(plugin, contains('    public static func registerCameraImplementation() {\n        CameraRegistry.register(CameraImpl())\n    }'));
+        // Flutter's path goes through the same method: one place creates the impl.
+        expect(plugin, contains('    public static func register(with registrar: FlutterPluginRegistrar) {\n        registerCameraImplementation()\n    }'));
+        expect('CameraRegistry.register('.allMatches(plugin), hasLength(1));
+      }
+    });
+
     test('legacy command scaffold template mirrors centralized values', () {
       final cmakeOut = legacy_scaffold.cmakeListsTemplate('camera');
       expect(cmakeOut, contains('cmake_minimum_required(VERSION ${BuildVersions.cmakeMinimum})'));

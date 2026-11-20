@@ -1,8 +1,54 @@
+import 'dart:io';
+
 import 'package:nocterm/nocterm.dart';
 import 'package:nitrogen_cli/commands/init_command.dart';
 import 'package:test/test.dart';
 
 void main() {
+  // ── Web declaration ────────────────────────────────────────────────────────
+
+  group('declarePlatformsInPubspec', () {
+    // The shape `flutter create --template=plugin_ffi` leaves after the
+    // platforms block is rewritten and `linkWeb` has declared the assets.
+    const scaffold = 'name: demo\n'
+        'environment:\n  sdk: ^3.11.0\n'
+        'dependencies:\n  flutter:\n    sdk: flutter\n  nitro: ^0.9.0\n'
+        'flutter:\n  assets:\n    - assets/web/\n  plugin:\n    platforms:\n'
+        '      android:\n        ffiPlugin: true\n'
+        '      ios:\n        ffiPlugin: true\n';
+
+    test('declares web for pub.dev without a plugin entry or flutter_web_plugins', () {
+      final out = declarePlatformsInPubspec(scaffold, ['web', 'ios', 'android']);
+      // Top-level key, sorted, above `environment:`; nothing else changes.
+      expect(out, scaffold.replaceFirst('environment:', 'platforms:\n  android:\n  ios:\n  web:\n\nenvironment:'));
+      // Nothing Flutter-web-only: DartNative has no flutter_web_plugins, and a
+      // `web:` plugin entry would make the tool require it.
+      expect(out, isNot(contains('flutter_web_plugins')));
+      expect(out, isNot(contains('      web:')));
+      expect(out, isNot(contains('pluginClass')));
+    });
+
+    test('is idempotent and keeps a platforms key the author wrote', () {
+      final once = declarePlatformsInPubspec(scaffold, ['android', 'ios', 'web']);
+      expect(declarePlatformsInPubspec(once, ['android', 'ios', 'web']), once);
+
+      const own = 'name: demo\nplatforms:\n  web:\n\n$scaffold';
+      expect(declarePlatformsInPubspec(own, ['android', 'ios', 'web']), own);
+    });
+  });
+
+  group('withNitroSdkFloor', () {
+    test('replaces the SDK that ran flutter create with the floor Nitro supports', () {
+      const stamped = 'name: demo\nenvironment:\n  sdk: ^3.13.4\n  flutter: \'>=3.3.0\'\ndependencies:\n  flutter:\n    sdk: flutter\n';
+      expect(withNitroSdkFloor(stamped), stamped.replaceFirst('^3.13.4', kNitroDartSdkFloor));
+    });
+
+    test('the floor is the one this package itself declares', () {
+      final own = RegExp(r'^  sdk: (\S+)$', multiLine: true).firstMatch(File('pubspec.yaml').readAsStringSync())!.group(1);
+      expect(kNitroDartSdkFloor, own);
+    });
+  });
+
   // ── InitResult ─────────────────────────────────────────────────────────────
 
   group('InitResult', () {

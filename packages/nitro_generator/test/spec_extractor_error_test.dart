@@ -1,13 +1,9 @@
-import 'dart:io';
-
 import 'package:nitro_generator/src/spec_extractor.dart';
 import 'package:test/test.dart';
 
-String _specExtractorSource() {
-  final packageRoot = File('lib/src/spec_extractor.dart');
-  final source = packageRoot.existsSync() ? packageRoot.readAsStringSync() : File('packages/nitro_generator/lib/src/spec_extractor.dart').readAsStringSync();
-  return source.replaceAll('\r\n', '\n');
-}
+import 'library_source.dart';
+
+String _specExtractorSource() => readLibrarySource('lib/src/spec_extractor.dart');
 
 void main() {
   group('SpecExtractor error reporting', () {
@@ -40,7 +36,7 @@ void main() {
       expect(source, contains('final members = _ModuleMembers.from(element);'));
       expect(
         source,
-        contains('static ({List<BridgeProperty> properties, List<BridgeStream> streams}) _extractPropertiesAndStreams(\n    _ModuleMembers members,'),
+        contains('({List<BridgeProperty> properties, List<BridgeStream> streams}) _extractPropertiesAndStreams(\n  _ModuleMembers members,'),
       );
       expect(
         RegExp(r'_extractPropertiesAndStreams\([^)]*ClassElement element', dotAll: true).hasMatch(source),
@@ -50,7 +46,7 @@ void main() {
 
     test('annotated local types use a single collector', () {
       final source = _specExtractorSource();
-      expect(source, contains('static _ExtractedTypes _extractAnnotatedTypes(LibraryReader library)'));
+      expect(source, contains('\n_ExtractedTypes _extractAnnotatedTypes(LibraryReader library)'));
       expect(source, contains('final localTypes = _extractAnnotatedTypes(library);'));
       expect(source, contains('final importedTypes = _extractAnnotatedTypes(importedReader);'));
       expect(source, isNot(contains('library.annotatedWith(structChecker)')));
@@ -77,8 +73,8 @@ void main() {
     test('uint64 check precedes InterfaceType dispatch inside _makeBridgeType', () {
       final source = _specExtractorSource();
       // Scope the ordering check to the _makeBridgeType function body only.
-      final fnStart = source.indexOf('static BridgeType _makeBridgeType(');
-      final fnEnd = source.indexOf('\n  static ', fnStart + 1);
+      final fnStart = source.indexOf('\nBridgeType _makeBridgeType(');
+      final fnEnd = source.indexOf('\n}\n', fnStart + 1);
       final fnBody = source.substring(fnStart, fnEnd);
       final aliasIdx = fnBody.indexOf("aliasName == 'uint64'");
       final ifaceIdx = fnBody.indexOf('if (type is InterfaceType)');
@@ -101,7 +97,7 @@ void main() {
 
     test('_buildTupleRecord method exists', () {
       final source = _specExtractorSource();
-      expect(source, contains('static BridgeRecordType _buildTupleRecord('));
+      expect(source, contains('\nBridgeRecordType _buildTupleRecord('));
     });
 
     test('_buildTupleRecord validates aliasedType is RecordType', () {

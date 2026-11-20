@@ -83,11 +83,19 @@ backend.
 - `Map<String, @HybridEnum>` — int64 value encoding
 - `Map<String, @HybridRecord>` — binary blob encoding (tag 5)
 - `Map<String, @NitroVariant>` — binary blob encoding (tag 5)
+- `Map<String, @HybridStruct>` — binary blob encoding (tag 5), for a struct of non-null
+  `int` / `double` / `bool` / `String` fields
+- A map in any position: a return with no map parameter, any parameter (several per method),
+  nullable (`Map<String, V>?`, `NitroAnyMap?`); typed in Kotlin (`Map<String, Long>`) and Swift
+  (`[String: Int64]`). Not as a property on a Kotlin or Swift implementation
+  (`INVALID_PROPERTY_TYPE`): use a method
 
 ### TypedData (zero-copy)
 - `Uint8List`, `Int8List`, `Int16List`, `Int32List`, `Uint16List`, `Uint32List`
 - `Float32List`, `Float64List`, `Int64List`, `Uint64List`
 - Passed as `pointer + byte_length`; optional `@zeroCopy` on `@HybridStruct` fields
+- Returned with no annotation (the bridge copies the implementation's array), nullable too, from
+  sync, `@nitroAsync` and `@nitroNativeAsync` methods; `@zeroCopy` returns a native-owned view
 - *Covers RN Nitro's `ArrayBuffer` use case for binary data transport*
 
 ### Async & Streams
@@ -194,25 +202,24 @@ backend.
 
 ## Known Limitations (Open)
 
-### L6 — `@HybridStruct` as callback return ⚠️
-**Status:** Unsafe — intentionally not supported.  
-**Reason:** `NativeCallable` has no `Arena` lifetime. Returning a heap-allocated struct pointer from a callback has no tracked owner to free it.  
-**Workaround:** Wrap struct fields in a `@HybridRecord` (malloc + known ownership).
+### L6 — `@HybridStruct` as callback return ✅ (0.9.0, flat structs)
+**Status:** Supported for a struct whose fields are all non-null `int`, `double`, `bool` or `String`.  
+**How:** The struct travels back as bytes in a block native frees, exactly as a `@HybridRecord` does, so no pointer into Dart-owned memory crosses.  
+**Still refused:** a struct with a nullable, typed-data, enum or nested-struct field (`UNSUPPORTED_FUNCTION_TYPE`); make it a `@HybridRecord`.  
+**Note:** if the Dart callback throws, native receives no value and the call that invoked the callback fails with an error, on every backend.
 
-### L7 — `TypedData?` (nullable typed arrays) ⚠️
-**Status:** Excluded — documented design constraint.  
-**Reason:** TypedData uses two FFI params (pointer + length). Nullable would require a third "hasValue" param, complicating all callsites.  
-**Workaround:** Non-nullable `Uint8List` + empty list for the "no data" case, or wrap in `@HybridRecord`.
+### L7 — `TypedData?` (nullable typed arrays) ✅ (0.9.0)
+**Status:** Supported as a parameter and as a return value (a null pointer is null). A typed-data return no longer needs `@zeroCopy`.  
+**Still refused:** a typed-data **property** (`INVALID_PROPERTY_TYPE`); use a method.
 
 ### L8 — Web / WASM ✅ (resolved in 0.7.0)
 **Status:** Full support. `web: NativeImpl.wasm` compiles the same C++ impl with Emscripten (or the seeded `web/src/Hybrid<Class>.cpp` once its marker line is removed); a generated `dart:js_interop` bridge drives the identical binary wire format over the module heap. Streams and `@nitroNativeAsync` work — completions arrive through a module post callback that replaces `Dart_PostCObject_DL` (`nitro_wasm_compat.h`). Verified in Chrome under BOTH `flutter build web` (dart2js) and `--wasm` (dart2wasm).  
 **Note:** RN Nitro has no web support — this is a Flutter-nitro advantage.  
 **Remaining web caveats:** `@nitroAsync` runs inline on the main thread (no isolates — W008); `@zeroCopy` is one bulk copy (W009); `int` has 53-bit fidelity under dart2js; `@HybridStruct` fields carrying a record/variant/map are E017 (use `@HybridRecord`); the C++ impl must not spawn threads. See migration/0.7.0.md.
 
-### L10 — `Map<String, @HybridStruct>` ❌
-**Status:** E008 — intentionally blocked.  
-**Reason:** Struct values are `void*` pointers; the map encoder has no ownership protocol for pointer-valued entries.  
-**Workaround:** `List<TheStruct>` + separate key list, or a `@HybridRecord` with struct fields.
+### L10 — `Map<String, @HybridStruct>` ✅ (0.9.0, flat structs)
+**Status:** Supported for a struct whose fields are all non-null `int`, `double`, `bool` or `String`; each value is encoded as bytes (tag 5), like a record.  
+**Still refused:** any other struct (E008); use `List<TheStruct>` or a `@HybridRecord`.
 
 ### L12 — Tuple types `(A, B, C)` ✅
 **Status:** Implemented. Annotate a Dart 3 positional record typedef with `@NitroTuple()` — same binary wire format as `@HybridRecord` (4B length prefix + sequential fields).  
@@ -298,13 +305,13 @@ abstract class Counter {
 | E004 | Stream cannot be a property | `@NitroProperty Stream<T>` |
 | E005 | `Backpressure.batch` limited to primitives + `@HybridEnum` | Complex batch items (L3) |
 | E006 | `batchMaxSize` must be > 0 | Invalid batch config |
-| E008 | Map values must be primitives, `@HybridEnum`, `@HybridRecord`, or `@NitroVariant` | Complex map values (L10: `@HybridStruct`) |
+| E008 | Map values must be primitives, `@HybridEnum`, `@HybridRecord`, `@NitroVariant`, or a flat `@HybridStruct` | A `@HybridStruct` value with a nullable, typed-data, enum or nested-struct field |
 | E010 | Unknown type reference | Unrecognised param/return type (L16: custom types) |
 | E011 | Unknown stream item type | `@HybridRecord` streams (L1) |
 | E012 | Unknown property type | Unrecognised property type |
 | E013 | Unknown `@HybridRecord` field type | Unresolved field reference |
 | E014 | `@NitroVariant` case count 1–255 | 0 cases or > 255 cases |
-| E015 | `@NitroResult` + `@NitroNativeAsync` conflict | Incompatible annotations |
+| E015 | `@NitroResult` + `@NitroNativeAsync` conflict, `void`, or an unsupported value type (a list with nullable items, …) | Incompatible annotations / no encoding |
 | W007 | (retired in 0.7.0 — streams/native-async work on web) | — |
 | W008 | Web impl + `@nitroAsync` | Runs inline on the main thread on web |
 | W009 | Web impl + `@zeroCopy` | One bulk copy (snapshot) on web |
@@ -319,10 +326,10 @@ abstract class Counter {
 
 | # | Limitation | RN Nitro parity? | Priority |
 |---|-----------|------------------|---------|
-| L6 | `@HybridStruct` as callback return — unsafe (no Arena) | N/A (RN uses JSI, no Arena) | Low |
-| L7 | `TypedData?` — two-param FFI makes nullable ambiguous | N/A | Low |
+| ~~L6~~ | ~~`@HybridStruct` as callback return~~ (flat structs; others stay refused) | N/A | ✅ Done |
+| ~~L7~~ | ~~`TypedData?`~~ and plain typed-data returns (a typed-data property stays refused) | N/A | ✅ Done |
 | L8 | ~~Web / WASM~~ — resolved in 0.7.0 (full support incl. streams + `@NitroNativeAsync`) | RN has none | — |
-| L10 | `Map<String, @HybridStruct>` — no pointer ownership in map encoder | N/A | Low |
+| ~~L10~~ | ~~`Map<String, @HybridStruct>`~~ (flat structs; others stay refused) | N/A | ✅ Done |
 | ~~L12~~ | ~~Tuple types `(A, B, C)`~~ | ~~**Gap vs RN**~~ | ✅ Done |
 | ~~L13~~ | ~~`uint64_t` scalar~~ | ~~**Gap vs RN**~~ | ✅ Done |
 | L17 | Foundation type names (`Point`, `Size`, …) clash in a file that imports Foundation before a generated header | N/A | Low |

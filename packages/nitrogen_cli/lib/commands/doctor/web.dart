@@ -56,10 +56,19 @@ extension _DoctorWebChecks on DoctorCommand {
     // Pubspec: web platforms entry + bundled assets.
     final pubspecFile = File(p.join(ctx.root.path, 'pubspec.yaml'));
     final pubspec = pubspecFile.existsSync() ? pubspecFile.readAsStringSync() : '';
-    if (RegExp(r'\n      web:\n').hasMatch(pubspec)) {
+    // Web needs no plugin entry: the generated platform shim picks the web
+    // bridge with a conditional import. A `web:` entry drags in
+    // flutter_web_plugins, which SDKs without a web target (DartNative) lack.
+    if (pubspec.contains('flutter_web_plugins')) {
+      ctx.warn(
+        webSec,
+        'pubspec depends on flutter_web_plugins — the plugin cannot be resolved in DartNative',
+        hint: 'Remove the `web:` entry under flutter.plugin.platforms, the flutter_web_plugins dependency and lib/<plugin>_web.dart; declare web under a top-level `platforms:` key',
+      );
+    } else if (RegExp(r'^platforms:\n(?:  .*\n)*?  web:', multiLine: true).hasMatch(pubspec)) {
       ctx.ok(webSec, 'pubspec platforms: declares web');
     } else {
-      ctx.warn(webSec, 'pubspec plugin platforms: has no web entry', hint: 'Add `web: {pluginClass: <Class>WebPlugin, fileName: <plugin>_web.dart}` (nitrogen init --platforms=...,web scaffolds this)');
+      ctx.warn(webSec, 'pubspec has no top-level `platforms:` entry for web — pub.dev will not list it', hint: 'Add `platforms:` with every supported platform, `web:` included, above `environment:`');
     }
     if (pubspec.contains('assets/web/')) {
       ctx.ok(webSec, 'assets/web/ declared under flutter: assets:');
@@ -74,15 +83,18 @@ extension _DoctorWebChecks on DoctorCommand {
       // Which impl the wasm is built from, and whether the script still agrees
       // with what is on disk (the choice is baked in at link time).
       final wantsSpecific = webUsesSpecificImpl(ctx.root.path, lib);
-      final scriptedSpecific = script.readAsStringSync().contains(webSpecificImplPath(lib));
-      if (wantsSpecific == scriptedSpecific) {
-        ctx.ok(webSec, '$lib: builds from ${wantsSpecific ? '${webSpecificImplPath(lib)} (web-specific)' : 'the shared src/ impl'}');
-      } else {
-        ctx.warn(
-          webSec,
-          '$lib: build_web.sh compiles the ${scriptedSpecific ? 'web-specific' : 'shared'} impl but ${wantsSpecific ? '${webSpecificImplPath(lib)} now holds real code' : 'web/src/ no longer holds real code'}',
-          hint: 'Run: nitrogen link, then web/build_web.sh',
-        );
+      // A missing script is already an error above; there is nothing to compare.
+      if (script.existsSync()) {
+        final scriptedSpecific = script.readAsStringSync().contains(webSpecificImplPath(lib));
+        if (wantsSpecific == scriptedSpecific) {
+          ctx.ok(webSec, '$lib: builds from ${wantsSpecific ? '${webSpecificImplPath(lib)} (web-specific)' : 'the shared src/ impl'}');
+        } else {
+          ctx.warn(
+            webSec,
+            '$lib: build_web.sh compiles the ${scriptedSpecific ? 'web-specific' : 'shared'} impl but ${wantsSpecific ? '${webSpecificImplPath(lib)} now holds real code' : 'web/src/ no longer holds real code'}',
+            hint: 'Run: nitrogen link, then web/build_web.sh',
+          );
+        }
       }
       final js = File(p.join(ctx.root.path, 'assets', 'web', '$lib.js'));
       final wasm = File(p.join(ctx.root.path, 'assets', 'web', '$lib.wasm'));

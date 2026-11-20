@@ -128,7 +128,7 @@ private inline fun <T> nitroDecode(buf: java.nio.ByteBuffer, read: (NitroRecordI
 /// into the Kotlin bridge file.  Each class also gets static `decode` /
 /// `encode` helpers so callers never have to hand-roll ByteArray parsing.
 String _generateKotlinRecords(BridgeSpec spec) {
-  final localRecords = spec.localRecordTypes;
+  final localRecords = spec.nativeRecordTypes;
   if (localRecords.isEmpty) return '';
   final enumNames = spec.enums.map((e) => e.name).toSet();
   // Only this file's records take the cursor: each generated file has its own

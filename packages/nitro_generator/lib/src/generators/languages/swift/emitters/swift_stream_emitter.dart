@@ -269,13 +269,13 @@ class SwiftStreamEmitter {
       case 'DateTime':
         if (isNullable) {
           writer.line('${indent}if let v = item {');
-          writer.line('$indent    var _ms = Int64(v.timeIntervalSince1970 * 1000)');
+          writer.line('$indent    var _ms = Int64((v.timeIntervalSince1970 * 1000).rounded())');
           writer.line('$indent    if !emitCb(dartPort, &_ms) { $cancel }');
           writer.line('$indent} else {');
           writer.line('$indent    if !emitCb(dartPort, nil) { $cancel }');
           writer.line('$indent}');
         } else {
-          writer.line('${indent}if !emitCb(dartPort, Int64(item.timeIntervalSince1970 * 1000)) { $cancel }');
+          writer.line('${indent}if !emitCb(dartPort, Int64((item.timeIntervalSince1970 * 1000).rounded())) { $cancel }');
         }
       case _ when stream.itemType.isTypedData && stream.itemType.isNullable:
         writer.line(r'${indent}let _ptr: Int64 = item.map { d in d.withUnsafeBytes { Int64(bitPattern: UInt64(UInt(bitPattern: $0.baseAddress))) } } ?? 0');

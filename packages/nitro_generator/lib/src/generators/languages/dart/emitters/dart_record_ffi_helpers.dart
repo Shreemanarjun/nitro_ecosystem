@@ -31,16 +31,12 @@ String _decodeRecordExpr(BridgeType type, String ptrVar, BridgeSpec spec, {bool 
     }
     return '_nitroDecode_$rt($ptrVar)';
   }
-  if (type.isAnyMap) {
-    // NitroAnyMap — type-tagged binary codec (mirrors RN Nitro AnyMap).
-    return 'nitroAnyMapFromNative($ptrVar)';
-  }
-  if (type.isMap) {
+  if (type.isAnyMap || type.isMap) {
     // Binary map decoding — resolves NaN/Infinity, int64 precision, perf issues.
     // ptrVar is Pointer<Uint8> (4-byte length prefix + binary payload).
-    final mapMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(type.name);
-    final valueType = mapMatch?.group(1)?.trim() ?? 'dynamic';
-    return '_nitroDecodeMapBinary${_mapTypeSuffix(valueType)}($ptrVar)';
+    final decode = type.isAnyMap ? 'nitroAnyMapFromNative($ptrVar)' : '_nitroDecodeMapBinary${_mapTypeSuffix(stringMapValueType(type.name) ?? 'dynamic')}($ptrVar)';
+    // A null map arrives as nullptr.
+    return type.isNullable || type.name.endsWith('?') ? '$ptrVar == nullptr ? null : $decode' : decode;
   }
   // List<@HybridEnum> — [4B len][4B count][8B×N nativeValues]
   // List<@HybridEnum?> — [4B len][4B count][1B hasValue][8B nativeValue]×N
@@ -123,13 +119,28 @@ void _emitTypedDataDecodeReturn(
     writer.line('$indent return nitroRegisterZeroCopyView(view, payloadPtr.cast<Void>());');
     return;
   }
-  writer.line('${indent}try {');
-  writer.line('$indent  final byteLength = $ptrVar.cast<Int64>().value;');
-  writer.line('$indent  final payloadPtr = Pointer<$ffiElem>.fromAddress($ptrVar.address + 8);');
-  writer.line('$indent  return $rt.fromList(payloadPtr.asTypedList($lengthExpr));');
-  writer.line('$indent} finally {');
-  writer.line('$indent  _nitroFree($ptrVar);');
-  writer.line('$indent}');
+  _typedDataBlockDecode(rt, ptrVar).forEach((l) => writer.line('$indent$l'));
+}
+
+/// Statements that turn the bridge's `[8B byteLength][bytes]` copy at [ptrVar]
+/// into the Dart list and return it. A large block is not copied again: the
+/// list views it and owns it (`_nitroAdopt`, see `_emitNitroAdopt`). The
+/// payload is 8 bytes into a malloc block, so it is aligned for every element.
+List<String> _typedDataBlockDecode(String rt, String ptrVar) {
+  final lengthExpr = _typedDataElementSize(rt) == 1 ? 'byteLength' : 'byteLength ~/ ${_typedDataElementSize(rt)}';
+  return [
+    'final byteLength = $ptrVar.cast<Int64>().value;',
+    'final payload = Pointer<${_typedDataFfiElement(rt)}>.fromAddress($ptrVar.address + 8).asTypedList($lengthExpr);',
+    'if (byteLength >= RecordReader.lendMinBytes) {',
+    '  _nitroAdopt(payload, $ptrVar.cast<Void>(), byteLength);',
+    '  return payload;',
+    '}',
+    'try {',
+    '  return $rt.fromList(payload);',
+    '} finally {',
+    '  _nitroFree($ptrVar);',
+    '}',
+  ];
 }
 
 String _typedDataFfiElement(String dartType) {
@@ -216,15 +227,11 @@ String _encodeRecordParam(BridgeType type, String varName, String allocator) {
     }
     return '_nitroEncode_$rt($varName, $allocator)';
   }
-  if (type.isAnyMap) {
-    // NitroAnyMap — type-tagged binary codec (mirrors RN Nitro AnyMap).
-    return '$varName.toNative($allocator)';
-  }
-  if (type.isMap) {
+  if (type.isAnyMap || type.isMap) {
     // Maps use binary encoding — resolves NaN/Infinity, int64 precision, and perf issues.
-    final mapMatch = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(type.name);
-    final valueType = mapMatch?.group(1)?.trim() ?? 'dynamic';
-    return '_nitroEncodeMapBinary${_mapTypeSuffix(valueType)}($varName, $allocator)';
+    final encode = type.isAnyMap ? '$varName.toNative($allocator)' : '_nitroEncodeMapBinary${_mapTypeSuffix(stringMapValueType(type.name) ?? 'dynamic')}($varName, $allocator)';
+    // A null map is sent as nullptr.
+    return type.isNullable || type.name.endsWith('?') ? '$varName == null ? nullptr : $encode' : encode;
   }
   // A nullable LIST (as opposed to a list of nullable items) passes nullptr
   // for "absent"; the guard has to wrap the encoder call because every encoder
@@ -272,62 +279,83 @@ String _encodeRecordParam(BridgeType type, String varName, String allocator) {
 /// `RecordReader.fromNative(res + 1)` then read the appropriate type.
 void _emitResultDecode(
   CodeWriter writer,
+  BridgeFunction func,
   BridgeType returnType,
   String resVar,
   String indent,
   BridgeSpec spec,
 ) {
+  // A bridge that could not run the method at all (an instance that is not
+  // registered, a native throw before the call) returns null, not a blob.
+  // Report it; reading the tag through a null pointer is a crash.
+  writer.line('${indent}if ($resVar == nullptr) {');
+  if (!func.isAsync) {
+    // The sync bridge leaves the reason in the error slot.
+    writer.line('$indent  try {');
+    writer.line("$indent    NitroRuntime.throwIfOutParamError(_nitroErr, nativeFree: _nitroFree, methodName: '${func.dartName}');");
+    writer.line('$indent  } on HybridException catch (e) {');
+    writer.line('$indent    return NitroErr(e.message);');
+    writer.line('$indent  }');
+  }
+  writer.line("$indent  return NitroErr('${func.dartName}: the native side returned no result');");
+  writer.line('$indent}');
   // Wrap entire decode in try/finally to free the native buffer on both branches.
   // Native allocates with malloc; Dart must free it to avoid a memory leak.
   writer.line('${indent}try {');
   final i2 = '$indent  ';
 
-  // Error branch — common to all inner types
+  final carrier = spec.resultCarrier(func);
   writer.line('${i2}final _tag = $resVar[0];');
+  // Tag 2: ok, and the value is null. Before the error branch, which takes
+  // every other non-zero tag.
+  if (carrier case BlockCarrier(isNullable: true)) {
+    writer.line('${i2}if (_tag == 2) return NitroOk(null);');
+  }
+  // Error branch — common to all inner types
   writer.line('${i2}if (_tag != 0) {');
   writer.line('$i2  final _errR = RecordReader.fromNative($resVar + 1);');
   writer.line('$i2  return NitroErr(_errR.readString());');
   writer.line('$i2}');
 
-  // Success branch — decode T from res + 1
-  final rt = returnType.name;
-  final base = bareTypeName(rt);
-
-  if (returnType.isRecord) {
-    // @HybridRecord / Map / List<Record>
-    final decodeExpr = _decodeRecordExpr(returnType, '$resVar + 1', spec);
-    writer.line('${i2}return NitroOk($decodeExpr);');
-  } else {
-    // Primitives: wrapped in record codec on native side
-    writer.line('${i2}final _r = RecordReader.fromNative($resVar + 1);');
-    String valueExpr;
-    switch (base) {
-      case 'int':
-        valueExpr = '_r.readInt()';
-      case 'double':
-        valueExpr = '_r.readDouble()';
-      case 'bool':
-        valueExpr = '_r.readBool()';
-      case 'String':
-        valueExpr = '_r.readString()';
-      default:
-        if (spec.isEnumName(base)) {
-          // Enum: stored as int64 on wire, converted to enum case
-          valueExpr = '${base}EnumExt.fromNativeValue(_r.readInt())';
-        } else if (spec.isStructName(base)) {
-          // @HybridStruct: stored as record-codec on wire
-          valueExpr = '${base}StructExt.fromReader(_r)';
-        } else {
-          // Unknown — best-effort record decode
-          valueExpr = '${base}RecordExt.fromReader(_r)';
-        }
-    }
-    writer.line('${i2}return NitroOk($valueExpr);');
-  }
+  // Success branch — decode T from res + 1, the way its carrier sent it.
+  final base = bareTypeName(returnType.name);
+  final (String? reader, String value) = switch (carrier) {
+    // A one-field record, whose wire form is the field's own.
+    WrappedCarrier() => ('r', dartWrappedResultRead(carrier)),
+    // A self-describing block: the decoder its plain return uses.
+    BlockCarrier() || RecordCarrier() => (null, _resultBlockDecode(returnType, '$resVar + 1', spec)),
+    ScalarCarrier(:final kind) => (
+      '_r',
+      switch (kind) {
+        ScalarKind.int64 => '_r.readInt()',
+        ScalarKind.float64 => '_r.readDouble()',
+        ScalarKind.boolean => '_r.readBool()',
+        ScalarKind.string => '_r.readString()',
+        // The generated `to$base()` extension record fields use.
+        ScalarKind.enumValue => '_r.readInt().to$base()',
+      },
+    ),
+    // Rejected by the validator (E015); a spec built by hand still generates.
+    NoCarrier() when returnType.isRecord => (null, _decodeRecordExpr(returnType, '$resVar + 1', spec)),
+    NoCarrier() => ('_r', spec.isStructName(base) ? '${base}StructExt.fromReader(_r)' : '${base}RecordExt.fromReader(_r)'),
+  };
+  if (reader != null) writer.line('${i2}final $reader = RecordReader.fromNative($resVar + 1);');
+  writer.line('${i2}return NitroOk($value);');
 
   writer.line('$indent} finally {');
   writer.line('$indent  _nitroFree($resVar);');
   writer.line('$indent}');
+}
+
+/// Decodes the self-describing block of a `@NitroResult` value at [ptr]. A
+/// null value never reaches here (it is tag 2), so the type is read as
+/// non-nullable.
+String _resultBlockDecode(BridgeType type, String ptr, BridgeSpec spec) {
+  final t = type.nonNullable;
+  return switch (t.name) {
+    _ when spec.isVariantName(t.name) => '${_variantDecodeExtName(spec, t.name)}.fromNative($ptr)',
+    _ => _decodeRecordExpr(t, ptr, spec),
+  };
 }
 
 // ── NativeAsync helpers ───────────────────────────────────────────────────

@@ -1,5 +1,7 @@
 import 'package:nitro_annotations/nitro_annotations.dart';
 
+import 'map_wire.dart';
+
 /// Discriminated kind for a [BridgeType], derived from its boolean flags.
 ///
 /// Use `BridgeType.kind` in switch statements instead of chaining `isRecord &&
@@ -232,6 +234,85 @@ class BridgeSpec {
   List<BridgeEnum> get localEnums => enums.where((e) => !e.isImported).toList();
   List<BridgeStruct> get localStructs => structs.where((s) => !s.isImported).toList();
   List<BridgeRecordType> get localRecordTypes => recordTypes.where((r) => !r.isImported).toList();
+
+  /// How [f]'s `@NitroResult` ok value crosses the bridge — the one
+  /// classification every emitter and the validator switch over.
+  ResultCarrier resultCarrier(BridgeFunction f) {
+    final t = f.returnType;
+    // A spec built by hand may still carry the declared `NitroResultValue<T>`.
+    final name = RegExp(r'^NitroResultValue<(.+)>$').firstMatch(t.name.trim())?.group(1)?.trim() ?? t.name;
+    final base = bareTypeName(name);
+    final isNullable = t.isNullable || name.endsWith('?');
+    final wrapped = _wrappedCarrier(f, base);
+    return switch (base) {
+      _ when wrapped != null => wrapped,
+      _ when t.isAnyMap => BlockCarrier(BlockKind.anyMap, isNullable: isNullable),
+      _ when t.isMap && base.startsWith('Map<String,') => BlockCarrier(BlockKind.map, isNullable: isNullable),
+      _ when t.isVariantList => BlockCarrier(BlockKind.variantList, isNullable: isNullable),
+      _ when isVariantName(base) => isNullable ? const BlockCarrier(BlockKind.variant, isNullable: true) : const RecordCarrier(),
+      _ when isNullable => const NoCarrier(),
+      'int' => const ScalarCarrier(ScalarKind.int64),
+      'double' => const ScalarCarrier(ScalarKind.float64),
+      'bool' => const ScalarCarrier(ScalarKind.boolean),
+      'String' => const ScalarCarrier(ScalarKind.string),
+      _ when isEnumName(base) => const ScalarCarrier(ScalarKind.enumValue),
+      _ when isRecordName(base) || t.isTuple => const RecordCarrier(),
+      _ => const NoCarrier(),
+    };
+  }
+
+  /// A value with no result encoding of its own that is nevertheless a valid
+  /// record FIELD — a nullable value, a list, typed data, a struct — is sent as
+  /// a hidden one-field record: a one-field record is encoded exactly as its
+  /// field, so every backend reuses the record codec it already has, and Dart
+  /// reads the one field back without ever seeing the wrapper.
+  ///
+  /// [returnBase] is the method's declared value type: `uint64` is a typedef of
+  /// `int`, so only the bridge type still says which one it is.
+  WrappedCarrier? _wrappedCarrier(BridgeFunction f, String returnBase) {
+    final field = f.resultField;
+    if (!f.isResult || field == null) return null;
+    const scalars = {'int', 'double', 'bool', 'String'};
+    final base = bareTypeName(field.dartType);
+    // DateTime (milliseconds since the epoch) and uint64 (its bits) travel as
+    // an int64, as they do everywhere else on the bridge; each backend
+    // converts to its own type at the edge.
+    final wire = switch (returnBase) {
+      'DateTime' when field.kind == RecordFieldKind.primitive => WrappedWire.dateTime,
+      'uint64' when field.kind == RecordFieldKind.primitive => WrappedWire.uint64,
+      _ => WrappedWire.asIs,
+    };
+    final wraps = switch (field.kind) {
+      _ when wire != WrappedWire.asIs => true,
+      // The record codec has no nullable list items.
+      _ when field.dartType.contains('?>') => false,
+      RecordFieldKind.primitive => field.isNullable && scalars.contains(base),
+      RecordFieldKind.enumValue || RecordFieldKind.recordObject => field.isNullable,
+      RecordFieldKind.listPrimitive => scalars.contains(field.itemTypeName),
+      RecordFieldKind.listEnumValue || RecordFieldKind.listRecordObject || RecordFieldKind.typedData || RecordFieldKind.struct => true,
+    };
+    if (!wraps) return null;
+    final method = f.dartName[0].toUpperCase() + f.dartName.substring(1);
+    final wireField = wire == WrappedWire.asIs
+        ? field
+        : BridgeRecordField(name: field.name, dartType: field.isNullable ? 'int?' : 'int', kind: RecordFieldKind.primitive, isNullable: field.isNullable);
+    return WrappedCarrier(BridgeRecordType(name: '$dartClassName${method}Ok', fields: [wireField]), wire: wire);
+  }
+
+  /// The hidden one-field record of a [WrappedCarrier], or null for any other
+  /// carrier.
+  BridgeRecordType? resultWrapper(BridgeFunction f) => switch (resultCarrier(f)) {
+    WrappedCarrier(:final wrapper) => wrapper,
+    _ => null,
+  };
+
+  /// This module's result wrappers (see [resultWrapper]), one per method that
+  /// needs one.
+  late final List<BridgeRecordType> resultWrappers = [for (final f in functions) ?resultWrapper(f)];
+
+  /// Every record the native codecs declare: this module's own, then its
+  /// result wrappers.
+  List<BridgeRecordType> get nativeRecordTypes => [...localRecordTypes, ...resultWrappers];
   List<BridgeVariant> get localVariants => variants.where((v) => !v.isImported).toList();
 
   // ── O(1) type index — lazy, cached ─────────────────────────────────────────
@@ -270,6 +351,83 @@ class BridgeSpec {
   /// True when a method returns `@zeroCopy` typed data: Dart views native
   /// memory that `<lib>_release_typed_data_return` gives back.
   late final bool hasZeroCopyTypedDataReturn = functions.any((f) => f.zeroCopyReturn && f.returnType.isTypedData);
+
+  /// True when a method returns typed data without `@zeroCopy`: the bridge
+  /// copies it into a `[8B byteLength][bytes]` block, and a large one is handed
+  /// to Dart as a view of that block instead of being copied a second time.
+  late final bool hasCopiedTypedDataReturn = functions.any((f) => !f.zeroCopyReturn && !f.isResult && f.returnType.isTypedData);
+
+  /// True when the bridge exports `<lib>_nitro_adopt`, which gives a native
+  /// buffer to the Dart list that views it.
+  late final bool exportsAdopt = lendsRecordBuffers || hasCopiedTypedDataReturn;
+
+  /// True when [name] is a `@HybridStruct` every backend can carry as bytes:
+  /// each field is a non-null `int`, `double`, `bool` or `String`. Such a
+  /// struct can be a map value or a callback's return value; the C++ inline
+  /// codec reads no other field kind.
+  bool isFlatStruct(String name) =>
+      _structIndex[name]?.fields.every((f) => !f.type.isNullable && const {'int', 'double', 'bool', 'String'}.contains(f.type.name)) ?? false;
+
+  /// The `@HybridStruct` value types of the String-key maps this module's
+  /// methods and properties carry.
+  late final Set<String> mapValueStructs = {
+    for (final t in [
+      for (final f in functions) ...[f.returnType, for (final p in f.params) p.type],
+      for (final p in properties) p.type,
+    ])
+      if (t.isMap)
+        if (stringMapValueType(t.name) case final value? when isStructName(bareTypeName(value))) bareTypeName(value),
+  };
+
+  /// The `@HybridStruct` types this module's callbacks return. A flat one
+  /// travels back to native as a `[4B len][fields]` block, like a record.
+  late final Set<String> callbackReturnStructs = {
+    for (final f in functions)
+      for (final p in f.params)
+        if (p.type.isFunction)
+          if (p.type.functionReturnType case final ret? when isStructName(bareTypeName(ret))) bareTypeName(ret),
+  };
+
+  /// Structs that cross as bytes with no record around them, so their byte
+  /// codec has to be generated: map values and callback returns.
+  late final Set<String> structsCarriedAsBytes = {...mapValueStructs, ...callbackReturnStructs};
+
+  /// The `@HybridStruct` types that need a byte codec (`fromReader` /
+  /// `writeFields`) in a generated file: those [records] embed, those that
+  /// cross as bytes on their own ([structsCarriedAsBytes]), those a method or
+  /// property returns a list of, and every struct nested in one of them.
+  /// In first-use order, which is the order the codecs are emitted in.
+  Set<String> structsNeedingByteCodec(Iterable<BridgeRecordType> records) {
+    final found = <String>{};
+    for (final rt in records) {
+      for (final f in rt.fields) {
+        final name = switch (f.kind) {
+          RecordFieldKind.listRecordObject => f.itemTypeName ?? bareTypeName(f.dartType),
+          RecordFieldKind.recordObject || RecordFieldKind.struct => bareTypeName(f.dartType),
+          _ => null,
+        };
+        if (name != null && isStructName(name)) found.add(name);
+      }
+    }
+    found.addAll(structsCarriedAsBytes);
+    for (final t in [for (final f in functions) f.returnType, for (final p in properties) p.type]) {
+      final item = t.recordListItemType;
+      if (item != null && !t.recordListItemIsPrimitive && isStructName(item) && !isRecordName(item)) found.add(item);
+    }
+    void addNested(String name) {
+      for (final f in _structIndex[name]?.fields ?? const <BridgeField>[]) {
+        final base = bareTypeName(f.type.name);
+        if (isStructName(base) && found.add(base)) addNested(base);
+      }
+    }
+
+    found.toList().forEach(addNested);
+    return found;
+  }
+
+  /// True when a callback that returns Dart type [name] hands native a
+  /// malloc'd `[4B len][payload]` block: a record, a variant or a flat struct.
+  bool callbackReturnsBlock(String name) => isRecordName(name) || isVariantName(name) || isFlatStruct(name);
 
   BridgeVariant? variantByName(String n) => _variantIndex[n];
   BridgeCustomType? customTypeByName(String n) => _customTypeIndex[n];
@@ -498,6 +656,30 @@ class BridgeType {
     this.nativeHandleTypeParam,
     this.isAnyNativeObject = false,
   });
+
+  /// This type without its nullability: `Map<String, int>?` → `Map<String, int>`.
+  BridgeType get nonNullable => BridgeType(
+    name: name.endsWith('?') ? name.substring(0, name.length - 1) : name,
+    isFuture: isFuture,
+    isStream: isStream,
+    isRecord: isRecord,
+    isPointer: isPointer,
+    pointerInnerType: pointerInnerType,
+    recordListItemType: recordListItemType,
+    recordListItemIsPrimitive: recordListItemIsPrimitive,
+    isEnumList: isEnumList,
+    isVariantList: isVariantList,
+    recordListItemIsNullable: recordListItemIsNullable,
+    isMap: isMap,
+    isAnyMap: isAnyMap,
+    isTuple: isTuple,
+    isFunction: isFunction,
+    functionReturnType: functionReturnType,
+    functionParams: functionParams,
+    isNativeHandle: isNativeHandle,
+    nativeHandleTypeParam: nativeHandleTypeParam,
+    isAnyNativeObject: isAnyNativeObject,
+  );
 }
 
 /// A user-defined type registered with [@NitroCustomType] and encoded via a
@@ -674,6 +856,11 @@ class BridgeFunction {
   /// Wire format: `[1B tag: 0=ok, 1=err][payload]`
   final bool isResult;
 
+  /// For a `@NitroResult` method: its ok value described as a record field
+  /// named `value`, classified as the extractor classifies record fields.
+  /// See [BridgeSpec.resultWrapper].
+  final BridgeRecordField? resultField;
+
   /// Declared as a getter (`T get x`) rather than a method. Getters carrying a
   /// method annotation take the method path so every annotation works on them,
   /// but every emitter renders them in property form: Dart `get x`, Swift
@@ -710,8 +897,68 @@ class BridgeFunction {
     this.mainThread = false,
     this.asyncTimeout,
     this.isResult = false,
+    this.resultField,
     this.isGetter = false,
   });
+}
+
+// ── @NitroResult carriers ───────────────────────────────────────────────────
+
+/// How the ok value of a `@NitroResult` method crosses the bridge.
+///
+/// Wire: `[1B tag][record block]`, tag 0 = ok, 1 = error (the block is the
+/// message), 2 = ok and the value is null ([BlockCarrier] only).
+sealed class ResultCarrier {
+  const ResultCarrier();
+}
+
+/// A non-null int, double, bool, String or enum: the value alone in the block.
+final class ScalarCarrier extends ResultCarrier {
+  const ScalarCarrier(this.kind);
+  final ScalarKind kind;
+}
+
+enum ScalarKind { int64, float64, boolean, string, enumValue }
+
+/// A `@HybridRecord`, a tuple or a non-null `@NitroVariant`: its own block.
+final class RecordCarrier extends ResultCarrier {
+  const RecordCarrier();
+}
+
+/// A value sent as a hidden one-field record (see [BridgeSpec.resultWrapper]).
+final class WrappedCarrier extends ResultCarrier {
+  const WrappedCarrier(this.wrapper, {this.wire = WrappedWire.asIs});
+  final BridgeRecordType wrapper;
+  final WrappedWire wire;
+}
+
+/// What a [WrappedCarrier]'s field holds on the wire.
+enum WrappedWire {
+  /// The value's own record-field encoding.
+  asIs,
+
+  /// A `DateTime` as int64 milliseconds since the epoch.
+  dateTime,
+
+  /// A `uint64` as the int64 with the same bits.
+  uint64,
+}
+
+/// A value whose ordinary return is already a self-describing
+/// `[4B len][payload]` block; it goes out behind the tag as it is.
+final class BlockCarrier extends ResultCarrier {
+  const BlockCarrier(this.kind, {required this.isNullable});
+  final BlockKind kind;
+
+  /// A null value is sent as tag 2.
+  final bool isNullable;
+}
+
+enum BlockKind { map, anyMap, variantList, variant }
+
+/// No backend can carry the value: the validator rejects it (E015).
+final class NoCarrier extends ResultCarrier {
+  const NoCarrier();
 }
 
 class BridgeParam {

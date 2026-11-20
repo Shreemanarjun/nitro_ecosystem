@@ -1139,7 +1139,9 @@ void main() {
       final out = SwiftGenerator.generate(statusSpec);
       expect(
         out,
-        contains('ModRegistry.impl?.onStatusTransform(statusCb: { arg0 in TcStatus(rawValue: statusCb(arg0))! })'),
+        // No force-unwrap: a Dart callback that threw returns the exceptional 0,
+        // which need not be a case of the enum.
+        contains('ModRegistry.impl?.onStatusTransform(statusCb: { arg0 in { guard let _e = TcStatus(rawValue: statusCb(arg0)) else { _nitroCallbackReturnedNothing("statusCb") }; return _e }() })'),
       );
       expect(out, isNot(contains('statusCb: { arg0 in statusCb(arg0) }')));
     });
@@ -1612,20 +1614,18 @@ void main() {
 
     test('Kotlin: output map encodes enum with tag 1 + .nativeValue', () {
       final out = KotlinGenerator.generate(_enumMapCoverageSpec());
-      expect(out, contains('_outBb.write(1)'));
-      expect(out, contains('nativeValue'));
+      expect(out, contains(', 1) { o, v -> o.putInt64(v.nativeValue) }'));
     });
 
-    test('Swift: input map uses compactMapValues + Route(rawValue:)', () {
+    test('Swift: input map is read straight into [String: Route]', () {
       final out = SwiftGenerator.generate(_enumMapCoverageSpec());
-      expect(out, contains('compactMapValues'));
-      expect(out, contains('Route(rawValue:'));
+      expect(out, contains('{ r in Route(rawValue: r.readInt())! }'));
+      expect(out, isNot(contains('compactMapValues')));
     });
 
-    test('Swift: output map uses mapValues + .rawValue as Any', () {
+    test('Swift: output map writes .rawValue under tag 1', () {
       final out = SwiftGenerator.generate(_enumMapCoverageSpec());
-      expect(out, contains('mapValues'));
-      expect(out, contains('.rawValue'));
+      expect(out, contains(', 1) { w, v in w.writeInt(v.rawValue) }'));
     });
   });
 

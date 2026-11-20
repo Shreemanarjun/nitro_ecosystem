@@ -89,9 +89,10 @@ void _emitImplClassSetup(CodeWriter writer, BridgeSpec spec) {
   writer.line(
     "  late final Pointer<NativeFinalizerFunction> _nitroFreeFinalizer = _dylib.lookup<NativeFinalizerFunction>('${libStem}_nitro_free').cast();",
   );
-  if (spec.lendsRecordBuffers) {
-    // Hands a lent record buffer to the typed list that views it (see
-    // RecordReader.fromNative). Takes the list as a Dart handle, so not a leaf.
+  if (spec.exportsAdopt) {
+    // Hands a lent record buffer, or a copied typed-data return, to the typed
+    // list that views it (see RecordReader.fromNative). Takes the list as a
+    // Dart handle, so not a leaf.
     writer.line(
       "  late final void Function(Object, Pointer<Void>, int) _nitroAdopt = _dylib.lookupFunction<Void Function(Handle, Pointer<Void>, IntPtr), void Function(Object, Pointer<Void>, int)>('${libStem}_nitro_adopt');",
     );
@@ -481,7 +482,7 @@ void _emitNativeAssetsImplSetup(CodeWriter writer, BridgeSpec spec) {
   final hasStreams = spec.streams.isNotEmpty;
   // Lent record buffers and @zeroCopy returns are adopted through a
   // finalizable handle, which is a DL-API call too.
-  final needsDlInit = hasAsync || hasStreams || spec.lendsRecordBuffers || spec.hasZeroCopyTypedDataReturn;
+  final needsDlInit = hasAsync || hasStreams || spec.exportsAdopt || spec.hasZeroCopyTypedDataReturn;
   // Plain isolate-pool @nitroAsync (callAsync) uses the get/clear error symbols
   // as native pointers (portable across the pool isolate).
   final hasCallAsync = spec.functions.any((f) => f.isAsync && !spec.bridgeAsync(f) && !f.isFireAndForget);
@@ -547,7 +548,7 @@ void _emitNativeAssetsImplSetup(CodeWriter writer, BridgeSpec spec) {
     writer.line(native('Void Function(Int64)', '${libStem}_nitro_ack', leaf: true));
     writer.line('external void _nitroAckPtr(int _p);');
   }
-  if (spec.lendsRecordBuffers) {
+  if (spec.exportsAdopt) {
     writer.line(native('Void Function(Handle, Pointer<Void>, IntPtr)', '${libStem}_nitro_adopt'));
     writer.line('external void _nitroAdopt(Object _list, Pointer<Void> _ptr, int _size);');
   }

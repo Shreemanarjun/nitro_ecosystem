@@ -217,8 +217,8 @@ abstract class Mix extends HybridObject {
       ],
     );
     final swift = SwiftGenerator.generate(spec);
-    expect(swift, contains('impl.tagMap(m: inputMap)'));
-    expect(swift, isNot(contains('impl.tagMap(value: inputMap)')));
+    expect(swift, contains('impl.tagMap(m: mMap)'));
+    expect(swift, isNot(contains('impl.tagMap(value:')));
   });
 
   test("a type-only file building on another type file imports that file's Kotlin package", () {

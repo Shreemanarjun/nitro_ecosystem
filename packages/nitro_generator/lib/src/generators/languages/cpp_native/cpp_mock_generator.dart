@@ -1,6 +1,7 @@
 import '../../../bridge_spec.dart';
 import '../../code_writer.dart';
 import '../../generator_metadata.dart';
+import 'cpp_interface_generator.dart';
 
 /// Generates two test-support files for `NativeImpl.cpp` modules:
 ///
@@ -30,11 +31,13 @@ class CppMockGenerator {
     ];
 
     for (final func in spec.functions) {
-      // Use isRecord so that List<@HybridStruct T>, List<@HybridRecord T>, and bare @HybridRecord all map to NitroCppBuffer.
-      final retCpp = func.returnType.isRecord ? 'NitroCppBuffer' : _cppReturnType(func.returnType.name, enumNames, structNames, recordNames);
-      final params = _mockParams(func.params, enumNames, structNames, recordNames);
-      final paramStr = params.join(', ');
-      classBody.add(CodeLine('MOCK_METHOD($retCpp, ${func.cppName}, ($paramStr), (${func.isGetter ? 'const, ' : ''}override));'));
+      // The interface's own signature: the mock overrides exactly that. A type
+      // with a top-level comma is parenthesised, as MOCK_METHOD requires.
+      final sig = CppInterfaceGenerator.methodSignatureFor(spec, func);
+      String arg(String t) => t.contains(',') ? '($t)' : t;
+      classBody.add(
+        CodeLine('MOCK_METHOD(${arg(sig.ret)}, ${func.cppName}, (${sig.params.join(', ')}), (${sig.qualifier.isEmpty ? '' : 'const, '}override));'),
+      );
     }
 
     for (final prop in spec.properties) {
@@ -112,7 +115,7 @@ class CppMockGenerator {
       final enumNames = spec.enums.map((e) => e.name).toSet();
       final structNames = spec.structs.map((st) => st.name).toSet();
       final recordNames = spec.recordTypes.map((r) => r.name).toSet();
-      final retCpp = f.returnType.isRecord ? 'NitroCppBuffer' : _cppReturnType(f.returnType.name, enumNames, structNames, recordNames);
+      final retCpp = CppInterfaceGenerator.methodSignatureFor(spec, f).ret;
       final exampleRet = _exampleReturnValue(f.returnType.name, retCpp);
       final exampleArgs = f.params
           .map((p) {
@@ -199,33 +202,6 @@ class CppMockGenerator {
     if (recordNames.contains(base)) return 'NitroCppBuffer';
     if (_isTypedData(base)) return '${_typedDataPtr(base)}, size_t';
     return _primitiveType(base);
-  }
-
-  static List<String> _mockParams(
-    List<BridgeParam> params,
-    Set<String> enumNames,
-    Set<String> structNames,
-    Set<String> recordNames,
-  ) {
-    final parts = <String>[];
-    for (final p in params) {
-      final base = bareTypeName(p.type.name);
-      if (_isTypedData(base)) {
-        parts.add('${_typedDataPtr(base)} ${p.name}');
-        parts.add('size_t ${p.name}_length');
-      } else if (base == 'String') {
-        parts.add('const std::string& ${p.name}');
-      } else if (structNames.contains(base)) {
-        parts.add('const $base& ${p.name}');
-      } else if (enumNames.contains(base)) {
-        parts.add('$base ${p.name}');
-      } else if (p.type.isRecord) {
-        parts.add('NitroCppBuffer ${p.name}');
-      } else {
-        parts.add('${_primitiveType(base)} ${p.name}');
-      }
-    }
-    return parts;
   }
 
   static String _exampleReturnValue(String dartType, String cppType) {

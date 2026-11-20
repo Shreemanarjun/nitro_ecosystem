@@ -121,6 +121,16 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
     return isNullable ? '(raw) => raw as String?' : '(raw) => raw as String';
   }
 
+  // Typed data — native posts kInt64 (the address of its
+  // `[8B byteLength][bytes]` block; 0 is null), or the list itself as
+  // kTypedData / kExternalTypedData, which is what a C++ impl usually does.
+  if (func.returnType.isTypedData) {
+    final onNull = isNullable
+        ? 'return null;'
+        : 'throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the list, or make the return type nullable");';
+    return '(raw) { if (raw is $rtBase) return raw; if (raw == null || raw == 0) { $onNull } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); ${_typedDataBlockDecode(rtBase, 'rawPtr').join(' ')} }';
+  }
+
   // NitroAnyMap — native posts kInt64 (pointer to binary AnyMap buffer).
   // isAnyMap is a separate flag from isRecord (spec_extractor sets only
   // isAnyMap: true for NitroAnyMap), so the isRecord branch below never

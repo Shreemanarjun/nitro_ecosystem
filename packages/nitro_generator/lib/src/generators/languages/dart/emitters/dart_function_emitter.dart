@@ -210,13 +210,13 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
           writer.line('    final arena = Arena();');
           writer.line('    try {');
           writer.line('      final res = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$instancedCallArgs], $errArgs)$tox;');
-          _emitResultDecode(writer, resultReturnType, 'res', '      ', spec);
+          _emitResultDecode(writer, func, resultReturnType, 'res', '      ', spec);
           writer.line('    } finally {');
           writer.line('      arena.releaseAll();');
           writer.line('    }');
         } else {
           writer.line('    final res = await NitroRuntime.callAsync<Pointer<Uint8>>(_${func.dartName}Ptr, [$instancedPlainCallArgs], $errArgs)$tox;');
-          _emitResultDecode(writer, resultReturnType, 'res', '    ', spec);
+          _emitResultDecode(writer, func, resultReturnType, 'res', '    ', spec);
         }
       } else if (needsArena) {
         // needsArena path: wrap in try/finally to release arena allocations.
@@ -273,11 +273,11 @@ void _emitFunctionImpls(CodeWriter writer, BridgeSpec spec) {
         if (needsArena) {
           writer.line('${indent}return withArena((arena) {');
           writer.line('$indent  final res = _${func.dartName}Ptr($syncArgs);');
-          _emitResultDecode(writer, resultReturnType, 'res', '$indent  ', spec);
+          _emitResultDecode(writer, func, resultReturnType, 'res', '$indent  ', spec);
           writer.line('$indent});');
         } else {
           writer.line('${indent}final res = _${func.dartName}Ptr($syncArgs);');
-          _emitResultDecode(writer, resultReturnType, 'res', indent, spec);
+          _emitResultDecode(writer, func, resultReturnType, 'res', indent, spec);
         }
       });
     } else {

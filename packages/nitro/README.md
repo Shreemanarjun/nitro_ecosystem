@@ -23,13 +23,18 @@
 
 | Tool | Minimum version |
 |---|---|
-| Flutter SDK | 3.22.0+ |
-| Dart SDK | 3.3.0+ |
+| Dart SDK | 3.11.3+ |
+| Flutter SDK | 3.35.0+, only for a Flutter app or plugin |
 | Android NDK | 26.1+ (r26b) |
 | Kotlin | 1.9.0+ |
 | iOS Deployment Target | 13.0+ |
 | Swift | 5.9+ (Xcode 15+) |
 | Xcode | 15.0+ |
+
+`nitro` is a pure Dart package with no Flutter dependency. It runs in Flutter
+apps, in Dart-only projects (`dart run`, `dart test`, `dart compile exe`) and
+in DartNative; see
+[Where it runs](https://github.com/Shreemanarjun/nitro_ecosystem#where-it-runs).
 
 ---
 
@@ -39,14 +44,10 @@ In your plugin's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  nitro: ^0.8.9
+  nitro: ^0.9.0
 ```
 
-Then run:
-
-```sh
-flutter pub get
-```
+Then run `flutter pub get`, or `dart pub get` in a Dart-only project.
 
 ---
 

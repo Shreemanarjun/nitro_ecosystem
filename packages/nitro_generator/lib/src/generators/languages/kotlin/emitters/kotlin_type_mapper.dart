@@ -1,4 +1,5 @@
 import '../../../../bridge_spec.dart';
+import '../../../../map_wire.dart';
 import '../../../type_mapper.dart';
 
 /// Type mapping for Kotlin code generation.
@@ -29,6 +30,10 @@ class KotlinTypeMapper implements TypeMapper {
   final Set<String> customTypeNames;
   final List<BridgeStruct> structs;
 
+  /// Structs a callback may return: they come back as bytes, like a record
+  /// (see [BridgeSpec.isFlatStruct]).
+  final Set<String> flatStructNames;
+
   KotlinTypeMapper({
     required this.enumNames,
     required this.structNames,
@@ -36,6 +41,7 @@ class KotlinTypeMapper implements TypeMapper {
     required this.variantNames,
     required this.structs,
     this.customTypeNames = const {},
+    this.flatStructNames = const {},
   });
 
   factory KotlinTypeMapper.fromSpec(BridgeSpec spec) => KotlinTypeMapper(
@@ -45,6 +51,10 @@ class KotlinTypeMapper implements TypeMapper {
     variantNames: spec.variants.map((v) => v.name).toSet(),
     customTypeNames: spec.customTypes.map((c) => c.name).toSet(),
     structs: spec.structs,
+    flatStructNames: {
+      for (final s in spec.structs)
+        if (spec.isFlatStruct(s.name)) s.name,
+    },
   );
 
   // ── Core type → Kotlin string ───────────────────────────────────────────────
@@ -133,9 +143,8 @@ class KotlinTypeMapper implements TypeMapper {
       return 'List<${type(inner)}>';
     }
     if (name.startsWith('Map<') && name.endsWith('>')) {
-      final m = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(name);
-      if (m != null) {
-        final valueType = m.group(1)!.trim();
+      final valueType = stringMapValueType(name);
+      if (valueType != null) {
         // type() strips nullability; a nullable VALUE must keep it (tag 0).
         if (valueType.endsWith('?')) {
           return 'Map<String, ${type(valueType.substring(0, valueType.length - 1))}?>';
@@ -161,7 +170,7 @@ class KotlinTypeMapper implements TypeMapper {
     if (customTypeNames.contains(bareCustom)) {
       return t.isNullable ? 'ByteArray?' : 'ByteArray';
     }
-    if (t.isAnyMap) return 'Map<String, Any?>';
+    if (t.isAnyMap) return t.name.endsWith('?') ? 'Map<String, Any?>?' : 'Map<String, Any?>';
     if (t.isRecord && !t.isMap) {
       if (t.recordListItemType != null && !t.recordListItemIsPrimitive) {
         final nullSuffix = t.recordListItemIsNullable ? '?' : '';
@@ -217,8 +226,8 @@ class KotlinTypeMapper implements TypeMapper {
     }
     final bareCustom = bareTypeName(p.type.name);
     if (customTypeNames.contains(bareCustom)) return 'ByteArray';
-    if (p.type.isAnyMap) return 'ByteArray';
-    if (p.type.isMap) return 'ByteArray';
+    // A null map arrives as a null ByteArray.
+    if (p.type.isAnyMap || p.type.isMap) return p.type.name.endsWith('?') || p.isOptional ? 'ByteArray?' : 'ByteArray';
     final isNullableRecord = p.type.isRecord && (p.type.isNullable || p.type.name.endsWith('?'));
     if (p.type.isRecord) return isNullableRecord ? 'ByteArray?' : 'ByteArray';
     // @NitroVariant params arrive as ByteArray [4B len][1B tag][fields]
@@ -340,8 +349,9 @@ class KotlinTypeMapper implements TypeMapper {
       'double' => 'java.lang.Double.longBitsToDouble($invocation)',
       'String' => invocation,
       final t when enumNames.contains(t) => '$t.fromNative($invocation)',
-      // @HybridRecord return: C JNI returns ByteArray with [4B len][payload]; skip prefix and decode.
-      final t when recordNames.contains(t) => 'run { val _b = $invocation; val _bb = java.nio.ByteBuffer.wrap(_b).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bb.getInt(); $t.decodeFrom(_bb) }',
+      // @HybridRecord / flat @HybridStruct return: C JNI returns ByteArray with
+      // [4B len][payload]; skip prefix and decode.
+      final t when recordNames.contains(t) || flatStructNames.contains(t) => 'run { val _b = $invocation; val _bb = java.nio.ByteBuffer.wrap(_b).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bb.getInt(); $t.decodeFrom(_bb) }',
       // @NitroVariant return: same wire format; decode via fromReader.
       final t when variantNames.contains(t) => 'run { val _b = $invocation; val _bb = java.nio.ByteBuffer.wrap(_b).order(java.nio.ByteOrder.LITTLE_ENDIAN); _bb.getInt(); $t.fromReader(${codec(t, 'RecordReader')}(_bb)) }',
       _ => invocation,
@@ -354,7 +364,7 @@ class KotlinTypeMapper implements TypeMapper {
     if (base == 'void') return 'Unit';
     if (base == 'String') return 'String';
     // @HybridRecord / @NitroVariant: C JNI invoker returns jbyteArray (encoded bytes).
-    if (recordNames.contains(base) || variantNames.contains(base)) return 'ByteArray';
+    if (recordNames.contains(base) || variantNames.contains(base) || flatStructNames.contains(base)) return 'ByteArray';
     return 'Long';
   }
 

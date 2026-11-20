@@ -836,7 +836,7 @@ void main() {
     test('@nitroAsync @NitroResult uses DispatchSemaphore + try/catch + encode', () {
       final out = SwiftGenerator.generate(asyncResultSpec());
       expect(out, contains('DispatchSemaphore'));
-      expect(out, contains('var _nitroOk: Double? = nil'));
+      expect(out, contains('var _nitroOk: Optional<Double> = nil'));
       expect(out, contains('var _nitroErr: Error? = nil'));
       expect(out, contains('do { _nitroOk = try await impl.asyncSafeDiv(a: a, b: b) }'));
       expect(out, contains('catch { _nitroErr = error }'));
@@ -1097,142 +1097,23 @@ void main() {
     isTypeOnly: true,
   );
 
-  group('Finding 8 — @Native Union optimization for prim-only @NitroVariant', () {
-    test('prim-only variant emits Union payload type before extension', () {
+  group('a primitive-only @NitroVariant decodes the block natives send', () {
+    // Every native encoder returns `[4B len][1B tag][fields]`. Such a variant
+    // was read through a dart:ffi Union at ptr[0] — the length prefix — so a
+    // one-double case threw "Unknown tag: 9" and a unit case decoded as
+    // another one. (Run for real: the block from RecordWriter.toNative.)
+    test('fromNative goes through the reader, which skips the length prefix', () {
       final code = VariantGenerator.generateDartExtensions(primOnlyVariantSpec());
-      expect(code, contains('final class _PrimResultPayload extends Union'));
-      // Union must appear BEFORE the extension
-      final unionPos = code.indexOf('_PrimResultPayload extends Union');
-      final extPos = code.indexOf('extension PrimResultVariantExt');
-      expect(unionPos, lessThan(extPos));
+      expect(code, contains('static PrimResult fromNative(Pointer<Uint8> ptr) =>'));
+      expect(code, contains('fromReader(RecordReader.fromNative(ptr));'));
+      expect(code, isNot(contains('extends Union')));
+      expect(code, isNot(contains('ptr[0]')));
     });
 
-    test('prim-only Union has @Int64 asInt, @Double asDouble, @Uint8 asBool fields', () {
-      final code = VariantGenerator.generateDartExtensions(primOnlyVariantSpec());
-      expect(code, contains('@Int64() external int asInt;'));
-      expect(code, contains('@Double() external double asDouble;'));
-      expect(code, contains('@Uint8() external int asBool;'));
-    });
-
-    test('prim-only fromNative uses pointer cast instead of RecordReader', () {
-      final code = VariantGenerator.generateDartExtensions(primOnlyVariantSpec());
-      expect(code, contains('(ptr + 1).cast<_PrimResultPayload>().ref'));
-      // The optimized path does NOT call fromReader
-      final fromNativeStart = code.indexOf('static PrimResult fromNative(Pointer<Uint8> ptr)');
-      final fromReaderStart = code.indexOf('static PrimResult fromReader(RecordReader r)');
-      final fromNativeBody = code.substring(fromNativeStart, fromReaderStart);
-      expect(fromNativeBody, isNot(contains('fromReader')));
-    });
-
-    test('prim-only fromNative reads int via p.asInt', () {
-      final code = VariantGenerator.generateDartExtensions(primOnlyVariantSpec());
-      expect(code, contains('PrimInt(value: p.asInt)'));
-    });
-
-    test('prim-only fromNative reads double via p.asDouble', () {
-      final code = VariantGenerator.generateDartExtensions(primOnlyVariantSpec());
-      expect(code, contains('PrimDouble(amount: p.asDouble)'));
-    });
-
-    test('prim-only fromNative reads bool via p.asBool != 0', () {
-      final code = VariantGenerator.generateDartExtensions(primOnlyVariantSpec());
-      expect(code, contains('PrimBool(flag: p.asBool != 0)'));
-    });
-
-    test('prim-only fromNative emits unit case correctly', () {
-      final code = VariantGenerator.generateDartExtensions(primOnlyVariantSpec());
-      expect(code, contains('3 => PrimUnit()'));
-    });
-
-    test('prim-only fromReader is still emitted (used for list deserialization)', () {
+    test('fromReader reads each case', () {
       final code = VariantGenerator.generateDartExtensions(primOnlyVariantSpec());
       expect(code, contains('static PrimResult fromReader(RecordReader r)'));
-      // fromReader still uses readInt8() tag
-      expect(code, contains('r.readInt8()'));
-    });
-
-    test('non-prim variant (String field) does NOT emit Union', () {
-      // FilterResult has a String id field — not prim-only.
-      final code = VariantGenerator.generateDartExtensions(_typeOnlyVariantSpec());
-      expect(code, isNot(contains('extends Union')));
-    });
-
-    test('non-prim variant fromNative still delegates to fromReader', () {
-      final code = VariantGenerator.generateDartExtensions(_typeOnlyVariantSpec());
-      expect(code, contains('fromReader(RecordReader.fromNative(ptr))'));
-    });
-
-    test('non-prim fromReader is unchanged', () {
-      final code = VariantGenerator.generateDartExtensions(_typeOnlyVariantSpec());
-      expect(code, contains('static FilterResult fromReader(RecordReader r)'));
-      expect(code, contains('r.readString()'));
-    });
-
-    test('prim-only writeFields and toNative are unchanged', () {
-      final code = VariantGenerator.generateDartExtensions(primOnlyVariantSpec());
-      expect(code, contains('void writeFields(RecordWriter writer)'));
-      expect(code, contains('Pointer<Uint8> toNative(Allocator alloc)'));
-    });
-
-    test('nullable prim field disqualifies variant from Union optimization', () {
-      final nullableVariant = BridgeVariant(
-        name: 'NullableResult',
-        cases: [
-          BridgeVariantCase(
-            name: 'WithNullableInt',
-            label: 'withNullableInt',
-            fields: [
-              BridgeRecordField(
-                name: 'count',
-                dartType: 'int?',
-                kind: RecordFieldKind.primitive,
-                isNullable: true,
-              ),
-            ],
-          ),
-        ],
-      );
-      final spec = BridgeSpec(
-        dartClassName: '',
-        lib: 'n',
-        namespace: '',
-        sourceUri: 'n.native.dart',
-        variants: [nullableVariant],
-        isTypeOnly: true,
-      );
-      final code = VariantGenerator.generateDartExtensions(spec);
-      // Nullable field → not prim-only → no Union
-      expect(code, isNot(contains('extends Union')));
-      expect(code, contains('fromReader(RecordReader.fromNative(ptr))'));
-    });
-
-    test('enum field disqualifies variant from Union optimization', () {
-      final enumVariant = BridgeVariant(
-        name: 'EnumResult',
-        cases: [
-          BridgeVariantCase(
-            name: 'WithEnum',
-            label: 'withEnum',
-            fields: [
-              BridgeRecordField(
-                name: 'quality',
-                dartType: 'Quality',
-                kind: RecordFieldKind.enumValue,
-              ),
-            ],
-          ),
-        ],
-      );
-      final spec = BridgeSpec(
-        dartClassName: '',
-        lib: 'e',
-        namespace: '',
-        sourceUri: 'e.native.dart',
-        variants: [enumVariant],
-        isTypeOnly: true,
-      );
-      final code = VariantGenerator.generateDartExtensions(spec);
-      expect(code, isNot(contains('extends Union')));
+      expect(code, contains('final tag = r.readInt8();'));
     });
   });
 }

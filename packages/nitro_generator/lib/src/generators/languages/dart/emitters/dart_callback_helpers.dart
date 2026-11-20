@@ -43,8 +43,7 @@ void _assertSupportedCallbackType(
       returnName != 'DateTime' &&
       returnName != 'AnyNativeObject' &&
       !spec.isEnumName(returnName) &&
-      !spec.isRecordName(returnName) &&
-      !spec.isVariantName(returnName)) {
+      !spec.callbackReturnsBlock(returnName)) {
     throw UnsupportedError(
       '${spec.dartClassName}.${func.dartName}() parameter "${param.name}" has callback return type "$returnName", which is not supported. Callback returns currently support void, int, double, bool, String, AnyNativeObject, @HybridEnum, @HybridRecord, and @NitroVariant (and their nullable variants).',
     );
@@ -190,9 +189,9 @@ String _callbackReturnToFFI(String dartType, BridgeSpec spec) {
   if (name == 'String') return 'Pointer<Utf8>'; // strdup'd from native
   if (name == 'AnyNativeObject') return 'Int64'; // raw instanceId, -1 for null
   if (spec.isEnumName(name)) return 'Int64';
-  // @HybridRecord / @NitroVariant: Dart encodes to malloc'd [4B len][payload] buffer.
-  if (spec.isRecordName(name)) return 'Pointer<Uint8>';
-  if (spec.isVariantName(name)) return 'Pointer<Uint8>';
+  // @HybridRecord / @NitroVariant / flat @HybridStruct: Dart encodes to a
+  // malloc'd [4B len][payload] buffer.
+  if (spec.callbackReturnsBlock(name)) return 'Pointer<Uint8>';
   return 'Void';
 }
 
@@ -439,6 +438,13 @@ String? _callbackReturnExpression(BridgeType callbackType, BridgeSpec spec, Stri
       return '(() { final _v = $invocation; return _v == null ? nullptr : _v.toNative(_nitroNativeAllocator); })()';
     }
     return '$invocation.toNative(_nitroNativeAllocator)';
+  }
+  // Flat @HybridStruct return: the same block, from the struct's RecordExt.
+  // The callback runs before the scratch writer is taken: it may encode too.
+  if (spec.isFlatStruct(returnName)) {
+    final onNull = isNullableRet ? 'if (_v == null) return nullptr; ' : '';
+    return '(() { final _v = $invocation; ${onNull}final _w = RecordWriter.acquire(); '
+        'try { _v.writeFields(_w); return _w.toNative(_nitroNativeAllocator); } finally { RecordWriter.release(_w); } })()';
   }
   return invocation;
 }

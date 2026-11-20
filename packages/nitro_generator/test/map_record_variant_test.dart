@@ -270,7 +270,7 @@ void main() {
   group('§33 L4 Map<String, @HybridRecord> — Kotlin generator', () {
     test('§33.1 output map encodes record values with tag 5', () {
       final out = KotlinGenerator.generate(_mapRecordReturnSpec());
-      expect(out, contains('tag: binary record'));
+      expect(out, contains('nitroEncodeMap(_result, 5) { o, v ->'));
     });
 
     test('§33.2 record encode() method called for map value', () {
@@ -280,7 +280,7 @@ void main() {
 
     test('§33.3 blob length written before blob bytes', () {
       final out = KotlinGenerator.generate(_mapRecordReturnSpec());
-      expect(out, contains('_writeInt32(_rBytes.size)'));
+      expect(out, contains('val b = v.encode(); o.putInt32(b.size); o.write(b, 0, b.size)'));
     });
 
     test('§33.4 input record decoded via decodeFrom(ByteBuffer)', () {
@@ -288,10 +288,12 @@ void main() {
       expect(out, contains('decodeFrom'));
     });
 
-    test('§33.5 input skips 4B payload_len prefix before decodeFrom', () {
+    test('§33.5 input skips the blob length and the record\'s own prefix before decodeFrom', () {
       final out = KotlinGenerator.generate(_mapRecordParamSpec());
-      // _bBuf created from blob bytes, skip 4B prefix via getInt()
-      expect(out, contains('_bBuf'));
+      expect(out, contains('nitroDecodeMap(products) { r -> r.p++; r.blob { Product.decodeFrom(it) } }'));
+      // blob(): past `[4B blobLen][4B len]`, and on to the blob's end afterwards.
+      expect(out, contains('val n = int32(); val end = p + n'));
+      expect(out, contains('p = end'));
     });
 
     test('§33.6 output map type is correctly typed (not Any?)', () {
@@ -305,7 +307,7 @@ void main() {
   group('§34 L4 Map<String, @NitroVariant> — Kotlin generator', () {
     test('§34.1 output map encodes variant values with tag 5', () {
       final out = KotlinGenerator.generate(_mapVariantReturnSpec());
-      expect(out, contains('tag: binary variant'));
+      expect(out, contains('nitroEncodeMap(_result, 5) { o, v ->'));
     });
 
     test('§34.2 variant encode() method called for map value', () {
@@ -327,10 +329,11 @@ void main() {
   // ── §35: Map<String, @HybridRecord> — Swift generator ────────────────────
 
   group('§35 L4 Map<String, @HybridRecord> — Swift generator', () {
-    test('§35.1 decode uses compactMapValues with Data blob for records', () {
-      final out = SwiftGenerator.generate(_mapRecordReturnSpec());
-      expect(out, contains('compactMapValues'));
-      expect(out, contains('as? Data'));
+    test('§35.1 decode reads records straight into [String: Product]', () {
+      final out = SwiftGenerator.generate(_mapRecordParamSpec());
+      expect(out, contains('let productsMap: [String: Product] = products.map { _nitroDecodeMap(\$0) { r in r.pos += 8; return Product.fromReader(r) } } ?? [:]'));
+      expect(out, isNot(contains('compactMapValues')));
+      expect(out, isNot(contains('as? Data')));
     });
 
     test('§35.2 record decoded via fromNative in Swift', () {
@@ -343,30 +346,32 @@ void main() {
       expect(out, contains('toNative()'));
     });
 
-    test('§35.4 Swift map binary helper handles tag 5', () {
+    test('§35.4 Swift encode writes a record under tag 5, framed in place', () {
       final out = SwiftGenerator.generate(_mapRecordReturnSpec());
-      expect(out, contains('case 5'));
+      expect(out, contains('_nitroEncodeMap(result, 5) { w, v in w.writeFramed { v.writeFields(\$0) } }'));
     });
 
-    test('§35.5 Swift binary encode writes tag 5 for Data values', () {
-      final out = SwiftGenerator.generate(_mapRecordParamSpec());
-      expect(out, contains('blob = v as? Data'));
-      expect(out, contains('payload.append(5)'));
+    test('§35.5 writeFramed patches both lengths: the blob\'s and the record\'s own', () {
+      final out = SwiftGenerator.generate(_mapRecordReturnSpec());
+      expect(out, contains('var inner = Int32(count - at - 8).littleEndian'));
+      expect(out, contains('var outer = Int32(count - at - 4).littleEndian'));
     });
 
-    test('§35.6 Swift binary decode stores tag 5 as Data', () {
+    test('§35.6 the helpers are generic: no [String: Any] and no Data per value', () {
       final out = SwiftGenerator.generate(_mapRecordReturnSpec());
-      expect(out, contains('result[k] = Data(data[pos..<(pos+bLen)])'));
+      expect(out, contains('private func _nitroEncodeMap<V>(_ map: [String: V], _ tag: UInt8, _ write: (NitroRecordWriter, V) -> Void)'));
+      expect(out, isNot(contains('_nitroEncodeMapBinary')));
+      expect(out, isNot(contains('_nitroDecodeMapBinary')));
     });
   });
 
   // ── §36: Map<String, @NitroVariant> — Swift generator ────────────────────
 
   group('§36 L4 Map<String, @NitroVariant> — Swift generator', () {
-    test('§36.1 decode uses compactMapValues with Data blob for variants', () {
-      final out = SwiftGenerator.generate(_mapVariantReturnSpec());
-      expect(out, contains('compactMapValues'));
-      expect(out, contains('as? Data'));
+    test('§36.1 decode reads variants straight into [String: EventPayload]', () {
+      final out = SwiftGenerator.generate(_mapVariantParamSpec());
+      expect(out, contains('{ r in r.pos += 8; return EventPayload.fromReader(r) }'));
+      expect(out, isNot(contains('compactMapValues')));
     });
 
     test('§36.2 variant decoded via fromReader(NitroRecordReader)', () {
@@ -413,7 +418,7 @@ void main() {
       expect(e008, isEmpty, reason: 'E008 only blocks @HybridStruct map values');
     });
 
-    test('§37.5 Map<String, @HybridStruct> still triggers E008', () {
+    test('§37.5 Map<String, @HybridStruct> is E008 only when the struct is not flat', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -444,9 +449,10 @@ void main() {
           ),
         ],
       );
-      final issues = SpecValidator.validate(spec);
-      final e008 = issues.where((i) => i.code == 'E008');
-      expect(e008, isNotEmpty, reason: 'E008 must block Map<String, @HybridStruct>');
+      // One double field: every backend can carry it as bytes.
+      expect(SpecValidator.validate(spec).where((i) => i.code == 'E008'), isEmpty);
+      expect(spec.isFlatStruct('Point'), isTrue);
+      expect(spec.mapValueStructs, {'Point'});
     });
 
     test('§37.6 Map<String, int> has no map-value errors', () {
@@ -490,15 +496,14 @@ void main() {
     test('§38.3 Kotlin encode: record blob via encode() (includes 4B prefix)', () {
       final out = KotlinGenerator.generate(_mapRecordReturnSpec());
       // Kotlin record.encode() returns [4B payload_len][field bytes]
-      expect(out, contains('encode()'));
-      expect(out, contains('_rBytes.size'));
+      expect(out, contains('val b = v.encode(); o.putInt32(b.size)'));
     });
 
-    test('§38.4 Swift encode: blob includes 4B len prefix from toNative()', () {
-      final out = SwiftGenerator.generate(_mapRecordParamSpec());
-      // toNative() returns pointer to [4B payload_len][field bytes]
-      expect(out, contains('toNative()'));
-      expect(out, contains('loadUnaligned(as: UInt32.self)'));
+    test('§38.4 Swift encode: the blob carries the record\'s own 4B length', () {
+      final out = SwiftGenerator.generate(_mapRecordReturnSpec());
+      // writeFramed reserves `[4B blobLen][4B len]`, then the fields.
+      expect(out, contains('w.writeFramed { v.writeFields(\$0) }'));
+      expect(out, contains('_ = room(8)'));
     });
 
     test('§38.5 no JSON fallback in record-typed map helpers', () {

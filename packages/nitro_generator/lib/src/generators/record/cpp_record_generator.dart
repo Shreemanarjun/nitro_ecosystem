@@ -28,7 +28,7 @@ String _generateCppRecords(BridgeSpec spec) {
   // Imported (shared) records too: a type-only file has no native.g.h of its
   // own, and each module's C++ is its own translation unit, so identical
   // inline definitions per module are fine (as the struct codecs already are).
-  final localRecords = spec.recordTypes;
+  final localRecords = [...spec.recordTypes, ...spec.resultWrappers];
   if (localRecords.isEmpty) return '';
   final enumNames = spec.enums.map((e) => e.name).toSet();
   final structNames = spec.structs.map((st) => st.name).toSet();

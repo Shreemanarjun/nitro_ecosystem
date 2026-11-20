@@ -20,51 +20,10 @@ String _generateDartRecordExtensions(BridgeSpec spec, DartCodecSlice slice) {
   final enumNames = spec.enums.map((e) => e.name).toSet();
   final structNames = spec.structs.map((s) => s.name).toSet();
 
-  // Collect structs directly referenced in record fields, then transitively.
-  final referencedStructs = <String>{};
-  for (final rt in localRecords) {
-    for (final f in rt.fields) {
-      if (f.kind == RecordFieldKind.recordObject || f.kind == RecordFieldKind.listRecordObject) {
-        final typeName = f.kind == RecordFieldKind.listRecordObject ? (f.itemTypeName ?? bareTypeName(f.dartType)) : bareTypeName(f.dartType);
-        if (structMap.containsKey(typeName)) referencedStructs.add(typeName);
-      }
-      // @HybridStruct embedded in @HybridRecord — needs RecordExt (fromReader/writeFields).
-      if (f.kind == RecordFieldKind.struct) {
-        final base = bareTypeName(f.dartType);
-        if (structMap.containsKey(base)) referencedStructs.add(base);
-      }
-    }
-  }
-
-  // Also include structs appearing as List<@HybridStruct T> return types on methods/properties.
-  for (final func in spec.functions) {
-    final item = func.returnType.recordListItemType;
-    if (item != null && !func.returnType.recordListItemIsPrimitive && structMap.containsKey(item) && !spec.isRecordName(item)) {
-      referencedStructs.add(item);
-    }
-  }
-  for (final prop in spec.properties) {
-    final item = prop.type.recordListItemType;
-    if (item != null && !prop.type.recordListItemIsPrimitive && structMap.containsKey(item) && !spec.isRecordName(item)) {
-      referencedStructs.add(item);
-    }
-  }
-
-  void collectNestedDart(String typeName) {
-    final st = structMap[typeName];
-    if (st == null) return;
-    for (final f in st.fields) {
-      final base = bareTypeName(f.type.name);
-      if (structMap.containsKey(base) && !referencedStructs.contains(base)) {
-        referencedStructs.add(base);
-        collectNestedDart(base);
-      }
-    }
-  }
-
-  for (final name in referencedStructs.toList()) {
-    collectNestedDart(name);
-  }
+  // The structs whose byte codec this file emits. A result wrapper
+  // (BridgeSpec.resultWrapper) has no Dart class of its own, but a struct it
+  // carries is decoded with the struct's codec.
+  final referencedStructs = spec.structsNeedingByteCodec([...localRecords, ...spec.resultWrappers]);
   // Codecs live with the declaring file only. A type-only (shared) file emits
   // one for every struct — a record in another file may embed it — and an
   // imported struct never gets a second copy: the importer resolves the
@@ -394,6 +353,18 @@ String _readExpr(BridgeRecordField f) {
       }
       return '${base}RecordExt.fromReader(r)';
   }
+}
+
+/// How Dart reads a `@NitroResult` value sent in a result wrapper: the
+/// wrapper's one field, off a reader named `r`.
+String dartWrappedResultRead(WrappedCarrier carrier) {
+  final field = carrier.wrapper.fields.single;
+  final read = _readExpr(field);
+  return switch (carrier.wire) {
+    WrappedWire.dateTime when field.isNullable => 'r.readNullTag() ? null : DateTime.fromMillisecondsSinceEpoch(r.readInt())',
+    WrappedWire.dateTime => 'DateTime.fromMillisecondsSinceEpoch($read)',
+    WrappedWire.asIs || WrappedWire.uint64 => read,
+  };
 }
 
 /// The writer method that encodes a whole `List<item>` in one call, if any.

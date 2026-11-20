@@ -518,16 +518,12 @@ void main() {
       expect(out, contains('Map<String, String>'));
     });
 
-    test('Map<String, int> → _inputMap is mutableMapOf<String, Long> (no Any?)', () {
+    test('Map<String, int> → decoded and encoded as Long, with no cast and no Any?', () {
       final out = KotlinGenerator.generate(mapSpec('int'));
-      expect(out, contains('mutableMapOf<String, Long>()'));
-      expect(out, isNot(contains('mutableMapOf<String, Any?>()')));
-    });
-
-    test('Map<String, int> → output cast uses Map<String, Long> (no Any?)', () {
-      final out = KotlinGenerator.generate(mapSpec('int'));
-      expect(out, contains('as? Map<String, Long>'));
-      expect(out, isNot(contains('as? Map<String, Any?>')));
+      expect(out, contains('nitroDecodeMap(input) { r -> r.p++; r.int64() }'));
+      expect(out, contains('nitroEncodeMap(_result, 1) { o, v -> o.putInt64(v) }'));
+      expect(out, isNot(contains('as? Map<')));
+      expect(out, isNot(contains('Map<String, Any?>')));
     });
 
     test('Map<String, int> → output write uses typed v directly (no (v as Number))', () {
