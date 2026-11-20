@@ -2,9 +2,7 @@ part of '../dart_ffi_generator.dart';
 
 void _collectMapValueTypes(BridgeType t, Set<String> out) {
   if (!t.isMap) return;
-  final m = RegExp(r'^Map<String,\s*(.+)>$').firstMatch(t.name);
-  final vt = m?.group(1)?.trim() ?? 'dynamic';
-  out.add(vt);
+  out.add(stringMapValueType(t.name) ?? 'dynamic');
 }
 
 // ── Int-key map support (Gap #3) ─────────────────────────────────────────────
@@ -233,6 +231,7 @@ void _emitMapBinaryHelpers(CodeWriter writer, String vt, BridgeSpec spec) {
   final isEnum = spec.isEnumName(base);
   final isRecord = spec.recordTypes.any((r) => r.name == base);
   final isVariant = spec.isVariantName(base);
+  final isStruct = spec.isStructName(base);
   final isRecordOrVariant = isRecord || isVariant;
   // Encode helper: Map<String, VT> → length-prefixed binary Pointer<Uint8>
   // Use camelCase function names to satisfy Dart lint.
@@ -285,12 +284,12 @@ void _emitMapBinaryHelpers(CodeWriter writer, String vt, BridgeSpec spec) {
     writer.line('}');
     writer.blankLine();
   } else {
-    _emitMapBinaryEncodeViaBuilder(writer, vt, suffix, base, nullable, isEnum, isRecordOrVariant);
+    _emitMapBinaryEncodeViaBuilder(writer, vt, suffix, base, nullable, isEnum, isRecordOrVariant, isStruct);
   }
-  _emitMapBinaryDecode(writer, vt, suffix, base, nullable, isEnum, isRecord, isVariant, spec);
+  _emitMapBinaryDecode(writer, vt, suffix, base, nullable, isEnum, isRecord, isVariant, isStruct, spec);
 }
 
-void _emitMapBinaryEncodeViaBuilder(CodeWriter writer, String vt, String suffix, String base, bool nullable, bool isEnum, bool isRecordOrVariant) {
+void _emitMapBinaryEncodeViaBuilder(CodeWriter writer, String vt, String suffix, String base, bool nullable, bool isEnum, bool isRecordOrVariant, bool isStruct) {
   writer.line('Pointer<Uint8> _nitroEncodeMapBinary$suffix(Map<String, $vt> m, Allocator alloc) {');
   writer.line('  final bytes = _nitroMapPayload(m, (h, bb, v) {');
   if (nullable) {
@@ -316,6 +315,15 @@ void _emitMapBinaryEncodeViaBuilder(CodeWriter writer, String vt, String suffix,
       writer.line('    final _recLen = ByteData.sublistView(_rec.asTypedList(4)).getInt32(0, Endian.little) + 4;');
       writer.line('    h.setInt32(0, _recLen, Endian.little); bb.add(h.buffer.asUint8List(0, 4));');
       writer.line('    bb.add(_rec.asTypedList(_recLen));');
+    case _ when isStruct:
+      // @HybridStruct: tag 5 + [4B blob_len][4B len][field bytes], the framing
+      // a record has. Its fields come from the struct's RecordExt.
+      writer.line('    bb.addByte(${MapValueWire.blob.tag});');
+      writer.line('    final _w = RecordWriter.acquire();');
+      writer.line('    (v as $base).writeFields(_w);');
+      writer.line('    h.setInt32(0, _w.payloadLength + 4, Endian.little); h.setInt32(4, _w.payloadLength, Endian.little);');
+      writer.line('    bb.add(h.buffer.asUint8List(0, 8)); bb.add(_w.payloadView());');
+      writer.line('    RecordWriter.release(_w);');
     default:
       // dynamic fallback: encode as JSON string with tag 4
       writer.line('    bb.addByte(${MapValueWire.string.tag}); final vb = utf8.encode(jsonEncode(v)); h.setInt32(0, vb.length, Endian.little);');
@@ -334,7 +342,7 @@ void _emitMapBinaryEncodeViaBuilder(CodeWriter writer, String vt, String suffix,
   writer.blankLine();
 }
 
-void _emitMapBinaryDecode(CodeWriter writer, String vt, String suffix, String base, bool nullable, bool isEnum, bool isRecord, bool isVariant, BridgeSpec spec) {
+void _emitMapBinaryDecode(CodeWriter writer, String vt, String suffix, String base, bool nullable, bool isEnum, bool isRecord, bool isVariant, bool isStruct, BridgeSpec spec) {
   // Decode helper: Pointer<Uint8> → Map<String, VT>
   writer.line('Map<String, $vt> _nitroDecodeMapBinary$suffix(Pointer<Uint8> ptr) {');
   // Decoded where it lies, without a copy to the Dart heap first. The copy was
@@ -382,12 +390,13 @@ void _emitMapBinaryDecode(CodeWriter writer, String vt, String suffix, String ba
       writer.line('    final v = bd.getInt64(pos, Endian.little).to$base(); pos += 8;');
     // @HybridRecord / @NitroVariant: tag 5 + 4B blob_len + encode() bytes.
     // Both read an identical blob; only the decode entry point differs.
-    case _ when isRecord || isVariant:
-      skipTag('5=binary ${isRecord ? 'record' : 'variant'} for Map<String,$vt>');
+    // A @HybridStruct is framed like a record, and its RecordExt reads it.
+    case _ when isRecord || isVariant || isStruct:
+      skipTag('5=binary ${isVariant ? 'variant' : (isStruct ? 'struct' : 'record')} for Map<String,$vt>');
       // The blob is a framed record inside the map's own buffer: decode it
       // there (was a malloc, a copy and a free per entry).
       writer.line('    final _bLen = bd.getInt32(pos, Endian.little); pos += 4;');
-      final decodeExt = isRecord ? _recordDecodeExtName(spec, base) : _variantDecodeExtName(spec, base);
+      final decodeExt = isVariant ? _variantDecodeExtName(spec, base) : _recordDecodeExtName(spec, base);
       writer.line('    final v = $decodeExt.fromNative(ptr + 4 + pos); pos += _bLen;');
     default:
       // dynamic: dispatch on tag to decode the right type

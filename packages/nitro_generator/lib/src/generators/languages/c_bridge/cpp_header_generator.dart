@@ -143,7 +143,7 @@ class CppHeaderGenerator {
       // CoTaskMemFree on Windows, which corrupts the heap on malloc'd pointers.
       CodeLine('NITRO_EXPORT void ${libStem}_nitro_free(void* ptr);'),
       // `list` is a Dart_Handle; void* keeps this header free of dart_api.h.
-      if (spec.lendsRecordBuffers) CodeLine('NITRO_EXPORT void ${libStem}_nitro_adopt(void* list, void* ptr, intptr_t size);'),
+      if (spec.exportsAdopt) CodeLine('NITRO_EXPORT void ${libStem}_nitro_adopt(void* list, void* ptr, intptr_t size);'),
       CodeLine('NITRO_EXPORT void* ${libStem}_nitro_alloc(size_t size);'),
       if (spec.entryPoints.isNotEmpty) ...[
         CodeLine('// @NitroEntryPoint background job table (see nitro_background.h).'),
@@ -402,7 +402,7 @@ class CppHeaderGenerator {
         return 'size_t';
       default:
         // NitroAnyMap and Map<String, T> both bridge as length-prefixed binary buffers.
-        if (dartType == 'NitroAnyMap' || dartType.startsWith('Map<')) return 'uint8_t*';
+        if (bareTypeName(dartType) == 'NitroAnyMap' || dartType.startsWith('Map<')) return 'uint8_t*';
         return 'void*';
     }
   }

@@ -98,7 +98,11 @@ void main() {
   test('C++: the twin copies every pointer argument, runs the sync export on the pool, forwards the TLS error, posts by kind', () {
     final cpp = CppBridgeGenerator.generate(spec);
     expect(cpp, contains('#include "nitro_worker_pool.h"'));
-    expect(cpp, contains('static NitroWorkerPool g_nitro_pool_demo;'));
+    // Never a static object: destroying it at exit() while its detached workers
+    // wait on its condition variable blocks forever on glibc (the Linux process
+    // did not exit after one async call).
+    expect(cpp, contains('static NitroWorkerPool& g_nitro_pool_demo = *new NitroWorkerPool();'));
+    expect(cpp, isNot(contains('static NitroWorkerPool g_nitro_pool_demo;')));
     final twin = cpp.substring(cpp.indexOf('NITRO_EXPORT void demo_echo_dispatch('), cpp.indexOf('NITRO_EXPORT void demo_name_dispatch('));
     expect(twin, contains('std::string _c_label(label ? label : ""); const bool _n_label = label == nullptr;'));
     expect(twin, contains('std::vector<uint8_t> _c_bytes = _nitro_copy_bytes(bytes, (size_t)bytes_length * sizeof(*bytes));'));

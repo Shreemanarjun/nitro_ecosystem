@@ -103,9 +103,11 @@ void main() {
       expect(out, contains('Task.detached'));
     });
 
-    test('Future<Uint8List> async stub calls impl.getData via try? await', () {
+    test('Future<Uint8List> async stub awaits impl.getData and keeps a thrown error', () {
       final out = SwiftGenerator.generate(_asyncTypedDataSpec('Uint8List'));
-      expect(out, contains('try? await impl.getData()'));
+      expect(out, contains('do { result = try await impl.getData() }'));
+      expect(out, contains('catch { _thrownError = error }'));
+      expect(out, isNot(contains('try? await impl.getData()')));
     });
 
     test('Future<Uint8List> async stub signals semaphore after await', () {

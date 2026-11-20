@@ -37,28 +37,71 @@ enum MapValueWire {
   final int tag;
 }
 
-/// Classifies a map VALUE type into its wire category.
+final _stringKeyMap = RegExp(r'^Map<String,\s*(.+)>\??$');
+
+/// The declared value type of `Map<String, V>` or `Map<String, V>?`: `V` with
+/// its own `?` kept. Null when [mapTypeName] is not a String-key map.
+String? stringMapValueType(String mapTypeName) => _stringKeyMap.firstMatch(mapTypeName)?.group(1)?.trim();
+
+/// What a map VALUE type is. Several kinds share a wire ([wire]): an emitter
+/// switches over the kind to pick the conversion, and writes the kind's tag.
+enum MapValueKind {
+  int64(MapValueWire.int64),
+  float64(MapValueWire.float64),
+  boolean(MapValueWire.boolean),
+  string(MapValueWire.string),
+
+  /// A `@HybridEnum`, as its raw value.
+  enumValue(MapValueWire.int64),
+
+  /// A `@HybridRecord`, framed.
+  record(MapValueWire.blob),
+
+  /// A `@NitroVariant`, framed.
+  variant(MapValueWire.blob),
+
+  /// A `@HybridStruct`, framed like a record: its fields in declaration order.
+  struct(MapValueWire.blob),
+
+  /// Anything else: its string form on the string wire.
+  dynamic(MapValueWire.string);
+
+  const MapValueKind(this.wire);
+  final MapValueWire wire;
+}
+
+/// Classifies a map VALUE type.
 ///
 /// Every backend used to re-derive this precedence in its own if/else ladder —
 /// enum before record before variant before the dynamic fallback — so the five
-/// orderings could disagree. [isEnum], [isRecord] and [isVariant] come from the
-/// spec because this library does not depend on it.
+/// orderings could disagree. [isEnum], [isRecord], [isVariant] and [isStruct]
+/// come from the spec because this library does not depend on it.
+MapValueKind mapValueKindOf(
+  String valueType, {
+  required bool Function(String) isEnum,
+  required bool Function(String) isRecord,
+  required bool Function(String) isVariant,
+  bool Function(String)? isStruct,
+}) => switch (valueType) {
+  'int' => MapValueKind.int64,
+  'double' => MapValueKind.float64,
+  'bool' => MapValueKind.boolean,
+  'String' => MapValueKind.string,
+  final t when isEnum(t) => MapValueKind.enumValue,
+  final t when isRecord(t) => MapValueKind.record,
+  final t when isVariant(t) => MapValueKind.variant,
+  final t when isStruct != null && isStruct(t) => MapValueKind.struct,
+  _ => MapValueKind.dynamic,
+};
+
+/// The wire category of a map VALUE type (see [mapValueKindOf]).
 MapValueWire mapValueWireOf(
   String valueType, {
   required bool Function(String) isEnum,
   required bool Function(String) isRecord,
   required bool Function(String) isVariant,
-}) => switch (valueType) {
-  'int' => MapValueWire.int64,
-  'double' => MapValueWire.float64,
-  'bool' => MapValueWire.boolean,
-  'String' => MapValueWire.string,
-  // A @HybridEnum rides the int64 wire as its raw value.
-  final t when isEnum(t) => MapValueWire.int64,
-  final t when isRecord(t) || isVariant(t) => MapValueWire.blob,
-  // Anything else is JSON-encoded into the string wire.
-  _ => MapValueWire.string,
-};
+  bool Function(String)? isStruct,
+}) => mapValueKindOf(valueType, isEnum: isEnum, isRecord: isRecord, isVariant: isVariant, isStruct: isStruct).wire;
 
 /// Value types that may be nullable on the tagged String-key wire.
 ///

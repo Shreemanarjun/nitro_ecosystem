@@ -95,6 +95,9 @@ class NitroRuntime {
   ///   is why generated exports are marked `REFERENCED_DYNAMICALLY` (a `.desc`
   ///   asm block) — otherwise the Xcode archive strip (`STRIP_STYLE=all`) drops
   ///   them and `dlsym` fails at runtime (nitro_http#3).
+  ///   A Dart-only macOS process has no such binary; there the bridge is
+  ///   `lib$libName.dylib` on the loader's search path (`DYLD_LIBRARY_PATH`,
+  ///   the working directory), opened when the process does not have it.
   /// - **Android** → `DynamicLibrary.open('lib$libName.so')`, the **bare name**,
   ///   never a resolved file path. A modern APK (`extractNativeLibs=false`) maps
   ///   the `.so` straight out of the archive with no on-disk path, so a
@@ -113,6 +116,18 @@ class NitroRuntime {
       late DynamicLibrary lib;
       if (Platform.isIOS || Platform.isMacOS) {
         lib = DynamicLibrary.process();
+        // A Dart-only process (`dart run` / `test` / `compile`) has no app
+        // binary with the bridge linked in: the plugin is its own dylib on the
+        // loader's search path. `<lib>_init_dart_api_dl` is the first symbol
+        // every generated bridge looks up. If the dylib is not there either,
+        // keep process(): the lookup then reports the missing symbol as before.
+        if (Platform.isMacOS && !lib.providesSymbol('${libName}_init_dart_api_dl')) {
+          try {
+            lib = DynamicLibrary.open('lib$libName.dylib');
+          } on ArgumentError {
+            // Not a Dart-only layout.
+          }
+        }
       } else if (Platform.isAndroid) {
         lib = DynamicLibrary.open('lib$libName.so');
       } else if (Platform.isWindows) {

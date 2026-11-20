@@ -58,19 +58,16 @@ void main() {
   test('every backend writes the same tag for the same value type', () {
     for (final (type, wire) in [('int', MapValueWire.int64), ('double', MapValueWire.float64), ('bool', MapValueWire.boolean)]) {
       expect(DartFfiGenerator.generate(_spec(type)), anyOf(contains('bb.addByte(${wire.tag})'), contains('out[pos++] = ${wire.tag};')), reason: 'dart/$type');
-      expect(KotlinGenerator.generate(_spec(type)), contains('_outBb.write(${wire.tag})'), reason: 'kotlin/$type');
+      expect(KotlinGenerator.generate(_spec(type)), contains(', ${wire.tag}) { o, v ->'), reason: 'kotlin/$type');
+      expect(SwiftGenerator.generate(_spec(type)), contains(', ${wire.tag}) { w, v in'), reason: 'swift/$type');
     }
-    // Swift shares one codec across all value types.
-    final swift = SwiftGenerator.generate(_spec('int'));
-    expect(swift, contains('payload.append(${MapValueWire.nul.tag})'));
-    expect(swift, contains('case ${MapValueWire.int64.tag}: result[k] = readLE64()'));
     // Web tags via the shared classifier.
     expect(WebBridgeGenerator.generate(_spec('int', web: true)), contains('w.writeInt8(${MapValueWire.int64.tag})'));
   });
 
-  // The web backend gets COMPILE-time exhaustiveness (switch over WireKind).
-  // The other four map types by name, so this is the test-time equivalent:
-  // adding a MapValueWire variant fails here until every backend emits it.
+  // Web, Kotlin and Swift get COMPILE-time exhaustiveness (a switch over
+  // WireKind or MapValueKind). This is the test-time equivalent for Dart, and
+  // proof the others write the tag the table names.
   test('every backend emits every wire variant', () {
     const sample = {
       MapValueWire.nul: 'int?',
@@ -97,13 +94,17 @@ void main() {
       expect(dart, anyOf(contains('bb.addByte(${wire.tag})'), contains('out[pos++] = ${wire.tag};')), reason: 'dart missing ${wire.name}');
 
       final kotlin = KotlinGenerator.generate(_spec(type));
-      expect(kotlin, contains('${wire.tag})'), reason: 'kotlin missing ${wire.name}');
-    }
-
-    // Swift's single shared codec must name every tag in both directions.
-    final swift = SwiftGenerator.generate(_spec('int'));
-    for (final wire in MapValueWire.values) {
-      expect(swift, contains('case ${wire.tag}:'), reason: 'swift decode missing ${wire.name}');
+      final swift = SwiftGenerator.generate(_spec(type));
+      if (wire == MapValueWire.nul) {
+        // Tag 0 is the absent value: read as null, written with no value after it.
+        expect(kotlin, contains('{ r -> if (r.byte() == ${wire.tag}) null else r.int64() }'));
+        expect(kotlin, contains('if (v == null) { out.putByte(${wire.tag}); continue }'));
+        expect(swift, contains('_nitroDecodeNullableMap(\$0) { r in r.readInt() }'));
+        expect(swift, contains('w.writeByte(${wire.tag})'));
+        continue;
+      }
+      expect(kotlin, contains(', ${wire.tag}) { o, v ->'), reason: 'kotlin missing ${wire.name}');
+      expect(swift, contains(', ${wire.tag}) { w, v in'), reason: 'swift missing ${wire.name}');
     }
   });
 

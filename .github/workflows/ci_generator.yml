@@ -29,11 +29,14 @@ jobs:
       # Resolve the full workspace from the root so every member is available.
       # Running pub get from a sub-package would fail because the root
       # pubspec.yaml declares workspace members that CI must be able to locate.
+      # The Flutter SDK is needed for this step only (the workspace also holds
+      # the Flutter examples). The four packages are pure Dart, so their tests
+      # run with `dart test`: a test that needs Flutter would fail here.
       - name: Get workspace dependencies
         run: flutter pub get
 
       - name: Run nitro_generator tests
-        run: flutter test --reporter expanded
+        run: dart test --reporter expanded
         working-directory: packages/nitro_generator
 
       # Text assertions cannot catch "this does not build" — issue #40 shipped
@@ -113,7 +116,7 @@ jobs:
         run: flutter pub get
 
       - name: Run nitro runtime tests
-        run: flutter test --reporter expanded
+        run: dart test --reporter expanded
         working-directory: packages/nitro
 
   analyze:
@@ -166,7 +169,7 @@ jobs:
       # catch stale output, a drifted --version and the Emscripten-only header
       # leaking into Apple SwiftPM targets. None of that was covered by CI.
       - name: Run nitrogen_cli tests
-        run: flutter test --reporter expanded
+        run: dart test --reporter expanded
         working-directory: packages/nitrogen_cli
 
   build-yaml-drift:
@@ -185,5 +188,5 @@ jobs:
         run: flutter pub get
 
       - name: Verify build.yaml matches build_extensions
-        run: flutter test test/build_yaml_drift_test.dart
+        run: dart test test/build_yaml_drift_test.dart
         working-directory: packages/nitro_generator

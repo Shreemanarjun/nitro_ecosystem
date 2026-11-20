@@ -285,22 +285,20 @@ void main() {
       test('emits .nativeValue for output map encode', () {
         final code = KotlinGenerator.generate(_enumMapSpec());
         // Output encode should use nativeValue and tag 1
-        expect(code, contains('nativeValue'));
-        expect(code, contains('_outBb.write(1)'));
+        expect(code, contains('nitroEncodeMap(_result, 1) { o, v -> o.putInt64(v.nativeValue) }'));
       });
     });
 
     group('Swift generator', () {
-      test('emits compactMapValues for enum input decode', () {
+      test('decodes an enum map straight into [String: Route]', () {
         final code = SwiftGenerator.generate(_enumMapSpec());
-        expect(code, contains('compactMapValues'));
-        expect(code, contains('Route(rawValue:'));
+        expect(code, contains('{ r in Route(rawValue: r.readInt())! }'));
+        expect(code, isNot(contains('compactMapValues')));
       });
 
-      test('emits mapValues with rawValue for enum output encode', () {
+      test('encodes an enum map by raw value under tag 1', () {
         final code = SwiftGenerator.generate(_enumMapSpec());
-        expect(code, contains('mapValues'));
-        expect(code, contains('rawValue'));
+        expect(code, contains(', 1) { w, v in w.writeInt(v.rawValue) }'));
       });
     });
 

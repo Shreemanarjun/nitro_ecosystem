@@ -8,9 +8,6 @@
 //   * NativeCallable.listener — how generated code delivers Dart callbacks to
 //                               native; invoking its address from another
 //                               isolate is exactly a native thread calling it.
-//   * PluginUtilities          — the only way native can *locate* a Dart
-//                               function without a live reference to it
-//                               (needs @pragma('vm:entry-point') under AOT).
 //
 // Numbers print to the test output; assertions are about capability only.
 // ignore_for_file: avoid_print — the latencies are the point of this file.
@@ -23,11 +20,6 @@ import 'dart:io';
 import 'dart:isolate';
 import 'package:ffi/ffi.dart';
 import 'package:test/test.dart';
-
-// dart:ui is Flutter-only; the stub lets this file compile under `dart test`
-// and the one dart:ui test skips there (runs under `flutter test`).
-import 'src/plugin_utilities_stub.dart'
-    if (dart.library.ui) 'src/plugin_utilities_ui.dart';
 
 // Dart_CObject layout: int32 type @0, union @8 (8-aligned). kInt64 == 3.
 const _kInt64 = 3;
@@ -42,11 +34,6 @@ Pointer<Void> _int64Obj(int v) {
   (p + 8).cast<Int64>().value = v;
   return p.cast();
 }
-
-@pragma('vm:entry-point')
-int backgroundEntry(int x) => x * 2;
-
-int plainTopLevel(int x) => x + 1;
 
 void main() {
   group('native → Dart delivery (what every completion/stream/callback rides on)', () {
@@ -113,19 +100,10 @@ void main() {
   });
 
   group('background invocation of Dart (a headless engine or fresh isolate)', () {
-    test('a function can be located by handle — the entry-point mechanism Nitro does not wrap', () {
-      final h = PluginUtilities.getCallbackHandle(backgroundEntry);
-      expect(h, isNotNull);
-      final f = PluginUtilities.getCallbackFromHandle(h!)! as int Function(int);
-      expect(f(21), 42);
-      // Works for any top-level function in JIT; under AOT only functions
-      // carrying @pragma('vm:entry-point') survive tree-shaking for this.
-      expect(PluginUtilities.getCallbackHandle(plainTopLevel), isNotNull);
-    }, skip: hasDartUi ? null : 'dart:ui (PluginUtilities) — run under `flutter test`');
-
-    test('Nitro closes the gap with @NitroEntryPoint: a runtime helper, no callback handles', () {
+    test('@NitroEntryPoint is a runtime helper: no callback handles, no Flutter', () {
       // The generated `@pragma('vm:entry-point')` wrapper references the user
-      // function directly, so PluginUtilities handles are never needed.
+      // function directly, so dart:ui's PluginUtilities is never needed and the
+      // runtime stays usable from a plain Dart or DartNative project.
       final src = File('lib/nitro.dart').readAsStringSync() +
           Directory('lib/src').listSync(recursive: true).whereType<File>()
               .where((f) => f.path.endsWith('.dart'))
@@ -133,6 +111,8 @@ void main() {
       expect(src, contains("export 'src/nitro_background.dart'"));
       expect(src, contains('class NitroBackground'));
       expect(src, isNot(contains('PluginUtilities')));
+      expect(src, isNot(contains('dart:ui')));
+      expect(src, isNot(contains('package:flutter')));
     });
   });
 }

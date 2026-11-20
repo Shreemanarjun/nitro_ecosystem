@@ -1,5 +1,6 @@
 import '../../../../bridge_spec.dart';
 import '../../../type_mapper.dart';
+import 'swift_map_emitter.dart';
 
 /// Type-mapping helpers for Swift `@_cdecl` bridge generation.
 ///
@@ -34,6 +35,11 @@ class SwiftTypeMapper implements TypeMapper {
       final paramList = params.asMap().entries.map((e) => '_: ${swiftType(e.value.name, bridgeType: e.value)}').join(', ');
       return '($paramList) -> ${swiftType(returnType)}';
     }
+
+    // A map is a typed dictionary ([String: Int64], [String: Config]); an
+    // any-map holds heterogeneous values.
+    if (bridgeType?.isAnyMap == true || name == 'NitroAnyMap') return isOptional ? '[String: Any]?' : '[String: Any]';
+    if (name.startsWith('Map<String,')) return SwiftMapEmitter.swiftType(t, spec);
 
     String baseType;
     switch (name) {
@@ -246,7 +252,7 @@ class SwiftTypeMapper implements TypeMapper {
     final retSwift = switch (retBase) {
       'void' when retDart == null || retDart == 'void' => 'Void',
       'String' => 'UnsafeMutablePointer<CChar>?',
-      _ when _recordNames.contains(retBase) || _variantNames.contains(retBase) => 'UnsafeMutablePointer<UInt8>?', // [4B len][payload] malloc'd by Dart
+      _ when spec.callbackReturnsBlock(retBase) => 'UnsafeMutablePointer<UInt8>?', // [4B len][payload] malloc'd by Dart
       _ => 'Int64',
     };
     return '@convention(c) (${paramParts.join(', ')}) -> $retSwift';
@@ -371,6 +377,7 @@ class SwiftTypeMapper implements TypeMapper {
     final isNullableRet = retDart?.endsWith('?') ?? false;
     final retName = retDart == null ? 'void' : bareTypeName(retDart);
     String callExpr = '$cbName(${callArgsList.join(', ')})';
+    final failed = '_nitroCallbackReturnedNothing("${p.name}")';
     String bodyCall;
     switch (retDart) {
       case _ when !needsReturn:
@@ -381,15 +388,25 @@ class SwiftTypeMapper implements TypeMapper {
         bodyCall = '{ let _cs = $callExpr; let _str = _nitroStringFromCString(_cs); _cs.map { free(\$0) }; return _str }()';
       case 'bool':
         bodyCall = '($callExpr) != 0';
+      // A Dart callback that threw hands back nothing (a null pointer, or the
+      // exceptional 0): that is reported from the call that invoked it, never
+      // force-unwrapped (see _nitroCallbackReturnedNothing).
       case _ when _enumNames.contains(retName):
-        bodyCall = '$retName(rawValue: $callExpr)!';
+        bodyCall = '{ guard let _e = $retName(rawValue: $callExpr) else { $failed }; return _e }()';
       case _ when _recordNames.contains(retName) || _variantNames.contains(retName):
         // @HybridRecord / @NitroVariant: Dart returns malloc'd [4B len][payload].
         // Swift receives UnsafeMutablePointer<UInt8>?; decode and free.
         if (isNullableRet) {
           bodyCall = '{ let _p = $callExpr; guard let _pp = _p else { return nil }; let _r = $retName.fromNative(_pp); free(_pp); return _r }()';
         } else {
-          bodyCall = '{ let _p = $callExpr!; let _r = $retName.fromNative(_p); free(_p); return _r }()';
+          bodyCall = '{ guard let _p = $callExpr else { $failed }; let _r = $retName.fromNative(_p); free(_p); return _r }()';
+        }
+      case _ when spec.isFlatStruct(retName):
+        // Flat @HybridStruct: the same block, read by the struct's byte codec.
+        if (isNullableRet) {
+          bodyCall = '{ let _p = $callExpr; guard let _pp = _p else { return nil }; let _r = $retName.fromReader(NitroRecordReader(ptr: _pp)); free(_pp); return _r }()';
+        } else {
+          bodyCall = '{ guard let _p = $callExpr else { $failed }; let _r = $retName.fromReader(NitroRecordReader(ptr: _p)); free(_p); return _r }()';
         }
       default:
         bodyCall = callExpr;

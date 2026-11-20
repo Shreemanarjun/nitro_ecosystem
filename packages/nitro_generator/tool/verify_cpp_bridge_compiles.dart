@@ -11,6 +11,7 @@ import 'package:nitro_annotations/nitro_annotations.dart';
 import 'package:nitro_generator/src/bridge_spec.dart';
 import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
 import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_header_generator.dart';
+import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_impl_generator.dart';
 import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
 
 /// All-cpp module with a @zeroCopy struct field — the issue #40 repro.
@@ -85,6 +86,25 @@ BridgeSpec _webWasmSpec() => BridgeSpec(
     ),
   ],
   functions: [
+    // @NitroResult on web: a value with its own encoding, and a wrapped one
+    // (BridgeSpec.resultWrapper), through the same all-C++ bridge under em++.
+    BridgeFunction(
+      dartName: 'tryCount',
+      cSymbol: 'web_repro_try_count',
+      isAsync: false,
+      isResult: true,
+      returnType: BridgeType(name: 'int'),
+      params: [],
+    ),
+    BridgeFunction(
+      dartName: 'tryBytes',
+      cSymbol: 'web_repro_try_bytes',
+      isAsync: false,
+      isResult: true,
+      returnType: BridgeType(name: 'Uint8List?', isNullable: true),
+      resultField: BridgeRecordField(name: 'value', dartType: 'Uint8List?', kind: RecordFieldKind.typedData, isNullable: true),
+      params: [],
+    ),
     BridgeFunction(
       dartName: 'echoAsync',
       cSymbol: 'web_repro_echo_async',
@@ -216,8 +236,272 @@ BridgeSpec _desktopResultSpec() => BridgeSpec(
       returnType: BridgeType(name: 'int'),
       params: [BridgeParam(name: 'code', type: BridgeType(name: 'int'))],
     ),
+    // A wrapped value (BridgeSpec.resultWrapper) through the same dispatch block.
+    BridgeFunction(
+      dartName: 'tryList',
+      cSymbol: 'desk_try_list',
+      isAsync: false,
+      isResult: true,
+      returnType: BridgeType(name: 'List<int>?', isRecord: true, isNullable: true),
+      resultField: BridgeRecordField(name: 'value', dartType: 'List<int>?', kind: RecordFieldKind.listPrimitive, itemTypeName: 'int', isNullable: true),
+      params: [BridgeParam(name: 'code', type: BridgeType(name: 'int'))],
+    ),
   ],
 );
+
+/// C++ on every platform, with a @NitroResult method of every kind of value,
+/// sync and @nitroAsync: the ones with a result encoding of their own, and the
+/// ones that travel as a one-field record (BridgeSpec.resultWrapper) — a
+/// nullable value, a list, typed data, a struct. The all-C++ bridge once
+/// defined result methods with the plain return type against a header that
+/// declares the result blob (`conflicting types`), and no spec in the suite
+/// was compiled in that shape.
+BridgeSpec _allCppResultSpec() {
+  BridgeFunction result(String name, String type, RecordFieldKind kind, {String? item, bool isRecord = false, bool isAsync = false}) => BridgeFunction(
+    dartName: name,
+    cSymbol: 'res_$name',
+    isAsync: isAsync,
+    isResult: true,
+    returnType: BridgeType(name: type, isRecord: isRecord, isNullable: type.endsWith('?'), isFuture: isAsync),
+    resultField: BridgeRecordField(name: 'value', dartType: type, kind: kind, itemTypeName: item, isNullable: type.endsWith('?')),
+    params: [BridgeParam(name: 'code', type: BridgeType(name: 'int'))],
+  );
+  BridgeFunction block(String name, String type, {bool isMap = false, bool isAnyMap = false, bool isVariantList = false}) => BridgeFunction(
+    dartName: name,
+    cSymbol: 'res_$name',
+    isAsync: false,
+    isResult: true,
+    returnType: BridgeType(
+      name: type,
+      // As the extractor types it: an any-map is not a record.
+      isRecord: !isAnyMap,
+      isNullable: type.endsWith('?'),
+      isMap: isMap,
+      isAnyMap: isAnyMap,
+      isVariantList: isVariantList,
+      recordListItemType: isVariantList ? 'Event' : null,
+    ),
+    resultField: BridgeRecordField(name: 'value', dartType: type, kind: RecordFieldKind.primitive, isNullable: type.endsWith('?')),
+    params: [BridgeParam(name: 'code', type: BridgeType(name: 'int'))],
+  );
+  return BridgeSpec(
+    dartClassName: 'Res',
+    lib: 'res',
+    namespace: 'res',
+    androidImpl: NativeImpl.cpp,
+    iosImpl: NativeImpl.cpp,
+    macosImpl: NativeImpl.cpp,
+    windowsImpl: NativeImpl.cpp,
+    linuxImpl: NativeImpl.cpp,
+    sourceUri: 'res.native.dart',
+    variants: [
+      BridgeVariant(
+        name: 'Event',
+        cases: [
+          BridgeVariantCase(
+            name: 'EventTap',
+            label: 'tap',
+            fields: [
+              BridgeRecordField(name: 'x', dartType: 'int', kind: RecordFieldKind.primitive),
+              BridgeRecordField(name: 'label', dartType: 'String', kind: RecordFieldKind.primitive),
+            ],
+          ),
+        ],
+      ),
+    ],
+    enums: [BridgeEnum(name: 'Mode', startValue: 0, values: ['a', 'b'])],
+    structs: [
+      BridgeStruct(
+        name: 'Pt',
+        packed: false,
+        fields: [
+          BridgeField(name: 'x', type: BridgeType(name: 'double')),
+          BridgeField(name: 'n', type: BridgeType(name: 'int')),
+        ],
+      ),
+    ],
+    recordTypes: [
+      BridgeRecordType(
+        name: 'Reply',
+        fields: [
+          BridgeRecordField(name: 'status', dartType: 'int', kind: RecordFieldKind.primitive),
+          BridgeRecordField(name: 'text', dartType: 'String', kind: RecordFieldKind.primitive),
+        ],
+      ),
+    ],
+    functions: [
+      // Own encoding.
+      result('count', 'int', RecordFieldKind.primitive),
+      result('ratio', 'double', RecordFieldKind.primitive),
+      result('flag', 'bool', RecordFieldKind.primitive),
+      result('name', 'String', RecordFieldKind.primitive),
+      result('mode', 'Mode', RecordFieldKind.enumValue),
+      result('reply', 'Reply', RecordFieldKind.recordObject, isRecord: true),
+      result('later', 'int', RecordFieldKind.primitive, isAsync: true),
+      // Wrapped.
+      result('optInt', 'int?', RecordFieldKind.primitive),
+      result('optText', 'String?', RecordFieldKind.primitive),
+      result('optMode', 'Mode?', RecordFieldKind.enumValue),
+      result('optReply', 'Reply?', RecordFieldKind.recordObject, isRecord: true),
+      result('ints', 'List<int>', RecordFieldKind.listPrimitive, item: 'int', isRecord: true),
+      result('texts', 'List<String>', RecordFieldKind.listPrimitive, item: 'String', isRecord: true),
+      result('flags', 'List<bool>', RecordFieldKind.listPrimitive, item: 'bool', isRecord: true),
+      result('modes', 'List<Mode>', RecordFieldKind.listEnumValue, item: 'Mode', isRecord: true),
+      result('replies', 'List<Reply>', RecordFieldKind.listRecordObject, item: 'Reply', isRecord: true),
+      result('bytes', 'Uint8List', RecordFieldKind.typedData),
+      result('floats', 'Float32List', RecordFieldKind.typedData),
+      result('point', 'Pt', RecordFieldKind.struct),
+      result('optPoint', 'Pt?', RecordFieldKind.struct),
+      result('optInts', 'List<int>?', RecordFieldKind.listPrimitive, item: 'int', isRecord: true),
+      result('laterInts', 'List<int>', RecordFieldKind.listPrimitive, item: 'int', isRecord: true, isAsync: true),
+      // Wrapped as an int64.
+      result('at', 'DateTime', RecordFieldKind.primitive),
+      result('optAt', 'DateTime?', RecordFieldKind.primitive),
+      result('big', 'uint64', RecordFieldKind.primitive),
+      result('optBig', 'uint64?', RecordFieldKind.primitive),
+      // Self-describing blocks, passed through behind the tag.
+      block('event', 'Event'),
+      block('optEvent', 'Event?'),
+      block('events', 'List<Event>', isVariantList: true),
+      block('table', 'Map<String, int>', isMap: true),
+      block('optTable', 'Map<String, int>?', isMap: true),
+      block('any', 'NitroAnyMap', isAnyMap: true),
+    ],
+  );
+}
+
+/// Maps in every position: a map return with no map parameter, two maps on one
+/// method, nullable maps both ways, and any-maps. A plain `NitroAnyMap` return
+/// did not compile on C++ (the interface's `void*` against the C `uint8_t*`),
+/// and JNI read the length of a null map through the null pointer.
+BridgeSpec _mapShapesSpec({required bool allCpp}) {
+  BridgeType map(String value, {bool nullable = false}) => BridgeType(name: 'Map<String, $value>${nullable ? '?' : ''}', isRecord: true, isMap: true, isNullable: nullable);
+  BridgeType anyMap({bool nullable = false}) => BridgeType(name: 'NitroAnyMap${nullable ? '?' : ''}', isAnyMap: true, isNullable: nullable);
+  final int64 = BridgeType(name: 'int');
+  BridgeFunction fn(String name, BridgeType ret, Map<String, BridgeType> params, {bool isAsync = false, bool isNativeAsync = false}) => BridgeFunction(
+    dartName: name,
+    cSymbol: 'shapes_$name',
+    isAsync: isAsync,
+    isNativeAsync: isNativeAsync,
+    returnType: ret,
+    params: [for (final MapEntry(:key, :value) in params.entries) BridgeParam(name: key, type: value)],
+  );
+  final mobile = allCpp ? NativeImpl.cpp : null;
+  return BridgeSpec(
+    dartClassName: 'Shapes',
+    lib: 'shapes',
+    namespace: 'shapes',
+    androidImpl: mobile ?? NativeImpl.kotlin,
+    iosImpl: mobile ?? NativeImpl.swift,
+    macosImpl: mobile ?? NativeImpl.swift,
+    windowsImpl: NativeImpl.cpp,
+    linuxImpl: NativeImpl.cpp,
+    sourceUri: 'shapes.native.dart',
+    functions: [
+      fn('make', map('int'), {'n': int64}),
+      fn('sum', int64, {'values': map('int'), 'bias': int64}),
+      fn('merge', map('String'), {'a': map('String'), 'sep': BridgeType(name: 'String'), 'b': map('String')}),
+      fn('orNull', map('int', nullable: true), {'n': int64}),
+      fn('size', int64, {'values': map('int', nullable: true)}),
+      fn('anyOf', anyMap(), {'n': int64}),
+      fn('anySize', int64, {'bias': int64, 'm': anyMap()}),
+      fn('anyOrNull', anyMap(nullable: true), {'m': anyMap(nullable: true)}),
+      fn('makeLater', BridgeType(name: 'Map<String, int>', isRecord: true, isMap: true, isFuture: true), {'n': int64}, isAsync: true),
+      fn('sumNative', BridgeType(name: 'int', isFuture: true), {'bias': int64, 'values': map('int?')}, isNativeAsync: true),
+    ],
+  );
+}
+
+/// Typed data returned without `@zeroCopy`: the impl returns a vector (an
+/// optional one when nullable) and the bridge copies it.
+BridgeSpec _typedDataReturnSpec({required bool allCpp}) {
+  final int64 = BridgeType(name: 'int');
+  BridgeFunction fn(String name, String type, {bool isAsync = false, bool isNativeAsync = false, List<BridgeParam> params = const []}) => BridgeFunction(
+    dartName: name,
+    cSymbol: 'td_$name',
+    isAsync: isAsync,
+    isNativeAsync: isNativeAsync,
+    returnType: BridgeType(name: type, isNullable: type.endsWith('?'), isFuture: isAsync || isNativeAsync),
+    params: params.isEmpty ? [BridgeParam(name: 'n', type: int64)] : params,
+  );
+  final mobile = allCpp ? NativeImpl.cpp : null;
+  return BridgeSpec(
+    dartClassName: 'Td',
+    lib: 'td',
+    namespace: 'td',
+    androidImpl: mobile ?? NativeImpl.kotlin,
+    iosImpl: mobile ?? NativeImpl.swift,
+    macosImpl: mobile ?? NativeImpl.swift,
+    windowsImpl: NativeImpl.cpp,
+    linuxImpl: NativeImpl.cpp,
+    sourceUri: 'td.native.dart',
+    functions: [
+      for (final t in ['Uint8List', 'Int8List', 'Int16List', 'Uint16List', 'Int32List', 'Uint32List', 'Float32List', 'Float64List', 'Int64List', 'Uint64List']) fn('of$t', t),
+      fn('bytesOrNull', 'Uint8List?'),
+      fn('doublesOrNull', 'Float64List?'),
+      fn('reverse', 'Uint8List', params: [BridgeParam(name: 'value', type: BridgeType(name: 'Uint8List'))]),
+      fn('later', 'Float32List?', isAsync: true),
+      fn('posted', 'Int32List?', isNativeAsync: true),
+    ],
+  );
+}
+
+/// Callbacks whose real ABI is not their declared C type: a double crosses as
+/// int64 bits, a record or struct return as a malloc'd block. The all-C++
+/// path once handed the raw pointer straight to `std::function`, which either
+/// converted by value or did not compile; it now uses the mixed-module adapter.
+/// Also: `Map<String, @HybridStruct>`.
+BridgeSpec _callbackAndStructSpec({required bool allCpp}) {
+  BridgeType fnType(String ret, List<String> params) =>
+      BridgeType(name: '$ret Function(${params.join(', ')})', isFunction: true, functionReturnType: ret, functionParams: [for (final p in params) BridgeType(name: p)]);
+  BridgeFunction taking(String name, BridgeType callback) => BridgeFunction(
+    dartName: name,
+    cSymbol: 'cb_$name',
+    isAsync: false,
+    returnType: BridgeType(name: 'double'),
+    params: [BridgeParam(name: 'callback', type: callback), BridgeParam(name: 'n', type: BridgeType(name: 'int'))],
+  );
+  final pointMap = BridgeType(name: 'Map<String, Point>', isRecord: true, isMap: true);
+  final mobile = allCpp ? NativeImpl.cpp : null;
+  return BridgeSpec(
+    dartClassName: 'Cb',
+    lib: 'cb',
+    namespace: 'cb',
+    androidImpl: mobile ?? NativeImpl.kotlin,
+    iosImpl: mobile ?? NativeImpl.swift,
+    macosImpl: mobile ?? NativeImpl.swift,
+    windowsImpl: NativeImpl.cpp,
+    linuxImpl: NativeImpl.cpp,
+    // The web adapter has its own ABI (natural types, pointer returns).
+    webImpl: allCpp ? NativeImpl.wasm : null,
+    sourceUri: 'cb.native.dart',
+    enums: [BridgeEnum(name: 'Mode', startValue: 0, values: ['a', 'b'])],
+    structs: [
+      BridgeStruct(
+        name: 'Point',
+        packed: false,
+        fields: [
+          BridgeField(name: 'x', type: BridgeType(name: 'double'), isNamed: true),
+          BridgeField(name: 'id', type: BridgeType(name: 'int'), isNamed: true),
+          BridgeField(name: 'on', type: BridgeType(name: 'bool'), isNamed: true),
+          BridgeField(name: 'label', type: BridgeType(name: 'String'), isNamed: true),
+        ],
+      ),
+    ],
+    recordTypes: [
+      BridgeRecordType(name: 'Config', fields: [BridgeRecordField(name: 'name', dartType: 'String', kind: RecordFieldKind.primitive)]),
+    ],
+    functions: [
+      taking('structFrom', fnType('Point', ['int'])),
+      taking('recordFrom', fnType('Config', ['int'])),
+      taking('doubleFrom', fnType('double', ['double', 'bool'])),
+      taking('stringFrom', fnType('String', ['String'])),
+      taking('enumFrom', fnType('Mode', ['Mode'])),
+      taking('notify', fnType('void', ['int', 'double'])),
+      BridgeFunction(dartName: 'echoPoints', cSymbol: 'cb_echoPoints', isAsync: false, returnType: pointMap, params: [BridgeParam(name: 'points', type: pointMap)]),
+    ],
+  );
+}
 
 // Dart ignores what main returns: the result has to go through [exitCode], or
 // a failed compile leaves the CI step green.
@@ -232,6 +516,13 @@ Future<void> main() async {
     'web_wasm_all_cpp': _webWasmSpec(),
     'nullable_list_record_fields': _nullableListFieldsSpec(),
     'desktop_cpp_nitro_result': _desktopResultSpec(),
+    'all_cpp_nitro_result': _allCppResultSpec(),
+    'desktop_cpp_map_shapes': _mapShapesSpec(allCpp: false),
+    'all_cpp_map_shapes': _mapShapesSpec(allCpp: true),
+    'desktop_cpp_typed_data_returns': _typedDataReturnSpec(allCpp: false),
+    'all_cpp_typed_data_returns': _typedDataReturnSpec(allCpp: true),
+    'desktop_cpp_callbacks_and_struct_maps': _callbackAndStructSpec(allCpp: false),
+    'all_cpp_callbacks_and_struct_maps': _callbackAndStructSpec(allCpp: true),
   };
 
   // em++ is optional locally, required in the web CI job (NITRO_REQUIRE_EMCC=1).
@@ -260,8 +551,11 @@ Future<void> main() async {
       // __ANDROID__, so compile with it set to reach any guarded block.
       // A Kotlin/Swift module's mobile blocks need jni.h or Foundation; only
       // its desktop block compiles here, and only a Linux host selects it.
+      // NITRO_CXX_TARGETS_DESKTOP=1 says $CXX is a cross compiler for Linux
+      // or Windows (MinGW), which selects the block from any host.
       final desktopBlockOnly = spec.androidImpl != NativeImpl.cpp;
-      if (desktopBlockOnly && !Platform.isLinux) {
+      final desktopCompiler = Platform.isLinux || Platform.environment['NITRO_CXX_TARGETS_DESKTOP'] == '1';
+      if (desktopBlockOnly && !desktopCompiler) {
         stdout.writeln('SKIP  ${entry.key} (desktop block needs a Linux host)');
         continue;
       }
@@ -274,6 +568,18 @@ Future<void> main() async {
       } else {
         failures++;
         stdout.writeln('FAIL  ${entry.key}\n${r.stderr}');
+      }
+
+      // The starter implementation overrides the interface: a signature that
+      // drifted from it (a wrapped result, an optional, a native-async method)
+      // is a compile error in the file a new plugin starts from.
+      final starter = File('${dir.path}/${spec.lib}.impl.g.cpp')..writeAsStringSync(CppImplGenerator.generate(spec));
+      final st = Process.runSync(cc, ['-fsyntax-only', '-std=c++17', '-I', dir.path, '-I', dartApiDl, starter.path]);
+      if (st.exitCode == 0) {
+        stdout.writeln('PASS  ${entry.key} (starter impl)');
+      } else {
+        failures++;
+        stdout.writeln('FAIL  ${entry.key} (starter impl)\n${st.stderr}');
       }
 
       // Web seam: compile the same bridge with em++ (defines __EMSCRIPTEN__).

@@ -71,22 +71,30 @@ void main() {
 
     test('decode maps tag 0 to a null entry, not a dropped key', () {
       final out = KotlinGenerator.generate(_spec());
-      expect(out, contains('_inputMap[k] = null; return@repeat'));
+      expect(out, contains('nitroDecodeMap(value) { r -> if (r.byte() == 0) null else r.int64() }'));
     });
 
     test('encode writes tag 0, and the value branch still resolves to int64', () {
       final out = KotlinGenerator.generate(_spec());
-      expect(out, contains('if (v == null) { _outBb.write(0); continue }'));
-      expect(out, contains('_outBb.write(1) // tag: int64'));
-      expect(out, isNot(contains('tag: string (generic fallback)')));
+      expect(out, contains('if (v == null) { out.putByte(0); continue }'));
+      expect(out, contains('nitroEncodeMap(_result, 1) { o, v -> o.putInt64(v) }'));
+      expect(out, isNot(contains('putString(v.toString())')));
     });
   });
 
   group('Swift bridge', () {
-    test('the shared codec carries tag 0 as NSNull in both directions', () {
+    test('protocol keeps the value optional', () {
       final out = SwiftGenerator.generate(_spec());
-      expect(out, contains('if v is NSNull { payload.append(0) }'));
-      expect(out, contains('case 0: result[k] = NSNull()'));
+      expect(out, contains('func echoMap(value: [String: Int64?]) -> [String: Int64?]'));
+    });
+
+    test('tag 0 is a nil value under its key, in both directions', () {
+      final out = SwiftGenerator.generate(_spec());
+      expect(out, contains('let valueMap: [String: Int64?] = value.map { _nitroDecodeNullableMap(\$0) { r in r.readInt() } } ?? [:]'));
+      // A subscript assignment of nil would drop the key.
+      expect(out, contains('out.updateValue(r.readNullTag() ? nil : read(r), forKey: key)'));
+      expect(out, contains('_nitroEncodeNullableMap(result, 1) { w, v in w.writeInt(v) }'));
+      expect(out, isNot(contains('NSNull')));
     });
   });
 

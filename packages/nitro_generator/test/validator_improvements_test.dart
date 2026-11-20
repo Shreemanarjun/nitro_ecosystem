@@ -403,9 +403,9 @@ void main() {
         (i) => i.code == 'INVALID_ZERO_COPY_RETURN' && i.isError,
         orElse: () => throw 'expected INVALID_ZERO_COPY_RETURN error',
       );
-      // The improved hint should mention the workaround pattern.
+      // The hint names both ways out: a copied return, or a synchronous one.
+      expect(issue.hint, contains('Drop @zeroCopy'));
       expect(issue.hint, contains('synchronous'));
-      expect(issue.hint, contains('@HybridStruct'), reason: 'async methods cannot return typed data, so the hint must not suggest @nitroAsync');
       expect(issue.hint, isNot(contains('@nitroAsync method')));
     });
 
@@ -431,7 +431,7 @@ void main() {
       );
       final issues = SpecValidator.validate(spec);
       final issue = issues.firstWhere((i) => i.code == 'INVALID_ZERO_COPY_RETURN' && i.isError);
-      expect(issue.hint, contains('Uint8List'));
+      expect(issue.hint, contains('a plain typed-data return is copied by the bridge and works with @NitroNativeAsync'));
     });
   });
 
@@ -757,7 +757,8 @@ void main() {
   // ── E008: Map<String, @HybridStruct> ───────────────────────────────────────
 
   group('E008 — Map<String, @HybridStruct> return/param', () {
-    BridgeSpec mapStructFn({bool isReturn = true}) {
+    // [extra]: a field kind no struct map value may have (see isFlatStruct).
+    BridgeSpec mapStructFn({bool isReturn = true, BridgeField? extra}) {
       final structSpec = BridgeStruct(
         name: 'Point',
         packed: false,
@@ -772,6 +773,7 @@ void main() {
             type: BridgeType(name: 'double'),
             isNamed: true,
           ),
+          ?extra,
         ],
       );
       final mapType = BridgeType(name: 'Map<String, Point>', isMap: true, isRecord: true);
@@ -796,14 +798,29 @@ void main() {
       );
     }
 
-    test('Map<String, @HybridStruct> return type emits E008', () {
-      final issues = SpecValidator.validate(mapStructFn(isReturn: true));
-      expect(issues.any((i) => i.code == 'E008' && i.isError), isTrue, reason: 'Map<String, @HybridStruct> return must be rejected with E008');
+    test('a struct of non-null int / double / bool / String fields is a valid map value', () {
+      for (final isReturn in [true, false]) {
+        expect(SpecValidator.validate(mapStructFn(isReturn: isReturn)).where((i) => i.code == 'E008'), isEmpty, reason: 'isReturn=$isReturn');
+      }
+      final strings = BridgeField(name: 'label', type: BridgeType(name: 'String'), isNamed: true);
+      expect(SpecValidator.validate(mapStructFn(extra: strings)).where((i) => i.code == 'E008'), isEmpty);
     });
 
-    test('Map<String, @HybridStruct> parameter type emits E008', () {
-      final issues = SpecValidator.validate(mapStructFn(isReturn: false));
-      expect(issues.any((i) => i.code == 'E008' && i.isError), isTrue, reason: 'Map<String, @HybridStruct> param must be rejected with E008');
+    test('any other field kind in the struct is E008, as a return and as a parameter', () {
+      final unsupported = {
+        'nullable': BridgeField(name: 'n', type: BridgeType(name: 'int?', isNullable: true), isNamed: true),
+        'typed data': BridgeField(name: 'b', type: BridgeType(name: 'Uint8List'), isNamed: true),
+        'nested struct': BridgeField(name: 'p', type: BridgeType(name: 'Point'), isNamed: true),
+        'enum': BridgeField(name: 'e', type: BridgeType(name: 'Mode'), isNamed: true),
+      };
+      for (final MapEntry(key: kind, value: field) in unsupported.entries) {
+        for (final isReturn in [true, false]) {
+          final issues = SpecValidator.validate(mapStructFn(isReturn: isReturn, extra: field)).where((i) => i.code == 'E008').toList();
+          expect(issues, hasLength(1), reason: '$kind, isReturn=$isReturn');
+          expect(issues.single.isError, isTrue);
+          expect(issues.single.message, contains('may only have non-null int, double, bool and String fields'));
+        }
+      }
     });
 
     test('Map<String, String> does NOT emit E008', () {

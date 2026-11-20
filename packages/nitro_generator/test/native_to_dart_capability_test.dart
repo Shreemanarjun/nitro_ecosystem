@@ -69,4 +69,11 @@ void main() {
       expect(out, isNot(contains('getCallbackHandle')));
     }
   });
+
+  test('generated Dart needs no Flutter: a plain Dart or DartNative project can import it', () {
+    for (final out in [dart, ffi]) {
+      expect(out, isNot(contains('package:flutter')));
+      expect(out, isNot(contains('dart:ui')));
+    }
+  });
 }

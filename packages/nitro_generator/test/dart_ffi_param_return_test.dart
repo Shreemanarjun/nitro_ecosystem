@@ -136,9 +136,13 @@ void main() {
       final out = DartFfiGenerator.generate(asyncUint8ListReturnSpec());
       expect(out, contains('NitroRuntime.callAsync<Pointer<Uint8>>'));
       expect(out, contains('final byteLength = rawPtr.cast<Int64>().value;'));
-      expect(out, contains('final payloadPtr = Pointer<Uint8>.fromAddress(rawPtr.address + 8);'));
-      expect(out, contains('return Uint8List.fromList(payloadPtr.asTypedList(byteLength));'));
+      expect(out, contains('final payload = Pointer<Uint8>.fromAddress(rawPtr.address + 8).asTypedList(byteLength);'));
+      // A large block is handed to the list that views it; a small one is copied.
+      expect(out, contains('if (byteLength >= RecordReader.lendMinBytes) {'));
+      expect(out, contains('_nitroAdopt(payload, rawPtr.cast<Void>(), byteLength);'));
+      expect(out, contains('return Uint8List.fromList(payload);'));
       expect(out, contains('_nitroFree(rawPtr);'));
+      expect(out, contains("'mod_nitro_adopt'"), reason: 'the adopt binding has to exist');
       expect(out, isNot(contains('return res;')));
     });
 
@@ -146,8 +150,8 @@ void main() {
       final out = DartFfiGenerator.generate(_asyncTypedDataReturnSpec('Float32List'));
       expect(out, contains('Future<Float32List>'));
       expect(out, contains('NitroRuntime.callAsync<Pointer<Uint8>>'));
-      expect(out, contains('final payloadPtr = Pointer<Float>.fromAddress(rawPtr.address + 8);'));
-      expect(out, contains('return Float32List.fromList(payloadPtr.asTypedList(byteLength ~/ 4));'));
+      expect(out, contains('final payload = Pointer<Float>.fromAddress(rawPtr.address + 8).asTypedList(byteLength ~/ 4);'));
+      expect(out, contains('return Float32List.fromList(payload);'));
       expect(out, contains('_nitroFree(rawPtr);'));
     });
 

@@ -1119,14 +1119,14 @@ void main() {
 
     test('Map<String,V> param: decoded into a typed Map before the call (previously deferred/unhandled)', () {
       final out = KotlinGenerator.generate(_nativeAsyncParamsSpec());
-      expect(out, contains('val countsDecoded = mutableMapOf<String, Long>()'));
+      expect(out, contains('val countsDecoded = nitroDecodeMap(counts) { r -> r.p++; r.int64() }'));
       expect(out, contains('impl.setCounts(countsDecoded)'));
       expect(out, isNot(contains('impl.setCounts(counts)')));
     });
 
     test('NitroAnyMap param: decoded via NitroAnyMapCodec.decode before the call (previously deferred/unhandled)', () {
       final out = KotlinGenerator.generate(_nativeAsyncParamsSpec());
-      expect(out, contains('val dataDecoded: Map<String, Any?> = NitroAnyMapCodec.decode(data)'));
+      expect(out, contains('val dataDecoded = NitroAnyMapCodec.decode(data)'));
       expect(out, contains('impl.setAnyMap(dataDecoded)'));
       expect(out, isNot(contains('impl.setAnyMap(data)')));
     });
@@ -1152,14 +1152,14 @@ void main() {
     test('Map<String,V> return: encoded via the binary map wire format, not discarded', () {
       final out = KotlinGenerator.generate(_nativeAsyncReturnsSpec());
       expect(out, contains('val result = runBlocking { impl.getCounts() }'));
-      expect(out, contains('val _outMap = result as? Map<String, Long> ?: emptyMap()'));
+      expect(out, contains('postBytesToPort(dartPort, nitroEncodeMap(result, 1) { o, v -> o.putInt64(v) })'));
       expect(out, isNot(contains('runBlocking { impl.getCounts() }\n            postNullToPort(dartPort)')));
     });
 
     test('NitroAnyMap return: encoded via NitroAnyMapCodec, not discarded', () {
       final out = KotlinGenerator.generate(_nativeAsyncReturnsSpec());
       expect(out, contains('val result = runBlocking { impl.getAnyMap() }'));
-      expect(out, contains('postBytesToPort(dartPort, NitroAnyMapCodec.encode(_outMap))'));
+      expect(out, contains('postBytesToPort(dartPort, NitroAnyMapCodec.encode(result))'));
     });
 
     test('@NitroCustomType return: impl\'s own ByteArray is posted directly, not discarded', () {
@@ -1372,18 +1372,18 @@ void main() {
       expect(out, isNot(contains('impl.uploadFrame(frame: frame)')));
     });
 
-    test('Map<String,V> param: decoded via _nitroDecodeMapBinary before Task.detached (previously deferred/unhandled)', () {
+    test('Map<String,V> param: decoded into a typed dictionary before Task.detached (previously deferred/unhandled)', () {
       final out = SwiftGenerator.generate(_nativeAsyncParamsSpec());
-      expect(out, contains('let counts_rawMap: [String: Any] = counts.map { _nitroDecodeMapBinary(\$0.assumingMemoryBound(to: UInt8.self)) } ?? [:]'));
-      expect(out, contains('impl.setCounts(counts: counts_dec)'));
+      expect(out, contains('let countsMap: [String: Int64] = counts.map { _nitroDecodeMap(\$0) { r in r.readInt() } } ?? [:]'));
+      expect(out, contains('impl.setCounts(counts: countsMap)'));
       expect(out, isNot(contains('impl.setCounts(counts: counts)')));
     });
 
     test('NitroAnyMap param: decoded via _nitroDecodeAnyMapBinary before Task.detached (Swift had no AnyMap codec at all before this)', () {
       final out = SwiftGenerator.generate(_nativeAsyncParamsSpec());
       expect(out, contains('_ data: UnsafeMutableRawPointer?')); // not `Any` — @_cdecl requires a C-compatible type
-      expect(out, contains('let data_dec: [String: Any] = data.map { _nitroDecodeAnyMapBinary(\$0.assumingMemoryBound(to: UInt8.self)) } ?? [:]'));
-      expect(out, contains('impl.setAnyMap(data: data_dec)'));
+      expect(out, contains('let dataMap: [String: Any] = data.map { _nitroDecodeAnyMapBinary(\$0.assumingMemoryBound(to: UInt8.self)) } ?? [:]'));
+      expect(out, contains('impl.setAnyMap(data: dataMap)'));
       expect(out, isNot(contains('impl.setAnyMap(data: data)')));
     });
   });
@@ -1407,10 +1407,10 @@ void main() {
       expect(out, isNot(contains('try? await impl.getGesture()')));
     });
 
-    test('Map<String,V> return: encoded via _nitroEncodeMapBinary, not the generic Int64 coercion', () {
+    test('Map<String,V> return: encoded from the typed dictionary, not the generic Int64 coercion', () {
       final out = SwiftGenerator.generate(_nativeAsyncReturnsSpec());
-      expect(out, contains('let _result: Any? = try await impl.getCounts()'));
-      expect(out, contains('_nitroEncodeMapBinary(_resultMap)'));
+      expect(out, contains('let _result = try await impl.getCounts()'));
+      expect(out, contains('let _recPtr = _nitroEncodeMap(_result, 1) { w, v in w.writeInt(v) }'));
       expect(out, isNot(contains('try? await impl.getCounts()')));
     });
 
@@ -1445,8 +1445,8 @@ void main() {
 
     test('NitroAnyMap return: encoded via the new _nitroEncodeAnyMapBinary codec (Swift had no AnyMap codec at all before this)', () {
       final out = SwiftGenerator.generate(_nativeAsyncReturnsSpec());
-      expect(out, contains('let _result: Any? = try await impl.getAnyMap()'));
-      expect(out, contains('_nitroEncodeAnyMapBinary(_resultMap)'));
+      expect(out, contains('let _result = try await impl.getAnyMap()'));
+      expect(out, contains('let _recPtr = _nitroEncodeAnyMapBinary(_result)'));
       expect(out, isNot(contains('try? await impl.getAnyMap()')));
     });
 

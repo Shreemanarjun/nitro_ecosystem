@@ -67,17 +67,49 @@ void _emitSwiftProtocol(CodeWriter writer, BridgeSpec spec, SwiftTypeMapper mapp
 }
 
 void _emitSwiftRegistry(CodeWriter writer, BridgeSpec spec) {
-  // ── Registry — pure Swift, no @objc / NSObject needed ─────────────────
-  writer.line('public class ${spec.dartClassName}Registry {');
-  writer.line(
-    '    public static var impl: Hybrid${spec.dartClassName}Protocol?',
-  );
+  final name = spec.dartClassName;
+  // ── Provider — lets the registry find the implementation by itself ────
+  // Flutter calls the plugin's `register(with:)` before Dart runs. A host
+  // that never does (DartNative) leaves the registry empty and every call
+  // returned a default value, so the registry asks a provider class on
+  // first use.
+  writer.line('/// A class that adopts this registers the implementation. The registry asks it');
+  writer.line('/// on first use when nothing has registered one: a host that never calls the');
+  writer.line("/// plugin's `register(with:)` (DartNative).");
+  writer.line('@objc public protocol ${name}ImplementationProvider {');
+  writer.line('    static func register${name}Implementation()');
+  writer.line('}');
   writer.blankLine();
-  writer.line(
-    '    public static func register(_ impl: Hybrid${spec.dartClassName}Protocol) {',
-  );
-  writer.line('        ${spec.dartClassName}Registry.impl = impl');
+  writer.line('public class ${name}Registry {');
+  writer.line('    private static var _impl: Hybrid${name}Protocol?');
+  writer.blankLine();
+  writer.line('    public static var impl: Hybrid${name}Protocol? {');
+  writer.line('        get {');
+  writer.line('            if _impl == nil { _ = _askProvider }');
+  writer.line('            return _impl');
+  writer.line('        }');
+  writer.line('        set { _impl = newValue }');
   writer.line('    }');
+  writer.blankLine();
+  writer.line('    public static func register(_ impl: Hybrid${name}Protocol) {');
+  writer.line('        _impl = impl');
+  writer.line('    }');
+  writer.blankLine();
+  writer.line('    /// Runs once. Looks only at the classes of the image this module is linked');
+  writer.line('    /// into: asking every class in the process touches ones that cannot be');
+  writer.line('    /// messaged.');
+  writer.line('    private static let _askProvider: Void = {');
+  writer.line('        guard let image = class_getImageName(${name}Registry.self) else { return }');
+  writer.line('        var count: UInt32 = 0');
+  writer.line('        guard let names = objc_copyClassNamesForImage(image, &count) else { return }');
+  writer.line('        defer { free(names) }');
+  writer.line('        for i in 0..<Int(count) {');
+  writer.line('            guard let cls = objc_lookUpClass(names[i]), class_conformsToProtocol(cls, ${name}ImplementationProvider.self) else { continue }');
+  writer.line('            (cls as? ${name}ImplementationProvider.Type)?.register${name}Implementation()');
+  writer.line('            if _impl != nil { return }');
+  writer.line('        }');
+  writer.line('        NSLog("$name: no implementation is registered, so calls return default values. Adopt ${name}ImplementationProvider on the plugin class or call ${name}Registry.register(_:).")');
+  writer.line('    }()');
 
   for (final stream in spec.streams) {
     writer.blankLine();

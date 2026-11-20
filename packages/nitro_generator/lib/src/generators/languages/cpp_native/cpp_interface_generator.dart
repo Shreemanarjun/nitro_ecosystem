@@ -229,30 +229,8 @@ class CppInterfaceGenerator {
             ),
           );
         }
-        if (func.isNativeAsync && !func.isFireAndForget) {
-          // @NitroNativeAsync: impl returns void and accepts a NitroError*
-          // out-param (fresh-per-call, unlike sync's instance-owned slot —
-          // see NitroRuntime.throwIfOutParamErrorAndFree) plus dart_port so
-          // it can post the result directly via Dart_PostCObject_DL from any
-          // thread. Order must match the call site in cpp_direct_emitter.dart
-          // / cpp_bridge_generator.dart's Apple-C++-direct dispatch.
-          // Fire-and-forget (void) falls through to the plain-virtual branch:
-          // the impl is a plain `void method(params)` — no err/port.
-          final params = _cppMethodParams(func.params, enumNames, structNames, recordNames);
-          params.add('NitroError* _nitro_err');
-          params.add('int64_t dartPort');
-          nodes.add(
-            CodeLine('    virtual void ${func.cppName}(${params.join(', ')}) = 0;'),
-          );
-        } else {
-          final retType = _cppReturnType(func.returnType, enumNames, structNames, recordNames);
-          final params = _cppMethodParams(func.params, enumNames, structNames, recordNames);
-          final paramStr = params.join(', ');
-          // A getter keeps the property shape: `get_x() const`.
-          nodes.add(
-            CodeLine('    virtual $retType ${func.cppName}($paramStr)${func.isGetter ? ' const' : ''} = 0;'),
-          );
-        }
+        final sig = methodSignatureFor(spec, func);
+        nodes.add(CodeLine('    virtual ${sig.ret} ${func.cppName}(${sig.params.join(', ')})${sig.qualifier} = 0;'));
       }
       nodes.add(const BlankLine());
     }
@@ -386,6 +364,56 @@ class CppInterfaceGenerator {
   }
 
   // ── Type helpers (C++ style) ─────────────────────────────────────────────
+
+  /// The exact signature a C++ implementation of [func] overrides. The
+  /// interface, the starter implementation and the mock all declare this one.
+  static ({String ret, List<String> params, String qualifier}) methodSignatureFor(BridgeSpec spec, BridgeFunction func) {
+    final (enumNames, structNames, recordNames) = _typeNames(spec);
+    final params = _cppMethodParams(func.params, enumNames, structNames, recordNames);
+    // @NitroNativeAsync: the impl returns void and takes a NitroError* (fresh
+    // per call, unlike sync's instance-owned slot — see
+    // NitroRuntime.throwIfOutParamErrorAndFree) plus the port it posts the
+    // result to with Dart_PostCObject_DL, from any thread. The order matches
+    // the call sites in cpp_direct_emitter.dart / cpp_bridge_generator.dart.
+    // Fire-and-forget (void) is a plain `void method(params)`: no err, no port.
+    if (func.isNativeAsync && !func.isFireAndForget) {
+      return (ret: 'void', params: [...params, 'NitroError* _nitro_err', 'int64_t dartPort'], qualifier: '');
+    }
+    // A getter keeps the property shape: `get_x() const`.
+    return (ret: _methodReturnType(spec, func), params: params, qualifier: func.isGetter ? ' const' : '');
+  }
+
+  /// Enum, struct and record names of [spec]. A variant has a record's wire
+  /// type (NitroCppBuffer), so it counts as one here.
+  static (Set<String>, Set<String>, Set<String>) _typeNames(BridgeSpec spec) => (
+    spec.enums.map((e) => e.name).toSet(),
+    spec.structs.map((s) => s.name).toSet(),
+    {...spec.recordTypes.map((r) => r.name), ...spec.variants.map((v) => v.name)},
+  );
+
+  static String _methodReturnType(BridgeSpec spec, BridgeFunction func) {
+    final (enumNames, structNames, recordNames) = _typeNames(spec);
+    final wrapper = spec.resultWrapper(func);
+    final rt = func.returnType;
+    final base = bareTypeName(rt.name);
+    return switch (rt) {
+      // A @NitroResult value that travels in a result wrapper is returned as
+      // the wrapper's field type (std::vector, std::optional, the struct), not
+      // pre-encoded: the bridge wraps and encodes it. DateTime and uint64 keep
+      // their usual scalar type; the bridge converts.
+      _ when wrapper != null && !const {'DateTime', 'uint64'}.contains(base) => RecordGenerator.cppFieldType(wrapper.fields.single, enumNames),
+      // Typed data without @zeroCopy is an ordinary vector the bridge copies;
+      // with it, a malloc'd buffer whose ownership transfers.
+      BridgeType(isTypedData: true) when !func.zeroCopyReturn && !func.isResult => switch ('std::vector<${typedDataElement(base)}>') {
+        final vector when rt.isNullable || rt.name.endsWith('?') => 'std::optional<$vector>',
+        final vector => vector,
+      },
+      _ => _cppReturnType(rt, enumNames, structNames, recordNames),
+    };
+  }
+
+  /// The C++ element type of a Dart typed list: `float` for `Float32List`.
+  static String typedDataElement(String base) => _typedDataPtr(base).replaceFirst('const ', '').replaceFirst('*', '');
 
   /// Public alias of [_cppReturnType] for other generators (bridge dispatch,
   /// impl starter, mocks) so all C++ artifacts share ONE type mapping.
@@ -697,16 +725,20 @@ class CppInterfaceGenerator {
     Set<String> recordNames,
   ) {
     final callback = param.type;
-    final ret = cppCallbackReturnType(callback.functionReturnType ?? 'void', enumNames);
+    final ret = cppCallbackReturnType(callback.functionReturnType ?? 'void', enumNames, structNames: structNames);
     final paramTypes = callback.functionParams.map((p) => cppCallbackParamType(p.name, enumNames, structNames, recordNames, bridgeType: p)).join(', ');
     return 'std::function<$ret($paramTypes)> ${param.name}';
   }
 
   /// Return type of a callback as seen by the C++ impl.
-  static String cppCallbackReturnType(String dartType, Set<String> enumNames) {
+  ///
+  /// A `@HybridStruct` comes back by value: the bridge decodes the block Dart
+  /// returned. A record or variant is still that raw block (`void*`, a
+  /// malloc'd `[4B len][payload]` the impl decodes and frees).
+  static String cppCallbackReturnType(String dartType, Set<String> enumNames, {Set<String> structNames = const {}}) {
     final base = bareTypeName(dartType);
     if (base == 'void') return 'void';
-    if (enumNames.contains(base)) return base;
+    if (enumNames.contains(base) || structNames.contains(base)) return base;
     if (base == 'bool') return 'bool';
     if (base == 'String') return 'std::string';
     return _primitiveType(base);

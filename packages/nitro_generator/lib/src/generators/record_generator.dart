@@ -33,6 +33,10 @@ class RecordGenerator {
 
   static String generateCpp(BridgeSpec spec) => _generateCppRecords(spec);
 
+  /// The C++ type of one record field: what a C++ impl returns from a
+  /// `@NitroResult` method whose value travels in a result wrapper.
+  static String cppFieldType(BridgeRecordField f, Set<String> enumNames) => _cppFieldType(f, enumNames);
+
   static String generateKotlin(BridgeSpec spec) => _generateKotlinRecords(spec);
 
   /// `NitroRecordOut` and friends, for a Kotlin file that has variants but no

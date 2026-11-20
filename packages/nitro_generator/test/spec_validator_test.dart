@@ -265,7 +265,7 @@ void main() {
   });
 
   group('SpecValidator (TypedData restrictions)', () {
-    test('Uint8List return type emits INVALID_RETURN_TYPE error', () {
+    test('a plain Uint8List return is valid: the bridge copies it', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -283,8 +283,7 @@ void main() {
           ),
         ],
       );
-      final issues = SpecValidator.validate(spec);
-      expect(issues.any((i) => i.code == 'INVALID_RETURN_TYPE' && i.isError), isTrue);
+      expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
     });
 
     test('zero-copy Uint8List return type is valid for Kotlin and Swift NativeImpl', () {
@@ -357,7 +356,7 @@ void main() {
       expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
     });
 
-    test('Float32List return type emits INVALID_RETURN_TYPE error', () {
+    test('a plain Float32List return is valid in every dispatch mode, nullable too', () {
       final spec = BridgeSpec(
         dartClassName: 'Foo',
         lib: 'foo',
@@ -375,10 +374,28 @@ void main() {
           ),
         ],
       );
-      expect(
-        SpecValidator.validate(spec).any((i) => i.code == 'INVALID_RETURN_TYPE' && i.isError),
-        isTrue,
-      );
+      expect(SpecValidator.validate(spec).where((i) => i.isError), isEmpty);
+      for (final (isAsync, isNativeAsync, type) in [(true, false, 'Float32List'), (false, true, 'Float32List'), (false, false, 'Float32List?'), (false, true, 'Uint8List?')]) {
+        final other = BridgeSpec(
+          dartClassName: 'Foo',
+          lib: 'foo',
+          namespace: 'foo',
+          iosImpl: NativeImpl.swift,
+          androidImpl: NativeImpl.kotlin,
+          sourceUri: 'foo.native.dart',
+          functions: [
+            BridgeFunction(
+              dartName: 'getSamples',
+              cSymbol: 'foo_get_samples',
+              isAsync: isAsync,
+              isNativeAsync: isNativeAsync,
+              returnType: BridgeType(name: type, isNullable: type.endsWith('?'), isFuture: isAsync || isNativeAsync),
+              params: [],
+            ),
+          ],
+        );
+        expect(SpecValidator.validate(other).where((i) => i.isError), isEmpty, reason: '$type async=$isAsync nativeAsync=$isNativeAsync');
+      }
     });
 
     test('Uint8List property emits INVALID_PROPERTY_TYPE error', () {

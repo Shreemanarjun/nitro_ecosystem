@@ -29,7 +29,7 @@ void _emitSwiftBridgeSection(
     final callParamParts = <String>[];
     for (final p in func.params) {
       if (p.type.isFunction) {
-        final cbType = CppBridgeGenerator._callbackParamToC(p, enumNames);
+        final cbType = _callbackParamToC(p, enumNames);
         paramParts.add(cbType);
         externParamParts.add(cbType);
       } else {
@@ -39,7 +39,7 @@ void _emitSwiftBridgeSection(
         if (p.type.isNullableNitroPrim) {
           cType = 'const uint8_t*';
         } else {
-          cType = isEnumParam ? 'int64_t' : CppBridgeGenerator._paramTypeToC(p.type.name, structNames);
+          cType = isEnumParam ? 'int64_t' : _paramTypeToC(p.type.name, structNames);
         }
         paramParts.add('$cType ${p.name}');
         externParamParts.add('$cType ${p.name}');
@@ -96,7 +96,7 @@ void _emitSwiftBridgeSection(
         ? 'int64_t'
         : func.returnType.isTypedData
         ? 'uint8_t*'
-        : CppBridgeGenerator._typeToC(func.returnType.name);
+        : _typeToC(func.returnType.name);
     // S8: add NitroError* out-param; the Swift @_cdecl stub does not use it,
     // but the C wrapper must accept and propagate it.
     final paramsWithErr = func.isAsync ? paramParts.join(', ') : [...paramParts, 'NitroError* _nitro_err'].join(', ');
@@ -142,7 +142,7 @@ void _emitSwiftBridgeSection(
     writer.line('            nitro_report_error([e.name UTF8String], [e.reason UTF8String], nullptr, nullptr);');
     writer.line('        }');
     if (func.returnType.name != 'void') {
-      writer.line('        return ${CppBridgeGenerator._defaultValue(cReturnType)};');
+      writer.line('        return ${_defaultValue(cReturnType)};');
     }
     writer.line('    }');
     writer.line('#else');
@@ -195,7 +195,7 @@ void _emitSwiftBridgeSection(
           setterCType = 'const uint8_t*';
           break;
         default:
-          cType = CppBridgeGenerator._typeToC(prop.type.name);
+          cType = _typeToC(prop.type.name);
           setterCType = cType;
       }
     }
@@ -253,7 +253,7 @@ void _emitSwiftBridgeSection(
     } else if (isStruct || isRecord || isVariant) {
       itemCType = 'void*';
     } else {
-      itemCType = CppBridgeGenerator._typeToC(stream.itemType.name);
+      itemCType = _typeToC(stream.itemType.name);
     }
 
     if (stream.itemType.isTypedData) {
@@ -264,19 +264,19 @@ void _emitSwiftBridgeSection(
       writer.line('        obj.type = Dart_CObject_kNull;');
       writer.line('        return Dart_PostCObject_DL(dartPort, &obj);');
       writer.line('    }');
-      CppBridgeGenerator._emitTypedDataObj(writer, bareTypeName(stream.itemType.name), 'item', 'count', '    ');
+      _emitTypedDataObj(writer, bareTypeName(stream.itemType.name), 'item', 'count', '    ');
       writer.line('    return Dart_PostCObject_DL(dartPort, &obj);');
       writer.line('}');
       writer.blankLine();
       writer.line('extern void _${spec.namespace}_register_${stream.dartName}_stream(int64_t dartPort, bool (*emitCb)(int64_t, const void*, int64_t));');
       writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
-      CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'coalesce', stream);
+      _emitStreamCoalesce(writer, spec, 'coalesce', stream);
       writer.line('    _${spec.namespace}_register_${stream.dartName}_stream(dart_port, _emit_${stream.dartName}_to_dart);');
       writer.line('}');
       writer.line('extern void _${spec.namespace}_release_${stream.dartName}_stream(int64_t dart_port);');
       writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
       writer.line('    _${spec.namespace}_release_${stream.dartName}_stream(dart_port);');
-      CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'uncoalesce');
+      _emitStreamCoalesce(writer, spec, 'uncoalesce');
       writer.line('}');
       writer.blankLine();
       continue;
@@ -334,13 +334,13 @@ void _emitSwiftBridgeSection(
     writer.blankLine();
     writer.line('extern void _${spec.namespace}_register_${stream.dartName}_stream(int64_t dartPort, bool (*emitCb)(int64_t, $itemCType));');
     writer.line('void ${stream.registerSymbol}(int64_t instanceId, int64_t dart_port) {');
-    CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'coalesce', stream);
+    _emitStreamCoalesce(writer, spec, 'coalesce', stream);
     writer.line('    _${spec.namespace}_register_${stream.dartName}_stream(dart_port, _emit_${stream.dartName}_to_dart);');
     writer.line('}');
     writer.line('extern void _${spec.namespace}_release_${stream.dartName}_stream(int64_t dart_port);');
     writer.line('void ${stream.releaseSymbol}(int64_t dart_port) {');
     writer.line('    _${spec.namespace}_release_${stream.dartName}_stream(dart_port);');
-    CppBridgeGenerator._emitStreamCoalesce(writer, spec, 'uncoalesce');
+    _emitStreamCoalesce(writer, spec, 'uncoalesce');
     writer.line('}');
     writer.blankLine();
   }

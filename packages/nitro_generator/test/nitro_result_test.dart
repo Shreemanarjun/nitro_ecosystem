@@ -9,6 +9,7 @@
 //   - E015 validation: cannot wrap void return type
 
 import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
+import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_header_generator.dart';
 import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
 import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
 import 'package:test/test.dart';
@@ -534,8 +535,8 @@ void main() {
       expect(code, contains('NitroResultValue<Severity> classify('));
     });
 
-    test('success path decodes enum via SeverityEnumExt.fromNativeValue', () {
-      expect(code, contains('SeverityEnumExt.fromNativeValue(_r.readInt())'));
+    test('success path decodes enum via the generated toSeverity() extension', () {
+      expect(code, contains('_r.readInt().toSeverity()'));
     });
 
     test('error path uses _errR.readString()', () {
@@ -543,7 +544,7 @@ void main() {
     });
 
     test('emits NitroOk wrapping the enum value', () {
-      expect(code, contains('return NitroOk(SeverityEnumExt.fromNativeValue'));
+      expect(code, contains('return NitroOk(_r.readInt().toSeverity())'));
     });
 
     test('does NOT emit _assertCheckError', () {
@@ -709,6 +710,81 @@ void main() {
       expect(body, contains('_out[0] = 0;'));
       expect(body, contains('memcpy(_out + 1, _res.data, _res.size)'));
       expect(body, contains('free((void*)_res.data);'));
+    });
+  });
+
+  // ── C++ on every platform ───────────────────────────────────────────────────
+  // The all-C++ bridge once defined a @NitroResult method with its plain return
+  // type while the header declared the result blob: `conflicting types`, and
+  // only a C++ compiler said so (tool/verify_cpp_bridge_compiles.dart compiles
+  // this shape now).
+  group('CppBridgeGenerator — @NitroResult on an all-C++ module', () {
+    BridgeFunction result(String name, String type, {bool isAsync = false}) => BridgeFunction(
+      dartName: name,
+      cSymbol: 'res_$name',
+      isAsync: isAsync,
+      isResult: true,
+      returnType: BridgeType(name: type),
+      params: [BridgeParam(name: 'code', type: BridgeType(name: 'int'))],
+    );
+    final spec = BridgeSpec(
+      dartClassName: 'Res',
+      lib: 'res',
+      namespace: 'res',
+      androidImpl: NativeImpl.cpp,
+      iosImpl: NativeImpl.cpp,
+      macosImpl: NativeImpl.cpp,
+      windowsImpl: NativeImpl.cpp,
+      linuxImpl: NativeImpl.cpp,
+      sourceUri: 'res.native.dart',
+      functions: [result('count', 'int'), result('name', 'String'), result('later', 'int', isAsync: true)],
+    );
+    final header = CppHeaderGenerator.generate(spec);
+    final bridge = CppBridgeGenerator.generate(spec);
+
+    test('each definition has the return type its declaration has', () {
+      expect(header, contains('NITRO_EXPORT uint8_t* res_count(int64_t instanceId, int64_t code, NitroError* _nitro_err);'));
+      expect(bridge, contains('uint8_t* res_count(int64_t instanceId, int64_t code, NitroError* _nitro_err) {'));
+      expect(bridge, isNot(contains('int64_t res_count(')));
+      expect(header, contains('NITRO_EXPORT uint8_t* res_name('));
+      expect(bridge, contains('uint8_t* res_name('));
+      expect(bridge, isNot(contains('const char* res_name(')));
+      // @nitroAsync: the same blob, without the error-slot parameter.
+      expect(header, contains('NITRO_EXPORT uint8_t* res_later(int64_t instanceId, int64_t code);'));
+      expect(bridge, contains('uint8_t* res_later(int64_t instanceId, int64_t code) {'));
+    });
+
+    test('the ok value is wrapped in the blob Dart decodes', () {
+      expect('static uint8_t* _nitro_desktop_result_blob('.allMatches(bridge), hasLength(1));
+      expect(bridge, contains('int64_t _val = _impl->count(code);'));
+      expect(bridge, contains('_w.writeInt(_val);'));
+      expect(bridge, contains('std::string _val = _impl->name(code);'));
+      expect(bridge, contains('return _nitro_desktop_result_blob(0, _w);'));
+    });
+
+    test('a throw, or a missing implementation, is an error blob and never nullptr', () {
+      // Dart reads the tag byte before anything else.
+      expect(bridge, contains('return _nitro_desktop_result_err(e.what());'));
+      expect(bridge, contains('return _nitro_desktop_result_err("Unknown C++ exception");'));
+      expect(bridge, contains('return _nitro_desktop_result_err("No C++ implementation registered.");'));
+    });
+
+    test('a module without @NitroResult methods gets no result helpers', () {
+      final plain = BridgeSpec(
+        dartClassName: 'Res',
+        lib: 'res',
+        namespace: 'res',
+        androidImpl: NativeImpl.cpp,
+        iosImpl: NativeImpl.cpp,
+        macosImpl: NativeImpl.cpp,
+        windowsImpl: NativeImpl.cpp,
+        linuxImpl: NativeImpl.cpp,
+        sourceUri: 'res.native.dart',
+        functions: [
+          BridgeFunction(dartName: 'count', cSymbol: 'res_count', isAsync: false, returnType: BridgeType(name: 'int'), params: []),
+        ],
+      );
+      expect(CppBridgeGenerator.generate(plain), isNot(contains('_nitro_desktop_result_blob')));
     });
   });
 }

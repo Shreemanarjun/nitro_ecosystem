@@ -58,13 +58,13 @@ class CppImplGenerator {
     w.writeln('//     (String, typed data, nested struct) before Dart sees it, so return');
     w.writeln('//     views of your own storage (or the argument) and keep ownership of');
     w.writeln('//     what you return; do not malloc fields for Dart to free.');
-    w.writeln('//   • TypedData RETURNS use NitroCppBuffer{ data, size } where size is in');
-    w.writeln('//     BYTES, not elements (Float32List: count * sizeof(float)). A wrong');
-    w.writeln('//     unit silently truncates the list Dart sees (bytes / elemSize).');
+    w.writeln('//   • TypedData RETURNS are a std::vector of the element type (a');
+    w.writeln('//     std::optional of one when nullable); the bridge copies it.');
     w.writeln('//   • @zeroCopy TypedData returns are NOT copied by the bridge: return a');
-    w.writeln('//     malloc\'d buffer — ownership transfers, and the bridge frees it (via');
-    w.writeln('//     <lib>_release_typed_data_return) when Dart\'s view is GC\'d. Never');
-    w.writeln('//     return a pointer to a member or stack buffer: it would be free()d.');
+    w.writeln('//     NitroCppBuffer{ data, size } over a malloc\'d buffer, size in BYTES');
+    w.writeln('//     (Float32List: count * sizeof(float)). Ownership transfers, and the');
+    w.writeln('//     bridge frees it (via <lib>_release_typed_data_return) when Dart\'s');
+    w.writeln('//     view is GC\'d. Never return a pointer to a member or stack buffer.');
     w.writeln('');
     w.writeln('#include "$ifaceHeader"');
     w.writeln('#include <stdexcept>');
@@ -81,61 +81,40 @@ class CppImplGenerator {
       w.writeln('    // ── Methods ──────────────────────────────────────────────────────────────');
       for (final func in spec.functions) {
         w.writeln('');
-        if (func.isFireAndForget) {
+        // The interface's own signature, so the starter always overrides it.
+        final sig = CppInterfaceGenerator.methodSignatureFor(spec, func);
+        w.writeln('    ${sig.ret} ${func.cppName}(${sig.params.join(', ')})${sig.qualifier} override {');
+        switch (func) {
           // Fire-and-forget (void @nitroNativeAsync, issue #58): a plain sync
           // void — no NitroError*/dart_port, no post. Runs on the pool via the
           // bridge's <sym>_fnf wrapper; errors are best-effort (not surfaced).
-          final params = CppInterfaceGenerator.cppMethodParamsFor(func.params, enumNames, structNames, recordNames);
-          w.writeln('    void ${func.cppName}(${params.join(', ')}) override {');
-          w.writeln('        // TODO: do the work; fire-and-forget returns no result.');
-          w.writeln('    }');
-          continue;
+          case BridgeFunction(isFireAndForget: true):
+            w.writeln('        // TODO: do the work; fire-and-forget returns no result.');
+          case BridgeFunction(isNativeAsync: true):
+            w.writeln('        // TODO: on error, populate _nitro_err (hasError/name/message via strdup) before posting.');
+            w.writeln('        // TODO: post result via Dart_PostCObject_DL(dartPort, ...)');
+            w.writeln('        // Nullable result? Post EITHER Dart_CObject_kNull OR kInt64 with');
+            w.writeln('        // value 0 — both decode to Dart null. Non-nullable results must');
+            w.writeln('        // always post a real encoded value.');
+            if (func.returnType.isNativeHandle) {
+              w.writeln('        // NativeHandle result: post the raw pointer address as kInt64');
+              w.writeln('        // (int64_t)(uintptr_t)handle. Dart takes ownership on arrival');
+              w.writeln('        // when the method is @NitroOwned.');
+            }
+            if (func.returnType.isTypedData) {
+              w.writeln('        // Typed-data result: post it as kTypedData (the VM copies it), or');
+              w.writeln('        // the address of a malloc\'d [8B byteLength][bytes] block as kInt64.');
+            }
+            w.writeln('        throw std::runtime_error("Not implemented: ${func.dartName}");');
+          default:
+            w.writeln('        // TODO: implement ${func.dartName}');
+            w.writeln('        throw std::runtime_error("Not implemented: ${func.dartName}");');
+            final placeholder = _placeholderReturn(sig.ret);
+            if (placeholder != null) {
+              w.writeln('        // return $placeholder;');
+            }
         }
-        if (func.isNativeAsync) {
-          final params =
-              CppInterfaceGenerator.cppMethodParamsFor(
-                  func.params,
-                  enumNames,
-                  structNames,
-                  recordNames,
-                )
-                ..add('NitroError* _nitro_err')
-                ..add('int64_t dartPort');
-          w.writeln('    void ${func.cppName}(${params.join(', ')}) override {');
-          w.writeln('        // TODO: on error, populate _nitro_err (hasError/name/message via strdup) before posting.');
-          w.writeln('        // TODO: post result via Dart_PostCObject_DL(dartPort, ...)');
-          w.writeln('        // Nullable result? Post EITHER Dart_CObject_kNull OR kInt64 with');
-          w.writeln('        // value 0 — both decode to Dart null. Non-nullable results must');
-          w.writeln('        // always post a real encoded value.');
-          if (func.returnType.isNativeHandle) {
-            w.writeln('        // NativeHandle result: post the raw pointer address as kInt64');
-            w.writeln('        // (int64_t)(uintptr_t)handle. Dart takes ownership on arrival');
-            w.writeln('        // when the method is @NitroOwned.');
-          }
-          w.writeln('        throw std::runtime_error("Not implemented: ${func.dartName}");');
-          w.writeln('    }');
-        } else {
-          final ret = CppInterfaceGenerator.cppReturnTypeFor(
-            func.returnType,
-            enumNames,
-            structNames,
-            recordNames,
-          );
-          final params = CppInterfaceGenerator.cppMethodParamsFor(
-            func.params,
-            enumNames,
-            structNames,
-            recordNames,
-          );
-          w.writeln('    $ret ${func.cppName}(${params.join(', ')})${func.isGetter ? ' const' : ''} override {');
-          w.writeln('        // TODO: implement ${func.dartName}');
-          w.writeln('        throw std::runtime_error("Not implemented: ${func.dartName}");');
-          final placeholder = _placeholderReturn(ret);
-          if (placeholder != null) {
-            w.writeln('        // return $placeholder;');
-          }
-          w.writeln('    }');
-        }
+        w.writeln('    }');
       }
     }
 

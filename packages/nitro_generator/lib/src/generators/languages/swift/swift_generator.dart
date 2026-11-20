@@ -6,12 +6,12 @@ import '../../record_generator.dart';
 import '../../struct_generator.dart';
 import 'package:nitro_annotations/nitro_annotations.dart' show CppImpl, SwiftImpl;
 import 'emitters/swift_function_emitter.dart';
+import 'emitters/swift_map_emitter.dart';
 import 'emitters/swift_property_emitter.dart';
 import 'emitters/swift_stream_emitter.dart';
 import 'emitters/swift_type_mapper.dart';
 import 'emitters/swift_type_mapper_extended.dart';
 import 'emitters/swift_variant_emitter.dart';
-import '../../../map_wire.dart';
 
 part 'emitters/swift_protocol_registry_emitter.dart';
 part 'emitters/swift_map_typed_data_emitter.dart';
@@ -119,6 +119,7 @@ class SwiftGenerator {
       writer.blankLine();
     }
     _emitSwiftStringHelpers(writer);
+    _emitSwiftCallbackFailure(writer, spec);
     _emitSwiftEncodableProtocol(writer);
 
     final swiftEnums = EnumGenerator.generateSwift(spec);
@@ -174,73 +175,63 @@ class SwiftGenerator {
 
   /// Emits Swift helper functions for @NitroResult encoding.
   ///
-  /// Wire format: [1B tag: 0=ok, 1=err][record-codec payload]
-  /// All success payloads are wrapped in a NitroRecordWriter so the
-  /// Dart side can uniformly call `RecordReader.fromNative(res + 1)`.
+  /// Wire format: [1B tag: 0=ok, 1=err][record-codec block]. Every payload,
+  /// a scalar included, is a NitroRecordWriter block, so Dart always reads
+  /// `RecordReader.fromNative(res + 1)`.
   static void _emitSwiftResultHelpers(CodeWriter writer) {
     writer.line('// MARK: - @NitroResult encoding helpers');
     writer.blankLine();
-    writer.line('private func _nitroWriteResultTag(_ tag: UInt8, _ payload: UnsafeMutablePointer<UInt8>?, _ payloadLen: Int) -> UnsafeMutablePointer<UInt8>? {');
-    writer.line('    let total = 1 + payloadLen');
-    writer.line('    guard let buf = UnsafeMutablePointer<UInt8>.allocate(capacity: total) as UnsafeMutablePointer<UInt8>? else { return nil }');
+    // The block's length is its 4-byte prefix. (It was read as `payload.pointee`,
+    // one byte: a payload of 256 bytes or more was copied short and Dart read
+    // past the end of the allocation.) The block is consumed: it used to leak.
+    writer.line('/// `[1B tag]` followed by [block], a `[4B length][bytes]` block from');
+    writer.line('/// `NitroRecordWriter.toNative()`, which this takes over and frees. Dart frees');
+    writer.line('/// the result with `free`, so it is `malloc`ed.');
+    writer.line('private func _nitroWriteResultTag(_ tag: UInt8, _ block: UnsafeMutablePointer<UInt8>?) -> UnsafeMutablePointer<UInt8>? {');
+    writer.line('    var length: Int32 = 0');
+    writer.line('    if let block = block { memcpy(&length, block, 4) }');
+    writer.line('    let blockLen = 4 + Int(Int32(littleEndian: length))');
+    writer.line('    guard let buf = malloc(1 + blockLen)?.assumingMemoryBound(to: UInt8.self) else { free(block); return nil }');
     writer.line('    buf[0] = tag');
-    writer.line('    if payloadLen > 0, let payload = payload {');
-    writer.line('        buf.advanced(by: 1).initialize(from: payload, count: payloadLen)');
-    writer.line('    }');
+    writer.line('    if let block = block { memcpy(buf + 1, block, blockLen); free(block) } else { memset(buf + 1, 0, 4) }');
     writer.line('    return buf');
     writer.line('}');
     writer.blankLine();
-    writer.line('private func _nitroEncodeResultInt64(_ v: Int64) -> UnsafeMutablePointer<UInt8>? {');
+    writer.line('private func _nitroEncodeResult(_ tag: UInt8, _ write: (NitroRecordWriter) -> Void) -> UnsafeMutablePointer<UInt8>? {');
     writer.line('    let w = NitroRecordWriter()');
-    writer.line('    w.writeInt(v)');
-    writer.line('    guard let payload = w.toNative() else { return _nitroWriteResultTag(0, nil, 0) }');
-    writer.line('    let payloadLen = 4 + Int(payload.pointee)  // 4B prefix + payload bytes');
-    writer.line('    return _nitroWriteResultTag(0, payload, payloadLen)');
+    writer.line('    write(w)');
+    writer.line('    return _nitroWriteResultTag(tag, w.toNative())');
     writer.line('}');
     writer.blankLine();
+    writer.line('private func _nitroEncodeResultInt64(_ v: Int64) -> UnsafeMutablePointer<UInt8>? { return _nitroEncodeResult(0) { \$0.writeInt(v) } }');
     writer.line('// Overload for plain Int (non-nullable) convenience');
-    writer.line('private func _nitroEncodeResultInt64(_ v: Int) -> UnsafeMutablePointer<UInt8>? {');
-    writer.line('    return _nitroEncodeResultInt64(Int64(v))');
-    writer.line('}');
+    writer.line('private func _nitroEncodeResultInt64(_ v: Int) -> UnsafeMutablePointer<UInt8>? { return _nitroEncodeResultInt64(Int64(v)) }');
+    writer.line('private func _nitroEncodeResultFloat64(_ v: Double) -> UnsafeMutablePointer<UInt8>? { return _nitroEncodeResult(0) { \$0.writeDouble(v) } }');
+    writer.line('private func _nitroEncodeResultBool(_ v: Bool) -> UnsafeMutablePointer<UInt8>? { return _nitroEncodeResult(0) { \$0.writeBool(v) } }');
+    writer.line('private func _nitroEncodeResultString(_ v: String) -> UnsafeMutablePointer<UInt8>? { return _nitroEncodeResult(0) { \$0.writeString(v) } }');
+    writer.line('// A @HybridRecord, a @NitroVariant, or the one-field wrapper of any other value.');
+    writer.line('private func _nitroEncodeResultRecord<T: NitroEncodable>(_ v: T) -> UnsafeMutablePointer<UInt8>? { return _nitroWriteResultTag(0, v.toNative()) }');
+    writer.line('private func _nitroEncodeResultError(_ message: String) -> UnsafeMutablePointer<UInt8>? { return _nitroEncodeResult(1) { \$0.writeString(message) } }');
+    writer.line('private func _nitroEncodeResultError(_ error: Error) -> UnsafeMutablePointer<UInt8>? { return _nitroEncodeResultError(error.localizedDescription) }');
     writer.blankLine();
-    writer.line('private func _nitroEncodeResultFloat64(_ v: Double) -> UnsafeMutablePointer<UInt8>? {');
-    writer.line('    let w = NitroRecordWriter()');
-    writer.line('    w.writeDouble(v)');
-    writer.line('    guard let payload = w.toNative() else { return _nitroWriteResultTag(0, nil, 0) }');
-    writer.line('    let payloadLen = 4 + Int(payload.pointee)');
-    writer.line('    return _nitroWriteResultTag(0, payload, payloadLen)');
-    writer.line('}');
-    writer.blankLine();
-    writer.line('private func _nitroEncodeResultBool(_ v: Bool) -> UnsafeMutablePointer<UInt8>? {');
-    writer.line('    let w = NitroRecordWriter()');
-    writer.line('    w.writeBool(v)');
-    writer.line('    guard let payload = w.toNative() else { return _nitroWriteResultTag(0, nil, 0) }');
-    writer.line('    let payloadLen = 4 + Int(payload.pointee)');
-    writer.line('    return _nitroWriteResultTag(0, payload, payloadLen)');
-    writer.line('}');
-    writer.blankLine();
-    writer.line('private func _nitroEncodeResultString(_ v: String) -> UnsafeMutablePointer<UInt8>? {');
-    writer.line('    let w = NitroRecordWriter()');
-    writer.line('    w.writeString(v)');
-    writer.line('    guard let payload = w.toNative() else { return _nitroWriteResultTag(0, nil, 0) }');
-    writer.line('    let payloadLen = 4 + Int(payload.pointee)');
-    writer.line('    return _nitroWriteResultTag(0, payload, payloadLen)');
-    writer.line('}');
-    writer.blankLine();
-    writer.line('// For @HybridRecord / @NitroVariant result types — encode via toNative()/writeFields');
-    writer.line('private func _nitroEncodeResultRecord<T: NitroEncodable>(_ v: T) -> UnsafeMutablePointer<UInt8>? {');
-    writer.line('    guard let payload = v.toNative() else { return _nitroWriteResultTag(0, nil, 0) }');
-    writer.line('    let payloadLen = 4 + Int(payload.pointee)');
-    writer.line('    return _nitroWriteResultTag(0, payload, payloadLen)');
-    writer.line('}');
-    writer.blankLine();
-    writer.line('private func _nitroEncodeResultError(_ error: Error) -> UnsafeMutablePointer<UInt8>? {');
-    writer.line('    let msg = error.localizedDescription');
-    writer.line('    let w = NitroRecordWriter()');
-    writer.line('    w.writeString(msg)');
-    writer.line('    guard let payload = w.toNative() else { return _nitroWriteResultTag(1, nil, 0) }');
-    writer.line('    let payloadLen = 4 + Int(payload.pointee)');
-    writer.line('    return _nitroWriteResultTag(1, payload, payloadLen)');
+  }
+
+  /// What a value-returning callback does when Dart handed back nothing — the
+  /// Dart closure threw, so the pointer is null (or the enum's raw value is the
+  /// exceptional 0). An NSException unwinds to the `@try` around every stub, and
+  /// the call that invoked the callback fails with it, as it does on Kotlin and
+  /// C++. A force-unwrap here was a trap.
+  static void _emitSwiftCallbackFailure(CodeWriter writer, BridgeSpec spec) {
+    final needed = spec.functions.any(
+      (f) => f.params.any((p) {
+        final ret = bareTypeName(p.type.functionReturnType ?? 'void');
+        return p.type.isFunction && (spec.callbackReturnsBlock(ret) || spec.isEnumName(ret));
+      }),
+    );
+    if (!needed) return;
+    writer.line('private func _nitroCallbackReturnedNothing(_ name: String) -> Never {');
+    writer.line('    NSException(name: NSExceptionName("NitroCallbackError"), reason: "\\(name): the Dart callback threw and returned no value", userInfo: nil).raise()');
+    writer.line('    fatalError("unreachable")');
     writer.line('}');
     writer.blankLine();
   }

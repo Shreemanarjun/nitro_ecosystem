@@ -1,6 +1,10 @@
-## 0.8.9
+## 0.9.0
 
-- Coordinated 0.8.9 release; no changes.
+- **Changed:** `nitrogen init` with a web target no longer adds a web plugin class, the `flutter_web_plugins` dependency or a `web:` plugin entry. Web is declared under a top-level `platforms:` key, so the plugin also resolves in DartNative. `nitrogen doctor` warns on the old layout; see `migration/0.9.0.md`.
+- **Changed:** a Kotlin or Swift plugin from `nitrogen init` runs in DartNative. The Android build file applies Kotlin only where the host gives none, the Kotlin plugin class tracks the Activity with lifecycle callbacks instead of `ActivityAware`, and the Swift plugin class adopts `<Class>ImplementationProvider`. Needs nitro_generator 0.9.0.
+- **Fix:** `nitrogen init --no-ui` with a web target failed in `flutter create` and never wired web; it now matches the interactive path.
+- **Changed:** a new plugin's `environment: sdk:` is `^3.11.3`, the floor Nitro supports, not the SDK that ran `flutter create`.
+- **Fix:** `nitrogen doctor` crashed on a web module with no `web/build_web.sh`.
 
 ## 0.8.8
 

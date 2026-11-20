@@ -239,7 +239,7 @@ class _InitViewState extends State<InitView> {
     // nitrogen steps below (build script + assets + pubspec web block).
     final nativePlatforms = platforms.where((pf) => pf != 'web').toList();
     if (nativePlatforms.isEmpty) {
-      _setFailed(_kStepCreate, 'web requires at least one native platform in init — pass e.g. --platforms=android,web (the web target itself is wired by nitrogen).');
+      _setFailed(_kStepCreate, _kWebNeedsNativePlatform);
       setState(() => _finished = true);
       return;
     }
@@ -308,7 +308,7 @@ class _InitViewState extends State<InitView> {
       _setSkipped(_kStepLinux, detail: 'linux not in selected platforms');
     }
 
-    // Step 7.5 — Web (WASM build script + asset dir + Dart web plugin shell)
+    // Step 7.5 — Web (WASM build script + asset dir)
     if (platforms.contains('web')) {
       _configureWeb(pluginName, className);
     }
@@ -872,64 +872,24 @@ class _InitViewState extends State<InitView> {
         ..writeln('      linux:')
         ..write('        ffiPlugin: true');
     }
-    // Web is a Dart plugin entry (flutter_tools requires pluginClass AND
-    // fileName; ffiPlugin does not apply to web).
-    if (platforms.contains('web')) {
-      platformsBlock
-        ..writeln()
-        ..writeln('      web:')
-        ..writeln('        pluginClass: ${className}WebPlugin')
-        ..write('        fileName: ${pluginName}_web.dart');
-    }
-
     // Replace whatever platforms block flutter create generated with ours.
     pubspec = pubspec.replaceFirst(
       RegExp(r'    platforms:\n(?:      \w+:\n(?:        \w+: [^\n]+\n)*)+', multiLine: true),
       platformsBlock.toString(),
     );
 
-    if (platforms.contains('web')) {
-      // The WASM artifacts ship as bundled assets, and the web plugin shell
-      // needs flutter_web_plugins.
-      if (!pubspec.contains('flutter_web_plugins')) {
-        pubspec = pubspec.replaceFirst(
-          RegExp(r'dependencies:\n  flutter:\n    sdk: flutter\n'),
-          'dependencies:\n  flutter:\n    sdk: flutter\n  flutter_web_plugins:\n    sdk: flutter\n',
-        );
-      }
-      if (!pubspec.contains('assets/web/')) {
-        // Append an assets section under the top-level `flutter:` key (after
-        // the plugin block, indentation level 2).
-        pubspec = '$pubspec\n  assets:\n    - assets/web/\n';
-      }
-    }
+    pubspec = withNitroSdkFloor(pubspec);
+    if (platforms.contains('web')) pubspec = declarePlatformsInPubspec(pubspec, platforms);
 
     pubspecFile.writeAsStringSync(pubspec);
   }
 
-  /// Scaffolds the web (WASM) target: the Emscripten build script, the
-  /// bundled-asset directory, and the Dart web plugin shell flutter_tools
-  /// requires for a `web:` platforms entry.
-  static void _configureWeb(String pluginName, String className) {
-    // Build script + assets/web/ — same writer `nitrogen link` refreshes.
-    linkWeb(
-      pluginName,
-      [ModuleInfo(lib: pluginName, module: className, isCpp: true, webIsWasm: true)],
-    );
-
-    // Dart web plugin shell (flutter_tools requires pluginClass + fileName
-    // for a `web:` entry; registerWith is the earliest load hook).
-    File(p.join(pluginName, 'lib', '${pluginName}_web.dart')).writeAsStringSync('''
-// Web plugin shell required by the `web:` platforms entry in pubspec.yaml.
-// The WASM module itself is loaded on demand by ensure${className}Ready()
-// (generated platform shim) — nothing to do at registration time.
-import 'package:flutter_web_plugins/flutter_web_plugins.dart';
-
-class ${className}WebPlugin {
-  static void registerWith(Registrar registrar) {}
-}
-''');
-  }
+  /// Scaffolds the web (WASM) target: the Emscripten build script and the
+  /// bundled-asset directory — the same writer `nitrogen link` refreshes.
+  static void _configureWeb(String pluginName, String className) => linkWeb(
+    pluginName,
+    [ModuleInfo(lib: pluginName, module: className, isCpp: true, webIsWasm: true)],
+  );
 
   static void _writeBridgeSpec(String pluginName, String className, {List<String> platforms = const ['android', 'ios', 'macos']}) {
     final libSrcDir = Directory(p.join(pluginName, 'lib', 'src'));
@@ -1393,7 +1353,13 @@ class InitCommand extends Command {
     }
 
     final className = _toClassName(pluginName);
-    final platformsArg = platforms.join(',');
+    // The plugin_ffi template rejects `web`; nitrogen wires the web target.
+    final nativePlatforms = platforms.where((pf) => pf != 'web').toList();
+    if (nativePlatforms.isEmpty) {
+      logErr(_kWebNeedsNativePlatform);
+      exit(1);
+    }
+    final platformsArg = nativePlatforms.join(',');
 
     // Step 1 — flutter create
     log('running flutter create...');
@@ -1441,6 +1407,10 @@ class InitCommand extends Command {
     if (platforms.contains('linux')) {
       log('configuring Linux...');
       dummy.configureLinux();
+    }
+    if (platforms.contains('web')) {
+      log('configuring web...');
+      dummy.configureWeb();
     }
 
     // Step 8 — pubspec
@@ -1509,6 +1479,7 @@ class _HeadlessInitRunner {
   void configureAndroid() => _InitViewState._configureAndroid(pluginName, className, org);
   void configureMacos() => _InitViewState._configureMacos(pluginName, className);
   void configureWindows() => _InitViewState._configureWindows(pluginName, className);
+  void configureWeb() => _InitViewState._configureWeb(pluginName, className);
   void configureLinux() => _InitViewState._configureLinux(pluginName, className);
   void updatePubspec({String? nitroVersion, String? nitroGeneratorVersion}) =>
       _InitViewState._updatePubspec(pluginName, className, org, platforms: platforms, nitroVersion: nitroVersion, nitroGeneratorVersion: nitroGeneratorVersion);
@@ -1516,4 +1487,29 @@ class _HeadlessInitRunner {
   void writeBridgeSpec() => _InitViewState._writeBridgeSpec(pluginName, className, platforms: platforms);
   void writeExampleMain() => _InitViewState._writeExampleMain(pluginName, className);
   void writeBuildYaml() => _InitViewState._writeBuildYaml(pluginName);
+}
+
+/// The Dart SDK floor every Nitro package declares.
+const kNitroDartSdkFloor = '^3.11.3';
+
+/// Replaces the `environment: sdk:` constraint `flutter create` stamps (the
+/// SDK that happened to run it) with [kNitroDartSdkFloor]. The stamped one
+/// shuts out older Flutter releases and DartNative, which ships an earlier
+/// Dart, though nothing in a Nitro plugin needs the newer SDK.
+String withNitroSdkFloor(String pubspec) => pubspec.replaceFirst(RegExp(r'^  sdk: \S+$', multiLine: true), '  sdk: $kNitroDartSdkFloor');
+
+const _kWebNeedsNativePlatform = 'web requires at least one native platform in init — pass e.g. --platforms=android,web (the web target itself is wired by nitrogen).';
+
+/// Declares [platforms] under a top-level `platforms:` key, which is how a
+/// plugin with a web target tells pub.dev what it supports.
+///
+/// Web has no `web:` plugin entry and no `flutter_web_plugins` dependency: the
+/// generated platform shim picks the web bridge with a conditional import, so
+/// nothing has to be registered, and `flutter_web_plugins` does not exist in
+/// SDKs without a web target (DartNative), where depending on it stops the
+/// plugin resolving. The bundled `assets/web/` entry is written by `linkWeb`.
+String declarePlatformsInPubspec(String pubspec, List<String> platforms) {
+  if (RegExp(r'^platforms:', multiLine: true).hasMatch(pubspec)) return pubspec;
+  final declared = (platforms.toList()..sort()).map((name) => '  $name:\n').join();
+  return pubspec.replaceFirst(RegExp(r'^environment:', multiLine: true), 'platforms:\n$declared\nenvironment:');
 }

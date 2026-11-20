@@ -1,64 +1,8 @@
 part of '../swift_generator.dart';
 
 void _emitSwiftMapHelpers(CodeWriter writer, BridgeSpec spec) {
-  // Emit binary map helpers when any map types are used.
-  final hasMapTypes = spec.functions.any((f) => f.returnType.isMap || f.params.any((p) => p.type.isMap)) || spec.properties.any((p) => p.type.isMap);
-  if (hasMapTypes) {
-    writer.line('// Binary map encode/decode — [4B payload_len][4B count][entries: [4B kLen][kBytes][1B tag][vBytes]]');
-    writer.line('// Type tags: 0=null (NSNull), 1=int64, 2=float64, 3=bool, 4=string, 5=binary record/variant blob');
-    writer.line('private func _nitroEncodeMapBinary(_ m: [String: Any]) -> UnsafeMutablePointer<UInt8>? {');
-    writer.line('    var payload = Data()');
-    // Use raw strings (r'...') for lines containing Swift's $0 closure shorthand.
-    writer.line(r"    func writeLE32(_ v: Int32) { var lv = v.littleEndian; payload.append(contentsOf: withUnsafeBytes(of: &lv) { Data($0) }) }");
-    writer.line(r"    func writeLE64(_ v: Int64) { var lv = v.littleEndian; payload.append(contentsOf: withUnsafeBytes(of: &lv) { Data($0) }) }");
-    writer.line('    writeLE32(Int32(m.count))');
-    writer.line('    for (k, v) in m {');
-    writer.line('        let kb = k.data(using: .utf8)!; writeLE32(Int32(kb.count)); payload.append(kb)');
-    writer.line('        if v is NSNull { payload.append(${MapValueWire.nul.tag}) }');
-    writer.line('        else if let iv = v as? Int64 { payload.append(${MapValueWire.int64.tag}); writeLE64(iv) }');
-    writer.line('        else if let dv = v as? Double { payload.append(${MapValueWire.float64.tag}); writeLE64(Int64(bitPattern: dv.bitPattern)) }');
-    writer.line('        else if let bv = v as? Bool { payload.append(${MapValueWire.boolean.tag}); payload.append(bv ? 1 : 0) }');
-    writer.line('        else if let blob = v as? Data { payload.append(${MapValueWire.blob.tag}); writeLE32(Int32(blob.count)); payload.append(blob) }');
-    // Not a raw string: the tag interpolates, so Swift's \(v) is escaped.
-    writer.line('        else { let sv = "\\(v)".data(using: .utf8)!; payload.append(${MapValueWire.string.tag}); writeLE32(Int32(sv.count)); payload.append(sv) }');
-    writer.line('    }');
-    writer.line('    var lenLE = Int32(payload.count).littleEndian');
-    writer.line('    let total = 4 + payload.count');
-    writer.line('    guard let buf = malloc(total) else { return nil }');
-    writer.line(r"    withUnsafeBytes(of: &lenLE) { memcpy(buf, $0.baseAddress!, 4) }");
-    writer.line(r"    payload.withUnsafeBytes { memcpy(buf.advanced(by: 4), $0.baseAddress!, payload.count) }");
-    writer.line('    return buf.assumingMemoryBound(to: UInt8.self)');
-    writer.line('}');
-    writer.line('private func _nitroDecodeMapBinary(_ ptr: UnsafeMutablePointer<UInt8>) -> [String: Any] {');
-    // loadUnaligned avoids the Swift debug-mode alignment assertion:
-    // after a variable-length key, pos is rarely on a 4- or 8-byte boundary.
-    writer.line('    let payLen = Int(UnsafeRawPointer(ptr).loadUnaligned(as: UInt32.self).littleEndian)');
-    writer.line('    let data = Data(bytes: ptr.advanced(by: 4), count: payLen)');
-    writer.line('    var pos = 0');
-    writer.line(r"    func readLE32() -> Int { let v = data[pos..<(pos+4)].withUnsafeBytes { Int($0.loadUnaligned(as: UInt32.self).littleEndian) }; pos += 4; return v }");
-    writer.line(r"    func readLE64() -> Int64 { let v = data[pos..<(pos+8)].withUnsafeBytes { Int64(bitPattern: $0.loadUnaligned(as: UInt64.self).littleEndian) }; pos += 8; return v }");
-    writer.line('    let count = readLE32(); var result = [String: Any]()');
-    writer.line('    for _ in 0..<count {');
-    writer.line('        let kLen = readLE32(); let k = String(decoding: data[pos..<(pos+kLen)], as: UTF8.self); pos += kLen');
-    writer.line('        let tag = data[pos]; pos += 1');
-    writer.line('        switch tag {');
-    writer.line('        case ${MapValueWire.nul.tag}: result[k] = NSNull()');
-    writer.line('        case ${MapValueWire.int64.tag}: result[k] = readLE64()');
-    writer.line('        case ${MapValueWire.float64.tag}: result[k] = Double(bitPattern: UInt64(bitPattern: readLE64()))');
-    writer.line('        case ${MapValueWire.boolean.tag}: result[k] = data[pos] != 0; pos += 1');
-    // tag 5 = binary record/variant blob — store as Data for type-specific caller to decode
-    writer.line('        case ${MapValueWire.blob.tag}: let bLen = readLE32(); result[k] = Data(data[pos..<(pos+bLen)]); pos += bLen');
-    // The string wire is spelled out rather than left to `default`, so a tag
-    // this decoder does not know is visibly the fallback (an ABI mismatch)
-    // instead of being silently read as a string.
-    writer.line('        case ${MapValueWire.string.tag}: let vLen = readLE32(); result[k] = String(decoding: data[pos..<(pos+vLen)], as: UTF8.self); pos += vLen');
-    writer.line('        default: let vLen = readLE32(); result[k] = String(decoding: data[pos..<(pos+vLen)], as: UTF8.self); pos += vLen');
-    writer.line('        }');
-    writer.line('    }');
-    writer.line('    return result');
-    writer.line('}');
-    writer.blankLine();
-  }
+  // Typed dictionary codec, when any map type is used.
+  if (SwiftMapEmitter.usesMaps(spec)) SwiftMapEmitter.emitHelpers(writer);
 }
 
 /// Emits the NitroAnyMap recursive binary codec for Swift bridge files.

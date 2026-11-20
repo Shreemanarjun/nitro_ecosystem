@@ -107,7 +107,7 @@ void emitBackgroundExports(CodeWriter w, BridgeSpec spec, String libStem) {
   w.line('}');
 
   if (spec.androidImpl is KotlinImpl) {
-    final failSym = CppBridgeGenerator._jniMethodName(spec.lib, spec.dartClassName, 'nitroBgFail');
+    final failSym = _jniMethodName(spec.lib, spec.dartClassName, 'nitroBgFail');
     w.line('#ifdef __ANDROID__');
     w.line('// Host hooks over JNI: the Kotlin bridge object starts/destroys headless');
     w.line('// FlutterEngines on the main looper.');
@@ -132,7 +132,7 @@ void emitBackgroundExports(CodeWriter w, BridgeSpec spec, String libStem) {
     w.line('    if (js) env->DeleteLocalRef(js);');
     w.line('    if (env->ExceptionCheck()) env->ExceptionClear();');
     w.line('}');
-    final runSym = CppBridgeGenerator._jniMethodName(spec.lib, spec.dartClassName, 'nitroBgRunString');
+    final runSym = _jniMethodName(spec.lib, spec.dartClassName, 'nitroBgRunString');
     w.line('// Kotlin → C: native-initiated job (WorkManager, BroadcastReceiver, ...).');
     w.line('JNIEXPORT jlong JNICALL $runSym(JNIEnv* env, jclass, jstring entry, jstring text) {');
     w.line('    const char* e = entry ? env->GetStringUTFChars(entry, nullptr) : nullptr;');

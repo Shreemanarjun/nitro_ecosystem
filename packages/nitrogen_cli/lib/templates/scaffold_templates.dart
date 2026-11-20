@@ -73,8 +73,14 @@ String iosSwiftPluginTemplate(String className) =>
 import Flutter
 import UIKit
 
-public class Swift${className}Plugin: NSObject, FlutterPlugin {
+public class Swift${className}Plugin: NSObject, FlutterPlugin, ${className}ImplementationProvider {
     public static func register(with registrar: FlutterPluginRegistrar) {
+        register${className}Implementation()
+    }
+
+    /// Also how the generated registry finds the implementation in a host
+    /// that never calls register(with:) (DartNative).
+    public static func register${className}Implementation() {
         ${className}Registry.register(${className}Impl())
     }
 }
@@ -105,8 +111,14 @@ String macosSwiftPluginTemplate(String className) =>
 import FlutterMacOS
 import AppKit
 
-public class Swift${className}Plugin: NSObject, FlutterPlugin {
+public class Swift${className}Plugin: NSObject, FlutterPlugin, ${className}ImplementationProvider {
     public static func register(with registrar: FlutterPluginRegistrar) {
+        register${className}Implementation()
+    }
+
+    /// Also how the generated registry finds the implementation in a host
+    /// that never calls register(with:) (DartNative).
+    public static func register${className}Implementation() {
         ${className}Registry.register(${className}Impl())
     }
 }
@@ -198,6 +210,14 @@ plugins {
     // See: https://docs.flutter.dev/release/breaking-changes/migrate-to-built-in-kotlin
 }
 
+// A host that gives plugin projects no Kotlin support (DartNative) gets the
+// Kotlin Gradle plugin here. Flutter provides Kotlin itself, so this does
+// nothing there. It goes through pluginManager because Flutter reads this
+// file for an `apply plugin:` line and would then leave Kotlin to the plugin.
+if (extensions.findByName("kotlin") == null) {
+    pluginManager.apply("org.jetbrains.kotlin.android")
+}
+
 group = "$org.$pluginName"
 version = "1.0"
 
@@ -253,12 +273,13 @@ String androidPluginKtTemplate(
     '''
 package $org.$pluginName
 
+import android.app.Activity
+import android.app.Application
+import android.os.Bundle
 import io.flutter.embedding.engine.plugins.FlutterPlugin
-import io.flutter.embedding.engine.plugins.activity.ActivityAware
-import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import nitro.$moduleName.${className}JniBridge
 
-class ${className}Plugin : FlutterPlugin, ActivityAware {
+class ${className}Plugin : FlutterPlugin {
 
     companion object {
         init { System.loadLibrary("$pluginName") }
@@ -269,28 +290,48 @@ class ${className}Plugin : FlutterPlugin, ActivityAware {
         // registry). The old single-instance register(impl, context) API no
         // longer exists on the generated JniBridge.
         ${className}JniBridge.registerFactory({ ${className}Impl() }, binding.applicationContext)
+        (binding.applicationContext as? Application)?.let(ActivityWatcher::watch)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         // Instance cleanup is driven by Dart's dispose() → the destroy_instance
         // C bridge call; the generated JniBridge has no engine-level teardown.
     }
+}
 
-    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
-        ${className}JniBridge.onActivityAttached(binding.activity)
+/// Tells the bridge which Activity is in front, from the application's own
+/// lifecycle callbacks. Flutter's ActivityAware is not used: it needs the
+/// embedding's activity classes, which a host with a trimmed embedding
+/// (DartNative) does not have.
+private object ActivityWatcher : Application.ActivityLifecycleCallbacks {
+    private var watching = false
+    private var activity: Activity? = null
+
+    fun watch(app: Application) {
+        if (watching) return
+        watching = true
+        app.registerActivityLifecycleCallbacks(this)
     }
 
-    override fun onDetachedFromActivityForConfigChanges() {
+    private fun attach(activity: Activity) {
+        if (this.activity === activity) return
+        this.activity = activity
+        ${className}JniBridge.onActivityAttached(activity)
+    }
+
+    override fun onActivityStarted(activity: Activity) = attach(activity)
+    override fun onActivityResumed(activity: Activity) = attach(activity)
+
+    override fun onActivityDestroyed(activity: Activity) {
+        if (this.activity !== activity) return
+        this.activity = null
         ${className}JniBridge.onActivityDetached()
     }
 
-    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
-        ${className}JniBridge.onActivityAttached(binding.activity)
-    }
-
-    override fun onDetachedFromActivity() {
-        ${className}JniBridge.onActivityDetached()
-    }
+    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+    override fun onActivityPaused(activity: Activity) {}
+    override fun onActivityStopped(activity: Activity) {}
+    override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
 }''';
 
 String androidImplKtTemplate(

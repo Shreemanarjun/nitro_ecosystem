@@ -230,11 +230,13 @@ void test_nitrojob() {
 
 // ── NitroWorkerPool: both enqueue paths under TSan ──────────────────────────
 // The pool spawns DETACHED workers that loop forever and is never stopped or
-// joined — the generated bridge holds it as a process-lifetime global
-// (`static NitroWorkerPool g_nitro_pool_math;`). Destructing it while workers
-// are live is a use-after-free of its queue/mutex (TSan confirms this), so the
-// test mirrors production: one leaked, globally-reachable pool, never destroyed
-// (reachable from a global → not a leak for LSan).
+// joined — the generated bridge holds it as a leaked process-lifetime global
+// (`static NitroWorkerPool& g_nitro_pool_math = *new NitroWorkerPool();`).
+// Destructing it while workers are live is a use-after-free of its queue/mutex
+// (TSan confirms this), and on glibc ~condition_variable blocks while a worker
+// waits, so a static object hung the process at exit(). The test mirrors
+// production: one leaked, globally-reachable pool, never destroyed (reachable
+// from a global → not a leak for LSan).
 NitroWorkerPool* g_pool = new NitroWorkerPool();
 
 void test_worker_pool() {

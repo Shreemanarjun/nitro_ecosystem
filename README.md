@@ -40,10 +40,10 @@ No method channels. No manual FFI. No boilerplate.
 ```yaml
 # pubspec.yaml
 dependencies:
-  nitro: ^0.8.9
+  nitro: ^0.9.0
 
 dev_dependencies:
-  nitro_generator: ^0.8.9
+  nitro_generator: ^0.9.0
   build_runner: ^2.4.0
 ```
 
@@ -65,6 +65,16 @@ dart pub global activate nitrogen_cli  # one-time
 | Windows (desktop C++) | Visual Studio 2022 + CMake 3.14+ |
 | Linux (desktop C++) | GCC/Clang + CMake 3.10+ |
 | Web (WASM) | Emscripten SDK (`emcc` on PATH) — only for `web: WebNativeImpl.wasm` |
+
+### Where it runs
+
+`nitro`, `nitro_annotations`, `nitro_generator` and `nitrogen_cli` are pure Dart packages: none depends on the Flutter SDK.
+
+| Project | What works |
+|---|---|
+| Flutter | Everything in this document. |
+| Dart only (`dart run`, `dart test`, `dart compile exe`) | A module implemented in C++, on macOS, Linux and Windows. Build its library (`src/CMakeLists.txt`; on macOS compile the bridge as Objective-C++ and link Foundation) and put it on the loader's search path: `DYLD_LIBRARY_PATH`, `LD_LIBRARY_PATH`, `PATH`, or the working directory. `@NitroEntryPoint` jobs run on a spawned isolate. |
+| [DartNative](https://dartnative.com) | C++ modules, Kotlin modules on Android and Swift modules on iOS, from a plugin scaffolded by `nitrogen init` 0.9.0 or changed as [migration/0.9.0.md](migration/0.9.0.md) describes. `@NitroEntryPoint` jobs use the headless engine on Android and iOS. Declare web under a top-level `platforms:` key, not as a plugin entry. |
 
 ---
 
@@ -472,8 +482,7 @@ Future<String> processImage(String path);
 
 // With timeout:
 @NitroAsync(timeout: 5000)
-@zeroCopy // a naked TypedData return is rejected (INVALID_RETURN_TYPE)
-Future<Uint8List> fetchData(String url);
+Future<Uint8List> fetchData(String url); // copied by the bridge; add @zeroCopy for a native-owned view
 ```
 
 ### `@nitroNativeAsync` — zero-hop native async
@@ -563,6 +572,20 @@ switch (result) {
   case NitroErr(:final message): print('failed: $message');
 }
 ```
+
+The value can be `int`, `double`, `bool`, `String`, `DateTime`, `uint64`, a `@HybridEnum`, `@HybridStruct`, `@HybridRecord` or `@NitroVariant`, typed data (`Uint8List`, `Float32List`, …), a `List` of scalars, enums, records or variants, a `Map<String, V>`, a `NitroAnyMap`, or a nullable form of any of them. Anything else (a list with nullable items, a map keyed by something other than `String`) is rejected at generation time (E015).
+
+The native method returns the value itself and signals failure by throwing:
+
+| Dart | Kotlin | Swift | C++ |
+|---|---|---|---|
+| `NitroResultValue<int?>` | `fun f(): Long?` | `func f() throws -> Int64?` | `std::optional<int64_t> f()` |
+| `NitroResultValue<List<int>>` | `fun f(): List<Long>` | `func f() throws -> [Int64]` | `std::vector<int64_t> f()` |
+| `NitroResultValue<Uint8List>` | `fun f(): ByteArray` | `func f() throws -> Data` | `std::vector<uint8_t> f()` |
+| `NitroResultValue<Point>` (struct) | `fun f(): Point` | `func f() throws -> Point` | `Point f()` |
+| `NitroResultValue<Config>` (record) | `fun f(): Config` | `func f() throws -> Config` | `NitroCppBuffer f()` (`config.toNativeBuffer()`) |
+| `NitroResultValue<Map<String, int>>` | `fun f(): Map<String, Long>` | `func f() throws -> [String: Int64]` | `NitroCppBuffer f()` (the encoded map) |
+| `NitroResultValue<DateTime?>` | `fun f(): Long?` (ms) | `func f() throws -> Date?` | `std::optional<int64_t> f()` (ms) |
 
 ### `@zeroCopy` — zero-copy buffer parameter
 
@@ -672,6 +695,26 @@ void processAudio(Float32List samples);
 // Swift:    func processAudio(samples: [Float])
 ```
 
+A typed-data **return** needs no annotation, may be nullable, and works on sync, `@nitroAsync` and
+`@nitroNativeAsync` methods. The implementation returns its ordinary array and the bridge copies it:
+
+```dart
+Float32List samples(int count);   // Kotlin FloatArray · Swift [Float] · C++ std::vector<float>
+Uint8List? thumbnail(String id);  // Kotlin ByteArray? · Swift Data?   · C++ std::optional<std::vector<uint8_t>>
+```
+
+Dart copies a result under 8 KiB and views a larger one in place. Measured round trips of a
+`Uint8List` (profile mode):
+
+| | 64 bytes | 4 KiB | 1 MiB |
+|---|---|---|---|
+| Swift, iPhone 12 — plain / `@zeroCopy` | 226 ns / 348 ns | 0.65 µs / 1.30 µs | 421 µs / 420 µs |
+| C++, macOS — plain / `@zeroCopy` | 172 ns / 280 ns | 1.8 µs / 0.6 µs | 435 µs / 109 µs |
+| Kotlin, emulator — plain / `@zeroCopy` | 10 µs / 62 µs | 9–20 µs / 68–99 µs | 2.1–2.8 ms / 4.9–6.8 ms |
+
+So return typed data plainly by default, and add `@zeroCopy` for large buffers that a C++
+implementation already owns.
+
 ### Collections
 
 | Dart | Encoding |
@@ -686,6 +729,13 @@ void processAudio(Float32List samples);
 | `Map<@HybridEnum, T>` | Binary, enum raw value as the key |
 | `Map<String, @HybridRecord>` | Binary tag-5 blob |
 | `Map<String, @NitroVariant>` | Binary tag-5 blob |
+| `Map<String, @HybridStruct>` | Binary tag-5 blob, for a struct of non-null `int` / `double` / `bool` / `String` fields |
+
+A map can be a return value, any parameter (several on one method), or both, and `Map<String, V>?`
+and `NitroAnyMap?` are null when absent. Native code gets a typed map: Kotlin `Map<String, Long>`,
+Swift `[String: Int64]` (`[String: Any]` for `NitroAnyMap`), C++ the encoded `NitroCppBuffer`.
+A map **property** is refused on a Kotlin or Swift implementation (`INVALID_PROPERTY_TYPE`); use a
+method.
 
 ### Custom types
 
@@ -978,10 +1028,10 @@ The generator validates your spec before emitting any code:
 | **E003** | Error | Nested `Map` return type |
 | **E004** | Error | `Stream<T>` used as a property type |
 | **E006** | Error | `batchMaxSize` is not > 0 |
-| **E008** | Error | `Map<String, @HybridStruct>` value type (see L10) |
+| **E008** | Error | `Map<String, @HybridStruct>` whose struct has a field that is not a non-null `int` / `double` / `bool` / `String` |
 | **E010**–**E013** | Error | Unknown return / stream-item / property / `@HybridRecord` field type |
 | **E014** | Error | `@NitroVariant` with 0 cases or more than 255 |
-| **E015** | Error | `@NitroResult` combined with `@NitroNativeAsync` |
+| **E015** | Error | `@NitroResult` combined with `@NitroNativeAsync`, wrapping `void`, or wrapping a value it cannot carry (a list with nullable items, …) |
 | **E016** | Error | Callback parameter on a plain `@nitroAsync` method |
 | **E017** | Error | Web + `@HybridStruct` field with no wasm32 layout (record/variant/map) |
 | **E018** | Error | Nullable `Map` value the wire cannot carry — use `NitroAnyMap` |
@@ -1009,7 +1059,7 @@ Named codes (same severities, reported by `nitrogen generate` and `SpecValidator
 | **FAST_NOT_SYNC** | Error | `@nitroFast` / `Fast` suffix on a `@nitroAsync`, plain `Future` or `Stream` method (it composes with `@nitroNativeAsync`) |
 | **UNSUPPORTED_FUNCTION_TYPE** | Error | Function-typed return, property, or callback parameter/return type not in the ABI |
 | **INVALID_ZERO_COPY** / **INVALID_ZERO_COPY_RETURN** | Error | `@zeroCopy` on a non-TypedData field/return, or with `@NitroNativeAsync` |
-| **INVALID_RETURN_TYPE** / **INVALID_PROPERTY_TYPE** / **INVALID_STRUCT_FIELD_TYPE** | Error | Naked TypedData return/property, `void` property, or unsupported struct field type |
+| **INVALID_RETURN_TYPE** / **INVALID_PROPERTY_TYPE** / **INVALID_STRUCT_FIELD_TYPE** | Error | TypedData property, `Map` property on a Kotlin or Swift implementation, `void` property, or unsupported struct field type |
 | **SYNC_STRUCT_RETURN** / **SYNC_RECORD_RETURN** | Warning | Struct or `@HybridRecord` returned synchronously (async avoids a copy on the caller's thread) |
 | **STRUCT_STRING_FIELD** | Warning | `@HybridStruct` with `String` fields (use `@HybridRecord`) |
 | **CYCLIC_STRUCT** | Error | `@HybridStruct` types reference each other in a cycle |
@@ -1081,6 +1131,7 @@ Works on web; the C++ twin is the generated `*.mock.g.h`.
 ## Known Limitations
 
 > Upgrading? **0.7.6 requires `nitrogen generate`** — the generator version is part of the bridge checksum; 0.7.6 adds `@NitroEntryPoint` background invocation.
+> **0.9.0 is a breaking release** (typed Swift maps, C++ record writer): see [migration/0.9.0.md](migration/0.9.0.md).
 > See [migration/0.7.1.md](migration/0.7.1.md) (nullable struct fields, nullable map values) and [migration/0.7.0.md](migration/0.7.0.md) (web/WASM).
 
 | ID | Limitation | Workaround |

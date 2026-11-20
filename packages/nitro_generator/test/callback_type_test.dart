@@ -200,8 +200,10 @@ void main() {
       expect(iface, contains('std::function<void(int64_t)> onEvent'));
       // C extern declaration (bridge ABI) keeps raw fn ptr for C linkage.
       expect(bridge, contains('void camera_watch(int64_t instanceId, void (*onEvent)(int64_t), NitroError* _nitro_err)'));
-      // std::function<> accepts raw fn ptr implicitly — no wrapper needed.
-      expect(bridge, contains('_impl->watch(onEvent);'));
+      // The raw pointer goes through the adapter, as in a mixed module: its real
+      // ABI is int64 registers, which only happens to match for this shape.
+      expect(bridge, contains('auto _rawfn_onEvent = reinterpret_cast<void (*)(int64_t)>(onEvent);'));
+      expect(bridge, contains('_impl->watch(_fn_onEvent);'));
       expect(bridge, isNot(contains('void* onEvent')));
     });
 

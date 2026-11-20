@@ -42,11 +42,11 @@ jobs:
         run: flutter pub get
 
       - name: Run generator tests
-        run: flutter test
+        run: dart test
         working-directory: packages/nitro_generator
 
       - name: Run nitro runtime tests
-        run: flutter test
+        run: dart test
         working-directory: packages/nitro
 
   # ── Windows MSVC build ────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ jobs:
         run: flutter pub get
 
       - name: Run generator tests on Windows
-        run: flutter test
+        run: dart test
         working-directory: packages/nitro_generator
 
       # A compile failure here must fail the job — the only skip is when the
@@ -132,11 +132,11 @@ jobs:
         run: flutter pub get
 
       - name: Run generator tests on Linux
-        run: flutter test
+        run: dart test
         working-directory: packages/nitro_generator
 
       - name: Run nitro runtime tests on Linux
-        run: flutter test
+        run: dart test
         working-directory: packages/nitro
 
       # A compile failure here must fail the job — the only skip is when the

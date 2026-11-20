@@ -138,6 +138,7 @@ void _chmod(File file, String mode) {
 
 void main() {
   _falsePositives();
+  _webDeclaration();
   group('Permission checks', () {
     test('warns when src/CMakeLists.txt is not writable', () {
       final tmp = _scaffold();
@@ -2817,6 +2818,44 @@ void _falsePositives() {
       final problems = [for (final c in ios) if (c.status == DoctorStatus.error || c.status == DoctorStatus.warn) c.label];
       expect(problems.where((e) => e.contains('bridge.g.swift') || e.contains('forwarder missing') || e.contains('Cpp target missing')), isEmpty, reason: '$problems');
       expect(ios.where((c) => c.status == DoctorStatus.ok).map((c) => c.label), containsAll(['SPM Sources/MyPlugin/demo_audio.bridge.g.swift present', 'SPM Sources/MyPlugin/demo_speech.bridge.g.swift present']));
+    });
+  });
+}
+
+/// How a web module is declared in pubspec.yaml: a top-level `platforms:` key,
+/// never a `web:` plugin entry (it needs flutter_web_plugins, which DartNative
+/// does not ship).
+void _webDeclaration() {
+  group('doctor: web declaration in pubspec', () {
+    List<DoctorCheck> webChecks(String pubspecExtra) {
+      final root = _scaffold(withIos: false);
+      addTearDown(() => root.deleteSync(recursive: true));
+      _write(root, 'lib/src/demo.native.dart', '@NitroModule(lib: "demo", web: NativeImpl.wasm)\nabstract class Demo extends HybridObject {}\n');
+      final pubspec = File(p.join(root.path, 'pubspec.yaml'));
+      pubspec.writeAsStringSync('$pubspecExtra${pubspec.readAsStringSync()}');
+      return _run(root).sections.firstWhere((s) => s.title == 'Web (WASM)').checks;
+    }
+
+    DoctorCheck declaration(List<DoctorCheck> checks) => checks.firstWhere((c) => c.label.contains('platforms') || c.label.contains('flutter_web_plugins'));
+
+    test('a top-level platforms key with web is accepted', () {
+      final check = declaration(webChecks('platforms:\n  android:\n  web:\n\n'));
+      expect(check.status, DoctorStatus.ok);
+      expect(check.label, 'pubspec platforms: declares web');
+    });
+
+    test('no declaration is a warning that names the top-level key', () {
+      final check = declaration(webChecks(''));
+      expect(check.status, DoctorStatus.warn);
+      expect(check.hint, contains('`platforms:`'));
+      expect(check.hint, isNot(contains('pluginClass')));
+    });
+
+    test('the old flutter_web_plugins shell is a warning, even with the key', () {
+      final check = declaration(webChecks('# flutter_web_plugins:\nplatforms:\n  web:\n\n'));
+      expect(check.status, DoctorStatus.warn);
+      expect(check.label, contains('DartNative'));
+      expect(check.hint, contains('flutter_web_plugins'));
     });
   });
 }

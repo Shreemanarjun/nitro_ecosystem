@@ -6,6 +6,7 @@ import '../../record_generator.dart';
 import '../../struct_generator.dart';
 import 'emitters/kotlin_callback_emitter.dart';
 import 'emitters/kotlin_function_emitter.dart';
+import 'emitters/kotlin_map_emitter.dart';
 import 'emitters/kotlin_property_emitter.dart';
 import 'emitters/kotlin_stream_emitter.dart';
 import 'emitters/kotlin_type_mapper.dart';
@@ -79,14 +80,16 @@ class KotlinGenerator {
     }
     // Emit RecordReader/RecordWriter Kotlin helper classes when variant bridge functions exist.
     final hasResultFunctions = spec.functions.any((f) => f.isResult);
-    if (hasVariantBridge || hasResultFunctions) {
+    final usesMaps = KotlinMapEmitter.usesMaps(spec);
+    if (hasVariantBridge || hasResultFunctions || usesMaps) {
       _emitKotlinBridgeHelpers(
         writer,
         hasVariantBridge: hasVariantBridge,
         hasResult: hasResultFunctions,
-        emitRecordHelpers: spec.localRecordTypes.isEmpty,
+        emitRecordHelpers: spec.nativeRecordTypes.isEmpty && (hasVariantBridge || usesMaps),
       );
     }
+    if (usesMaps) KotlinMapEmitter.emitHelpers(writer);
 
     // Emit NitroAnyMap binary codec helper when any function uses NitroAnyMap.
     final hasAnyMap = spec.functions.any((f) => f.returnType.isAnyMap || f.params.any((p) => p.type.isAnyMap));
@@ -399,15 +402,15 @@ class KotlinGenerator {
     CodeWriter writer, {
     bool hasVariantBridge = false,
     bool hasResult = false,
-    // RecordWriter writes through NitroRecordOut, which the records section
-    // defines; a file with variants but no records of its own needs it here.
+    // RecordWriter and the map codec write through NitroRecordOut, which the
+    // records section defines; a file with no records of its own needs it here.
     bool emitRecordHelpers = false,
   }) {
+    if (emitRecordHelpers) {
+      RecordGenerator.kotlinRecordHelpers.split('\n').forEach(writer.line);
+      writer.blankLine();
+    }
     if (hasVariantBridge) {
-      if (emitRecordHelpers) {
-        RecordGenerator.kotlinRecordHelpers.split('\n').forEach(writer.line);
-        writer.blankLine();
-      }
       writer.line('/** Minimal RecordReader for @NitroVariant bridge decode. */');
       writer.line('class RecordReader(val buf: java.nio.ByteBuffer) {');
       writer.line('    fun readInt8(): Byte = buf.get()');
@@ -588,7 +591,7 @@ class KotlinGenerator {
     // (not in the runtime AAR; module files emit their own copy).
     if (spec.localVariants.isNotEmpty) {
       final helpers = CodeWriter();
-      _emitKotlinBridgeHelpers(helpers, hasVariantBridge: true, emitRecordHelpers: spec.localRecordTypes.isEmpty);
+      _emitKotlinBridgeHelpers(helpers, hasVariantBridge: true, emitRecordHelpers: spec.nativeRecordTypes.isEmpty);
       nodes.add(CodeSnippet(helpers.toString()));
     }
 

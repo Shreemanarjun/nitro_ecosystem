@@ -1,23 +1,5 @@
 part of '../cpp_bridge_generator.dart';
 
-bool _isZeroCopy(BridgeStruct st, String fieldName) => CppBridgeGenerator._isZeroCopy(st, fieldName);
-
-String _zeroCopyLenField(BridgeStruct st, String zeroCopyField) => CppBridgeGenerator._zeroCopyLenField(st, zeroCopyField);
-
-bool _zeroCopyNeedsSynthetic(BridgeStruct st, String zeroCopyField) => CppBridgeGenerator._zeroCopyNeedsSynthetic(st, zeroCopyField);
-
-String _elementSizeDivisorExpr(String dartType) => CppBridgeGenerator._elementSizeDivisorExpr(dartType);
-
-String _jniGetter(String type) => CppBridgeGenerator._jniGetter(type);
-
-String _jniCast(String type) => CppBridgeGenerator._jniCast(type);
-
-String _zeroCopyCElementCast(String dartType) => CppBridgeGenerator._zeroCopyCElementCast(dartType);
-
-String _zeroCopyElementSizeExpr(String dartType) => CppBridgeGenerator._zeroCopyElementSizeExpr(dartType);
-
-List<String> _typedDataJniOps(String dartType) => CppBridgeGenerator._typedDataJniOps(dartType);
-
 void _emitJniTypeHelpers(
   CodeWriter writer,
   BridgeSpec spec,

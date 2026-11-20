@@ -1,6 +1,8 @@
-## 0.8.9
+## 0.9.0
 
-- **Perf:** a typed-data field (`Uint8List`, `Float32List`, …) of a returned `@HybridRecord` is a view of the record's buffer, not a copy, from 8 KiB up: 1 MiB `Uint8List` 192 → 51 µs, peak memory 4× → 2× (AOT, macOS). Regenerate with nitro_generator 0.8.9.
+- Released with nitro_generator 0.9.0, which has breaking changes for hand-written Swift and C++ (see its changelog). Move every Nitro plugin in an app to `^0.9.0` together and regenerate.
+- **New (Dart-only macOS):** `NitroRuntime.loadLib` opens `lib<name>.dylib` when the bridge is not linked into the process, so `dart run`, `dart test` and `dart compile exe` work on macOS as on Linux and Windows.
+- **Perf:** a typed-data field (`Uint8List`, `Float32List`, …) of a returned `@HybridRecord` is a view of the record's buffer, not a copy, from 8 KiB up: 1 MiB `Uint8List` 192 → 51 µs, peak memory 4× → 2× (AOT, macOS). Regenerate with nitro_generator 0.9.0.
 - **Perf:** ASCII string fields decode 3× faster and encode 30% faster; `List<int>` / `List<double>` / `List<bool>` fields encode 2.7× faster and decode 1.3–1.9× faster. Regenerate for the list gains.
 - **Fix:** a `@zeroCopy` typed-data return that was the result of `Isolate.run` / `compute` pointed at freed memory. Regenerate.
 - **Fix:** a record string field starting with U+FEFF lost it on decode.

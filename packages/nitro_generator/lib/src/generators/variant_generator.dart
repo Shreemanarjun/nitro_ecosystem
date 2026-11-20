@@ -40,20 +40,6 @@ class VariantGenerator {
   /// Returns the 0-based tag index assigned to the null-marker case, or -1.
   static int _nullCaseTag(BridgeVariant variant) => variant.cases.indexWhere((c) => c.name.toLowerCase() == 'null');
 
-  /// Returns true when the variant's decode can be optimized with a dart:ffi Union
-  /// (all cases: unit or exactly one non-nullable primitive field int/double/bool).
-  /// This enables zero-copy payload reads via direct pointer cast — no RecordReader.
-  ///
-  /// Variants with a null case are excluded from the optimization — returning
-  /// `null` from a zero-copy union path is not supported.
-  static bool _isPrimOnlyVariant(BridgeVariant variant) =>
-      !_hasNullCase(variant) &&
-      variant.cases.every(
-        (c) =>
-            c.isUnit ||
-            (c.fields.length == 1 && c.fields[0].kind == RecordFieldKind.primitive && !c.fields[0].isNullable && (c.fields[0].dartType == 'int' || c.fields[0].dartType == 'double' || c.fields[0].dartType == 'bool')),
-      );
-
   static void _emitVariantExt(
     CodeWriter s,
     BridgeVariant variant,
@@ -64,7 +50,6 @@ class VariantGenerator {
     final name = variant.name;
     final hasNull = _hasNullCase(variant);
     final nullTag = _nullCaseTag(variant);
-    final isPrimOnly = _isPrimOnlyVariant(variant);
 
     // The return type is nullable when there is a null-marker case.
     final returnType = hasNull ? '$name?' : name;
@@ -74,48 +59,16 @@ class VariantGenerator {
       return;
     }
 
-    // Finding 8: For prim-only variants (no null case), emit a dart:ffi Union before
-    // the extension to allow zero-copy payload reads via pointer cast.
-    if (isPrimOnly && slice == DartCodecSlice.all) {
-      s.line('final class _${name}Payload extends Union {');
-      s.line('  @Int64() external int asInt;');
-      s.line('  @Double() external double asDouble;');
-      s.line('  @Uint8() external int asBool;');
-      s.line('}');
-      s.blank();
-    }
-
     s.line('extension ${name}VariantExt on $name {');
 
     // ── fromNative ────────────────────────────────────────────────────────────
     if (slice == DartCodecSlice.pure) {
       // Pointer decode lives in the ffi library's ${name}VariantFfiExt.
-    } else if (isPrimOnly) {
-      // Zero-copy decode: direct pointer cast instead of RecordReader allocation.
-      // Wire format: [1B tag][payload bytes] — Union covers int(8B), double(8B), bool(1B).
-      s.line('  static $returnType fromNative(Pointer<Uint8> ptr) {');
-      s.line('    final tag = ptr[0];');
-      s.line('    final p = (ptr + 1).cast<_${name}Payload>().ref;');
-      s.line('    return switch (tag) {');
-      for (var i = 0; i < variant.cases.length; i++) {
-        final c = variant.cases[i];
-        if (c.isUnit) {
-          s.line('      $i => ${c.name}(),');
-        } else {
-          final f = c.fields[0];
-          final readExpr = switch (f.dartType) {
-            'int' => 'p.asInt',
-            'double' => 'p.asDouble',
-            'bool' => 'p.asBool != 0',
-            _ => 'p.asInt',
-          };
-          s.line('      $i => ${c.name}(${f.name}: $readExpr),');
-        }
-      }
-      s.line("      _ => throw ArgumentError('Unknown $name tag: \$tag'),");
-      s.line('    };');
-      s.line('  }');
     } else {
+      // [ptr] is the `[4B len][1B tag][fields]` block every native encoder
+      // returns. (A variant whose cases held at most one int/double/bool used
+      // to be read through a Union cast at ptr[0], i.e. the length prefix:
+      // "Unknown tag: 9", or silently another case.)
       s.line('  static $returnType fromNative(Pointer<Uint8> ptr) =>');
       s.line('      fromReader(RecordReader.fromNative(ptr));');
     }

@@ -118,7 +118,26 @@ void main() {
 
     test('registry class has no @objc or NSObject', () {
       final out = SwiftGenerator.generate(simpleSpec());
-      expect(out, isNot(contains('@objc')));
+      expect(out, contains('public class MyCameraRegistry {'));
+      // The only @objc declaration is the provider protocol (below).
+      expect('@objc'.allMatches(out), hasLength(1));
+      expect(out, isNot(contains('NSObject')));
+    });
+
+    test('registry finds the implementation by itself where nothing calls register(with:) (DartNative)', () {
+      final out = SwiftGenerator.generate(simpleSpec());
+      // A class of the plugin adopts this and registers the implementation.
+      expect(out, contains('@objc public protocol MyCameraImplementationProvider {\n    static func registerMyCameraImplementation()\n}'));
+      // Asked once, on the first use that finds nothing registered.
+      expect(out, contains('            if _impl == nil { _ = _askProvider }\n            return _impl'));
+      expect(out, contains('    private static let _askProvider: Void = {'));
+      // Only this module's image: not every class in the process can be messaged.
+      expect(out, contains('guard let image = class_getImageName(MyCameraRegistry.self) else { return }'));
+      expect(out, contains('objc_copyClassNamesForImage(image, &count)'));
+      expect(out, isNot(contains('objc_copyClassList')));
+      // register(_:) and the stubs' `Registry.impl` reads are unchanged.
+      expect(out, contains('    public static func register(_ impl: HybridMyCameraProtocol) {\n        _impl = impl\n    }'));
+      expect(out, contains('guard let impl = MyCameraRegistry.impl else'));
     });
 
     test('bool return type uses Int8 in @_cdecl stub', () {
