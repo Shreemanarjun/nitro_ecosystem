@@ -7,6 +7,7 @@
 // Run end to end (C++, Swift and Kotlin implementations) by the §88 group of
 // the nitro_type_coverage plugin; these pin the generated shapes.
 
+import 'package:dart_style/dart_style.dart';
 import 'package:nitro_generator/src/generators/languages/c_bridge/cpp_bridge_generator.dart';
 import 'package:nitro_generator/src/generators/languages/cpp_native/cpp_interface_generator.dart';
 import 'package:nitro_generator/src/generators/languages/dart/dart_ffi_generator.dart';
@@ -182,7 +183,12 @@ void main() {
       );
       expect(web, contains('final r = RecordReader.fromFramedBytes(_m.readFramed(_p + 1));'));
       expect(web, contains('return NitroOk(r.readIntList());'));
-      expect(web, contains("if (_p == 0) return NitroErr<List<int>>('ints: the native side returned no result');"));
+      expect(web, contains("if (_p == 0) {\n        return NitroErr<List<int>>('ints: the native side returned no result');\n      }"));
+      // Formatted as the builder formats it, no `if` is left with its
+      // statement on the next line and no braces: that is a lint
+      // (curly_braces_in_flow_control_structures) in every plugin's analysis.
+      final formatted = DartFormatter(languageVersion: DartFormatter.latestLanguageVersion).format(web);
+      expect(RegExp(r'^\s*(?:} else )?if \([^\n]*\)\n\s+(?!\{)\S', multiLine: true).allMatches(formatted).map((m) => m.group(0)), isEmpty);
     });
   });
 

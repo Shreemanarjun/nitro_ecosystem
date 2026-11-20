@@ -18,7 +18,12 @@ void _emitResultDecode(
   final base = _bare(type.name);
   w.line('${indent}final _p = dartI64($resVar);');
   // No blob at all (allocation failure): never read a tag at address 0.
-  w.line("${indent}if (_p == 0) return NitroErr<${type.name}>('${func.dartName}: the native side returned no result');");
+  // In a block: the formatter wraps this long line, and a wrapped statement
+  // without braces is a lint (curly_braces_in_flow_control_structures) in the
+  // plugin that owns the generated file.
+  w.line('${indent}if (_p == 0) {');
+  w.line("$indent  return NitroErr<${type.name}>('${func.dartName}: the native side returned no result');");
+  w.line('$indent}');
   w.line('${indent}try {');
   final i2 = '$indent  ';
   final carrier = spec.resultCarrier(func);
