@@ -1,3 +1,7 @@
+## 0.9.1
+
+- **Changed:** generated code compiles at Dart 3.7, so a plugin can declare `sdk: ^3.7.0` and run on Flutter 3.29. The generator itself still needs Dart 3.11 (`analyzer`).
+
 ## 0.9.0
 
 Breaking release. Move every Nitro plugin in an app to `^0.9.0` together, regenerate, and re-run `nitrogen link`.

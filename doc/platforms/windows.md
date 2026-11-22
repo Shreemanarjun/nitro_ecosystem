@@ -8,8 +8,8 @@ Nitro supports Windows via `NativeImpl.cpp` — your module is compiled as a sha
 |---|---|---|
 | MSVC (Visual C++) | Visual Studio 2022 | Visual Studio Build Tools |
 | CMake | 3.14+ | `winget install Kitware.CMake` or bundled with VS |
-| Flutter | 3.35+ stable | flutter.dev |
-| Dart SDK | 3.11.3+ | bundled with Flutter |
+| Flutter | 3.29+ stable | flutter.dev |
+| Dart SDK | 3.7.0+ (3.11.0+ to generate) | bundled with Flutter |
 
 Verify:
 ```powershell
@@ -137,8 +137,8 @@ Flutter's CMake integration builds the DLL automatically as part of the build.
 ```
 nitrogen doctor
 
-  ✓ Dart 3.11.3
-  ✓ Flutter 3.35.0
+  ✓ Dart 3.11.0
+  ✓ Flutter 3.38.0
   ✓ CMake 3.28 found at C:\Program Files\CMake\bin\cmake.exe
   ✓ MSVC 2022 (19.38) found
   ✓ WINDOWSSDKDIR = C:\Program Files (x86)\Windows Kits\10\

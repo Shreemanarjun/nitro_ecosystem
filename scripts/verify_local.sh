@@ -31,7 +31,7 @@ PLUGIN_NAME="${1:-nitro_test_plugin}"
 PLATFORMS="${2:-android,ios,macos,windows,linux}"
 
 # ── Resolve flutter / dart ────────────────────────────────────────────────────
-# Priority: puro stable (matches workspace SDK ^3.11.3) → fvm → PATH
+# Priority: puro stable (needs Dart 3.11+ for the generator) → fvm → PATH
 FLUTTER=""
 DART=""
 for candidate in \

@@ -23,8 +23,8 @@
 
 | Tool | Minimum version |
 |---|---|
-| Dart SDK | 3.11.3+ |
-| Flutter SDK | 3.35.0+, only for a Flutter app or plugin |
+| Dart SDK | 3.7.0+ (3.11.0+ to run `nitro_generator`) |
+| Flutter SDK | 3.29.0+, only for a Flutter app or plugin |
 | Android NDK | 26.1+ (r26b) |
 | Kotlin | 1.9.0+ |
 | iOS Deployment Target | 13.0+ |
@@ -44,7 +44,7 @@ In your plugin's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  nitro: ^0.9.0
+  nitro: ^0.9.1
 ```
 
 Then run `flutter pub get`, or `dart pub get` in a Dart-only project.

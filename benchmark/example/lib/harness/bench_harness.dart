@@ -1028,7 +1028,7 @@ class BenchHarness {
       verification['nitroCppHash'] = cppH;
       if (platH != null) verification['nitroPlatformHash'] = platH;
       if (chanH != null) verification['methodChannelHash'] = chanH;
-      final hashes = [?ffiH, cppH, ?platH, ?chanH];
+      final hashes = [ffiH, cppH, platH, chanH].nonNulls;
       final agree = hashes.every((h) => h == cppH);
       verification['allTiersAgree'] = agree;
       verification['tiersVerified'] = hashes.length;
@@ -1138,7 +1138,7 @@ class BenchHarness {
       verification['nitroCppSieve'] = cppCount;
       if (platCount != null) verification['nitroPlatformSieve'] = platCount;
       if (chanCount != null) verification['methodChannelSieve'] = chanCount;
-      final counts = [dartCount, ?ffiCount, cppCount, ?platCount, ?chanCount];
+      final counts = [dartCount, ffiCount, cppCount, platCount, chanCount].nonNulls;
       final sieveAgree = counts.every((c) => c == dartCount);
       verification['sieveTiersAgree'] = sieveAgree;
       verification['sieveTiersVerified'] = counts.length;

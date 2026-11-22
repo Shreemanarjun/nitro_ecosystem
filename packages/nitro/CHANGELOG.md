@@ -1,3 +1,7 @@
+## 0.9.1
+
+- **Fix:** runs from Dart 3.7 / Flutter 3.29 (was 3.11.3 / 3.35). `meta` is `^1.16.0`, which Flutter 3.29–3.35 pin, so those apps can add Nitro. Generating still needs Dart 3.11.
+
 ## 0.9.0
 
 - Released with nitro_generator 0.9.0, which has breaking changes for hand-written Swift and C++ (see its changelog). Move every Nitro plugin in an app to `^0.9.0` together and regenerate.

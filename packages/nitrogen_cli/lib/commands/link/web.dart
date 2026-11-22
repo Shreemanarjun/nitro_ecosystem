@@ -119,7 +119,8 @@ int linkWeb(String pluginName, List<ModuleInfo> moduleInfos, {String? baseDir}) 
   script.writeAsStringSync(webBuildScriptTemplate(
     webLibs,
     bridgeChecksums: {
-      for (final lib in webLibs) lib: ?readBridgeChecksum(base, lib),
+      for (final lib in webLibs)
+        if (readBridgeChecksum(base, lib) case final sum?) lib: sum,
     },
     webSpecificImpls: {for (final lib in webLibs) if (webUsesSpecificImpl(base, lib)) lib},
   ));

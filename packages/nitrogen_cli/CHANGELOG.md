@@ -1,3 +1,7 @@
+## 0.9.1
+
+- **Changed:** a new plugin's `environment: sdk:` is `^3.7.0`, so apps on Flutter 3.29 and newer can use it. Running `nitrogen` still needs Dart 3.11.
+
 ## 0.9.0
 
 - **Changed:** `nitrogen init` with a web target no longer adds a web plugin class, the `flutter_web_plugins` dependency or a `web:` plugin entry. Web is declared under a top-level `platforms:` key, so the plugin also resolves in DartNative. `nitrogen doctor` warns on the old layout; see `migration/0.9.0.md`.

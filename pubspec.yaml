@@ -4,7 +4,7 @@ repository: https://github.com/Shreemanarjun/nitro_ecosystem
 publish_to: none
 
 environment:
-  sdk: ^3.11.3
+  sdk: ^3.7.0
 
 workspace:
   - packages/nitro

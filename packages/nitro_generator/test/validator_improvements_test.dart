@@ -773,7 +773,7 @@ void main() {
             type: BridgeType(name: 'double'),
             isNamed: true,
           ),
-          ?extra,
+          if (extra != null) extra,
         ],
       );
       final mapType = BridgeType(name: 'Map<String, Point>', isMap: true, isRecord: true);

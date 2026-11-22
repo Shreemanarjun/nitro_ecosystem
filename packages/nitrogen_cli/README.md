@@ -99,7 +99,7 @@ nitrogen init --no-ui --name my_plugin \
 | `android/.../<Name>Impl.kt` | Starter Kotlin implementation |
 | `android/.../<Name>Plugin.kt` | Flutter plugin registrar |
 | `src/CMakeLists.txt` | NDK build file |
-| `pubspec.yaml` | Pre-wired with `nitro: ^0.9.0` and `nitro_generator: ^0.9.0` |
+| `pubspec.yaml` | Pre-wired with `nitro: ^0.9.1` and `nitro_generator: ^0.9.1` |
 
 **You only ever edit:** the spec, the Kotlin impl, and the Swift impl (or a single C++ impl). Everything else is generated.
 
@@ -756,8 +756,8 @@ part 'my_module.g.dart';
 
 | Tool | Minimum |
 |---|---|
-| Dart SDK | 3.11.3+ |
-| Flutter SDK | 3.35.0+ |
+| Dart SDK | 3.11.0+ to run `nitrogen`; a generated plugin works from 3.7.0 |
+| Flutter SDK | 3.29.0+ for apps using the plugin |
 | Android NDK | 26.1+ |
 | Kotlin | 1.9.0+ |
 | iOS Deployment Target | 13.0+ |

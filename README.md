@@ -40,10 +40,10 @@ No method channels. No manual FFI. No boilerplate.
 ```yaml
 # pubspec.yaml
 dependencies:
-  nitro: ^0.9.0
+  nitro: ^0.9.1
 
 dev_dependencies:
-  nitro_generator: ^0.9.0
+  nitro_generator: ^0.9.1
   build_runner: ^2.4.0
 ```
 
@@ -55,8 +55,8 @@ dart pub global activate nitrogen_cli  # one-time
 
 | Tool | Minimum version |
 |---|---|
-| Flutter SDK | 3.35.0+ (any release bundling Dart 3.11.3) |
-| Dart SDK | 3.11.3+ (`sdk: ^3.11.3` in every package) |
+| Flutter SDK | 3.29.0+ to use a Nitro plugin (see below for 3.29–3.43) |
+| Dart SDK | 3.7.0+ to use a Nitro plugin; 3.11.0+ to generate one (`nitro_generator`, `nitrogen`) |
 | Android NDK | 26.1+ (r26b) |
 | Kotlin | 1.9.0+ |
 | iOS Deployment Target | 13.0+ |
@@ -64,6 +64,11 @@ dart pub global activate nitrogen_cli  # one-time
 | Xcode | 15.0+ |
 | Windows (desktop C++) | Visual Studio 2022 + CMake 3.14+ |
 | Linux (desktop C++) | GCC/Clang + CMake 3.10+ |
+
+An app on Flutter 3.29–3.43 needs three settings that newer Flutter already has:
+Android `minSdk = 24`; macOS deployment target 10.15 (Xcode 27 asks for 12.0);
+and CocoaPods for Swift plugins, because Flutter added the `FlutterFramework`
+package that a Nitro `Package.swift` depends on in 3.44.
 | Web (WASM) | Emscripten SDK (`emcc` on PATH) — only for `web: WebNativeImpl.wasm` |
 
 ### Where it runs

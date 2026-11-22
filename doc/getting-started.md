@@ -12,8 +12,8 @@ Before you begin, install and verify the following tools:
 
 | Tool | Required version | Check |
 |---|---|---|
-| Flutter SDK | 3.35.0+ | `flutter --version` |
-| Dart SDK | 3.11.3+ | `dart --version` |
+| Flutter SDK | 3.29.0+ (apps); a release with Dart 3.11+ to generate | `flutter --version` |
+| Dart SDK | 3.7.0+ (apps); 3.11.0+ to generate | `dart --version` |
 | Android NDK | 26.1+ (r26b) | Android Studio → SDK Manager → SDK Tools → NDK |
 | Kotlin | 1.9.0+ | bundled with Android Studio |
 | Xcode | 15.0+ | `xcode-select --version` |
@@ -818,7 +818,7 @@ nitrogen generate # regenerates all
 
 ```yaml
 dev_dependencies:
-  nitro_generator: ^0.9.0       # code generator
+  nitro_generator: ^0.9.1       # code generator
   build_runner: ^2.4.0
 ```
 

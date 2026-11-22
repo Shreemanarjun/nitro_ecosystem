@@ -1490,7 +1490,7 @@ class _HeadlessInitRunner {
 }
 
 /// The Dart SDK floor every Nitro package declares.
-const kNitroDartSdkFloor = '^3.11.3';
+const kNitroDartSdkFloor = '^3.7.0';
 
 /// Replaces the `environment: sdk:` constraint `flutter create` stamps (the
 /// SDK that happened to run it) with [kNitroDartSdkFloor]. The stamped one

@@ -308,7 +308,7 @@ class BridgeSpec {
 
   /// This module's result wrappers (see [resultWrapper]), one per method that
   /// needs one.
-  late final List<BridgeRecordType> resultWrappers = [for (final f in functions) ?resultWrapper(f)];
+  late final List<BridgeRecordType> resultWrappers = [for (final f in functions) if (resultWrapper(f) case final w?) w];
 
   /// Every record the native codecs declare: this module's own, then its
   /// result wrappers.

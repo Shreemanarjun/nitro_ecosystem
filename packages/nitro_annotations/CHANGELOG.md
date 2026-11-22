@@ -1,3 +1,7 @@
+## 0.9.1
+
+- The SDK floor is Dart 3.7 (was 3.11.3).
+
 ## 0.9.0
 
 - Coordinated 0.9.0 release; no changes.

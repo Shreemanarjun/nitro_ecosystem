@@ -66,13 +66,13 @@ repository: https://github.com/you/my_sensor
 issue_tracker: https://github.com/you/my_sensor/issues
 
 environment:
-  sdk: ^3.11.3
-  flutter: ">=3.35.0"
+  sdk: ^3.7.0
+  flutter: ">=3.29.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  nitro: ^0.9.0          # pub.dev version — NOT a path dependency
+  nitro: ^0.9.1          # pub.dev version — NOT a path dependency
   ffi: ^2.1.0
   plugin_platform_interface: ^2.0.2
 
@@ -81,7 +81,7 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   build_runner: ^2.4.0   # only needed to regenerate; consumers do not need this
-  nitro_generator: ^0.9.0  # pub.dev version — NOT a path dependency
+  nitro_generator: ^0.9.1  # pub.dev version — NOT a path dependency
 
 flutter:
   plugin:
@@ -260,13 +260,13 @@ repository: https://github.com/you/my_sensor
 issue_tracker: https://github.com/you/my_sensor/issues
 
 environment:
-  sdk: ^3.11.3
-  flutter: ">=3.35.0"
+  sdk: ^3.7.0
+  flutter: ">=3.29.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  nitro: ^0.9.0
+  nitro: ^0.9.1
   ffi: ^2.1.0
   plugin_platform_interface: ^2.0.2
 
@@ -275,7 +275,7 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   build_runner: ^2.4.0
-  nitro_generator: ^0.9.0
+  nitro_generator: ^0.9.1
 
 flutter:
   plugin:

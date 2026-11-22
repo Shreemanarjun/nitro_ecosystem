@@ -43,7 +43,7 @@ structurally rather than patching each symptom.
   modules auto-fall back to `_dylib` — `nativeAssetsEmit` is the single source
   of truth, read by both the impl-class and struct-proxy emitters.
 - **Stable toolchain.** The hook uses `package:hooks ^2.2.0` + `code_assets ^2.1.0`
-  (stable; no `--enable-experiment`), SDK `^3.11.3`. The "Experimental" label in
+  (stable; no `--enable-experiment`), SDK 3.10+ (`package:hooks`). The "Experimental" label in
   the CLI help is nitro's own maturity tag, not a Dart gate.
 - **Double-bundle is only warned.** `_warnDoubleBundle` (`link/native_assets.dart`)
   tells the user to drop `ffiPlugin: true` / `pluginClass:` manually; `nitrogen
