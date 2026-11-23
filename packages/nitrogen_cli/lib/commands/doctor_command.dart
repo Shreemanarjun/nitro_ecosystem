@@ -4,6 +4,7 @@ import 'package:nocterm/nocterm.dart';
 import 'package:path/path.dart' as p;
 import 'package:nitrogen_cli/version.dart';
 import 'link_command.dart' show PlatformTargetAnalyzer, desktopPluginClassIsReal, isAndroidCppModule, isAndroidKotlinModule, isCppModule, isIosSwiftModule, moduleSpecFiles, isNativeCppModule, readBridgeChecksum, stampedBridgeChecksums, webSpecificImplPath, webUsesSpecificImpl, hasGeneratedNativeAssetsHook, hookDeclaresCodeAsset, nativeBuildPlatforms;
+import '../utils.dart';
 import 'spm_utils.dart';
 import '../ui.dart';
 import '../templates/build_versions.dart';

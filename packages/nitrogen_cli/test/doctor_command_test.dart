@@ -2785,6 +2785,14 @@ void _falsePositives() {
       expect(_errors(_run(root)).where((e) => e.startsWith('android pluginClass') || e.startsWith('android package')), isEmpty);
     });
 
+    test('a top-level pub.dev platforms: list does not shadow flutter.plugin.platforms', () {
+      final root = _scaffold(withIos: false, specs: [(name: 'demo', isCpp: false)]);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final pubspec = File(p.join(root.path, 'pubspec.yaml'));
+      pubspec.writeAsStringSync('platforms:\n  android:\n  ios:\n  macos:\n  web:\n\n${pubspec.readAsStringSync()}');
+      expect(_errors(_run(root)).where((e) => e.startsWith('android pluginClass') || e.startsWith('android package')), isEmpty);
+    });
+
     test('a Kotlin module still requires the android pluginClass', () {
       final root = _scaffold(withIos: false, specs: [(name: 'demo', isCpp: false)]);
       addTearDown(() => root.deleteSync(recursive: true));
