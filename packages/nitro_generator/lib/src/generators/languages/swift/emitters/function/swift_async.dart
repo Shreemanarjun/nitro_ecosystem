@@ -22,6 +22,21 @@ void _emitSemaWait(CodeWriter writer, BridgeFunction func) {
   writer.line('    sema.wait()');
 }
 
+/// Runs the impl on a detached task and waits for it. [assign] receives the
+/// value (`result = `), or is empty for void. A thrown error is raised after
+/// the wait, never dropped: `try?` here once turned a throw into a zero, an
+/// empty string or a null struct pointer that crashed Dart (issue #66).
+void _emitTask(CodeWriter writer, BridgeFunction func, String callArgs, String assign) {
+  writer.line('    var _thrownError: Error? = nil');
+  writer.line('    Task.detached {');
+  writer.line('        do { ${assign}try await impl.${func.dartName}($callArgs) }');
+  writer.line('        catch { _thrownError = error }');
+  writer.line('        sema.signal()');
+  writer.line('    }');
+  _emitSemaWait(writer, func);
+  _emitRethrow(writer);
+}
+
 void _emitAsync(
   CodeWriter writer,
   BridgeFunction func,
@@ -41,14 +56,10 @@ void _emitAsync(
 }) {
   // @NitroOwned async: allocate on a background thread, return the raw ptr.
   if (func.returnType.isNativeHandle) {
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
     writer.line('    let sema = DispatchSemaphore(value: 0)');
     writer.line('    var _ownedPtr: UnsafeMutableRawPointer? = nil');
-    writer.line('    Task.detached {');
-    writer.line('        _ownedPtr = try? await impl.${func.dartName}($callArgs)');
-    writer.line('        sema.signal()');
-    writer.line('    }');
-    _emitSemaWait(writer, func);
+    _emitTask(writer, func, callArgs, '_ownedPtr = ');
     writer.line('    return _ownedPtr');
     return;
   }
@@ -80,17 +91,10 @@ void _emitAsync(
   // A map or any-map: run the impl on a background thread, encode the result.
   if (isMap || isAnyMap) {
     final swiftRetType = mapper.swiftType(func.returnType.name, bridgeType: func.returnType);
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
     writer.line('    let sema = DispatchSemaphore(value: 0)');
     writer.line('    var _mapResult: Optional<$swiftRetType> = nil');
-    writer.line('    var _thrownError: Error? = nil');
-    writer.line('    Task.detached {');
-    writer.line('        do { _mapResult = try await impl.${func.dartName}($callArgs) }');
-    writer.line('        catch { _thrownError = error }');
-    writer.line('        sema.signal()');
-    writer.line('    }');
-    _emitSemaWait(writer, func);
-    _emitRethrow(writer);
+    _emitTask(writer, func, callArgs, '_mapResult = ');
     writer.line('    guard let _map = _mapResult else { return nil }');
     writer.line('    return ${_mapBlock(func, spec, '_map')}');
     return;
@@ -100,14 +104,10 @@ void _emitAsync(
   final isVariantRet = spec.isVariantName(bareTypeName(func.returnType.name));
   if (isVariantRet) {
     final variantName = bareTypeName(func.returnType.name);
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
     writer.line('    let sema = DispatchSemaphore(value: 0)');
     writer.line('    var _vResult: $variantName? = nil');
-    writer.line('    Task.detached {');
-    writer.line('        _vResult = try? await impl.${func.dartName}($callArgs)');
-    writer.line('        sema.signal()');
-    writer.line('    }');
-    _emitSemaWait(writer, func);
+    _emitTask(writer, func, callArgs, '_vResult = ');
     writer.line('    guard let _vr = _vResult else { return nil }');
     writer.line('    let _vw = NitroRecordWriter()');
     writer.line('    _vr.writeFields(to: _vw)');
@@ -117,89 +117,57 @@ void _emitAsync(
 
   if (isStruct) {
     final retStructName = bareTypeName(func.returnType.name);
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
     writer.line('    let sema = DispatchSemaphore(value: 0)');
-    writer.line('    var result: ${func.returnType.name}? = nil');
-    writer.line('    Task.detached {');
-    writer.line('        result = try? await impl.${func.dartName}($callArgs)');
-    writer.line('        sema.signal()');
-    writer.line('    }');
-    _emitSemaWait(writer, func);
+    // The bare type: a nullable return assigns into the same optional, and
+    // nil then means "null". `Point??` did not compile.
+    writer.line('    var result: $retStructName? = nil');
+    _emitTask(writer, func, callArgs, 'result = ');
     writer.line('    guard let r = result else { return nil }');
     writer.line('    let ptr = UnsafeMutablePointer<_${retStructName}C>.allocate(capacity: 1)');
     writer.line('    ptr.initialize(to: _${retStructName}C.fromSwift(r))');
     writer.line('    return UnsafeMutableRawPointer(ptr)');
   } else if (isVoid) {
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return }');
+    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return }');
     writer.line('    let sema = DispatchSemaphore(value: 0)');
-    writer.line('    var _thrownError: Error? = nil');
-    writer.line('    Task.detached {');
-    writer.line('        do { try await impl.${func.dartName}($callArgs) }');
-    writer.line('        catch { _thrownError = error }');
-    writer.line('        sema.signal()');
-    writer.line('    }');
-    _emitSemaWait(writer, func);
-    _emitRethrow(writer);
+    _emitTask(writer, func, callArgs, '');
   } else if (isString) {
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return _nitroStringToCString("") }');
+    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return _nitroStringToCString("") }');
     writer.line('    let sema = DispatchSemaphore(value: 0)');
-    writer.line('    var result = ""');
-    writer.line('    Task.detached {');
-    writer.line('        result = (try? await impl.${func.dartName}($callArgs)) ?? ""');
-    writer.line('        sema.signal()');
-    writer.line('    }');
-    _emitSemaWait(writer, func);
-    writer.line('    return _nitroStringToCString(result)');
+    writer.line('    var result: String? = nil');
+    _emitTask(writer, func, callArgs, 'result = ');
+    writer.line('    return _nitroStringToCString(result ?? "")');
   } else if (isRecord) {
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
     writer.line('    let sema = DispatchSemaphore(value: 0)');
-    writer.line('    var result: ${func.returnType.name}? = nil');
-    writer.line('    Task.detached {');
-    writer.line('        result = try? await impl.${func.dartName}($callArgs)');
-    writer.line('        sema.signal()');
-    writer.line('    }');
-    _emitSemaWait(writer, func);
+    writer.line('    var result: ${bareTypeName(func.returnType.name)}? = nil');
+    _emitTask(writer, func, callArgs, 'result = ');
     writer.line('    return result?.toNative().map { UnsafeMutableRawPointer(\$0) }');
   } else if (isRecordList) {
     final swiftRetType = mapper.swiftType(func.returnType.name);
     final resultType = swiftRetType.endsWith('?') ? swiftRetType : '$swiftRetType?';
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
     writer.line('    let sema = DispatchSemaphore(value: 0)');
     writer.line('    var result: $resultType = nil');
-    writer.line('    Task.detached {');
-    writer.line('        result = try? await impl.${func.dartName}($callArgs)');
-    writer.line('        sema.signal()');
-    writer.line('    }');
-    _emitSemaWait(writer, func);
+    _emitTask(writer, func, callArgs, 'result = ');
     writer.line('    guard let r = result else { return nil }');
     _emitRecordListEncode(writer, func.returnType);
   } else if (isTypedDataReturn) {
     // The bare type: a nullable return assigns into the same optional, and
     // nil then means "null" (or an error, which is raised below).
     final swiftRetType = mapper.swiftType(bareTypeName(func.returnType.name));
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return nil }');
+    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
     writer.line('    let sema = DispatchSemaphore(value: 0)');
     writer.line('    var result: $swiftRetType? = nil');
-    writer.line('    var _thrownError: Error? = nil');
-    writer.line('    Task.detached {');
-    writer.line('        do { result = try await impl.${func.dartName}($callArgs) }');
-    writer.line('        catch { _thrownError = error }');
-    writer.line('        sema.signal()');
-    writer.line('    }');
-    _emitSemaWait(writer, func);
-    _emitRethrow(writer);
+    _emitTask(writer, func, callArgs, 'result = ');
     writer.line('    guard let r = result else { return nil }');
     _emitTypedDataReturn(writer, func);
   } else if (isBool) {
     final boolGuardDefault = func.returnType.isNullable ? '-1' : '0';
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return $boolGuardDefault }');
+    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return $boolGuardDefault }');
     writer.line('    let sema = DispatchSemaphore(value: 0)');
     writer.line('    var result: Bool? = nil');
-    writer.line('    Task.detached {');
-    writer.line('        result = try? await impl.${func.dartName}($callArgs)');
-    writer.line('        sema.signal()');
-    writer.line('    }');
-    _emitSemaWait(writer, func);
+    _emitTask(writer, func, callArgs, 'result = ');
     if (func.returnType.isNullable) {
       writer.line('    guard let b = result else { return -1 }');
       writer.line('    return b ? 1 : 0');
@@ -209,7 +177,7 @@ void _emitAsync(
   } else {
     final swiftRetType = mapper.swiftType(func.returnType.name);
     final defaultVal = mapper.defaultCDeclValue(func.returnType.name);
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { return $defaultVal }');
+    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return $defaultVal }');
     writer.line('    let sema = DispatchSemaphore(value: 0)');
     final resultType = switch (func.returnType.name) {
       'int?' => 'Int64?',
@@ -219,11 +187,7 @@ void _emitAsync(
       _ => swiftRetType.endsWith('?') ? swiftRetType : '$swiftRetType?',
     };
     writer.line('    var result: $resultType = nil');
-    writer.line('    Task.detached {');
-    writer.line('        result = try? await impl.${func.dartName}($callArgs)');
-    writer.line('        sema.signal()');
-    writer.line('    }');
-    _emitSemaWait(writer, func);
+    _emitTask(writer, func, callArgs, 'result = ');
     switch (func.returnType.name) {
       case 'DateTime':
         writer.line('    return result.map { Int64((\$0.timeIntervalSince1970 * 1000).rounded()) } ?? 0');

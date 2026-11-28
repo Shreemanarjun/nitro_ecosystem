@@ -396,7 +396,9 @@ void main() {
         );
         final out = SwiftGenerator.generate(spec);
         // Must unwrap both impl and the optional result in one guard.
-        expect(out, contains('guard let impl = ModRegistry.impl, let result = impl.getPoint() else { return nil }'));
+        expect(out, contains('guard let impl = ModRegistry.impl else { ModRegistry.raiseNotRegistered(); return nil }'));
+        // A nil value is null; a missing impl raises (above).
+        expect(out, contains('guard let result = impl.getPoint() else { return nil }'));
         // Pointer type must use C-ABI shadow '_PointC', not 'Point?' or bare 'Point'.
         expect(out, contains('UnsafeMutablePointer<_PointC>.allocate(capacity: 1)'));
         expect(out, isNot(contains('UnsafeMutablePointer<Point?>')));
@@ -472,7 +474,7 @@ void main() {
         );
         final out = SwiftGenerator.generate(spec);
         // Must guard on impl first to avoid Struct?? double-optional.
-        expect(out, contains('guard let impl = ModRegistry.impl else { return nil }'));
+        expect(out, contains('guard let impl = ModRegistry.impl else { ModRegistry.raiseNotRegistered(); return nil }'));
         expect(out, contains('return impl.getReading()?.toNative()'));
         // Must not use double-optional chaining pattern.
         expect(out, isNot(contains('Registry.impl?.getReading()?.toNative()')));
@@ -505,7 +507,7 @@ void main() {
           ],
         );
         final out = SwiftGenerator.generate(spec);
-        expect(out, contains('guard let impl = ModRegistry.impl else { return nil }'));
+        expect(out, contains('guard let impl = ModRegistry.impl else { ModRegistry.raiseNotRegistered(); return nil }'));
         expect(out, contains('return impl.getReading().toNative().map { UnsafeMutableRawPointer(\$0) }'));
       });
     });

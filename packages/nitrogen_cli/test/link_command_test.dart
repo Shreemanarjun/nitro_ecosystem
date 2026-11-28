@@ -508,6 +508,219 @@ class TestPlugin {
     });
   });
 
+  // ── Startup loads and Activity forwarding with several modules ───────────────
+
+  group('linkAndroidLoads', () {
+    File plugin(String body) {
+      final dir = Directory(p.join(tmp.path, 'android', 'src', 'main', 'kotlin', 'dev', 'test'))..createSync(recursive: true);
+      return File(p.join(dir.path, 'TestPlugin.kt'))..writeAsStringSync(body);
+    }
+
+    final modules = [
+      ModuleInfo(lib: 'core', module: 'Core', isCpp: false),
+      ModuleInfo(lib: 'fast_cpp', module: 'FastCpp', isCpp: true),
+      ModuleInfo(lib: 'extra', module: 'Extra', isCpp: false),
+    ];
+    const eagerAll = '''
+package dev.test
+class TestPlugin {
+    companion object {
+        init { System.loadLibrary("core")
+            System.loadLibrary("fast_cpp")
+            System.loadLibrary("extra") }
+    }
+}
+''';
+
+    test('a C++ module is left to Dart: its eager load is removed, the others stay', () {
+      final f = plugin(eagerAll);
+      for (var run = 0; run < 2; run++) {
+        linkAndroidLoads(modules, {'fast_cpp'}, tmp.path);
+        final out = f.readAsStringSync();
+        expect(out, isNot(contains('loadLibrary("fast_cpp")')), reason: 'run $run');
+        expect('loadLibrary("core")'.allMatches(out), hasLength(1), reason: 'run $run');
+        expect('loadLibrary("extra")'.allMatches(out), hasLength(1), reason: 'run $run');
+        expect(out, contains('init { System.loadLibrary("core")'));
+        expect(out, contains('System.loadLibrary("extra") }'));
+      }
+    });
+
+    test('the last load in the init block can go and the block stays valid', () {
+      final f = plugin(eagerAll.replaceFirst('System.loadLibrary("fast_cpp")\n            System.loadLibrary("extra") }', 'System.loadLibrary("extra")\n            System.loadLibrary("fast_cpp") }'));
+      linkAndroidLoads(modules, {'fast_cpp'}, tmp.path);
+      expect(f.readAsStringSync(), contains('System.loadLibrary("extra")\n            }'));
+    });
+
+    test('a plugin whose own sources define JNI entry points keeps every load', () {
+      for (final (file, jni) in [
+        ('src/present/jni.cpp', 'JNIEXPORT jlong JNICALL Java_dev_test_X_y(JNIEnv*, jclass) { return 0; }'),
+        ('android/src/main/cpp/onload.cc', 'jint JNI_OnLoad(JavaVM* vm, void*) { return JNI_VERSION_1_6; }'),
+        ('src/natives.cpp', 'env->RegisterNatives(cls, methods, 1);'),
+      ]) {
+        final src = File(p.join(tmp.path, file))..createSync(recursive: true)..writeAsStringSync(jni);
+        final f = plugin(eagerAll);
+        expect(androidEagerLibs(modules, {'fast_cpp'}, baseDir: tmp.path), ['core', 'fast_cpp', 'extra'], reason: file);
+        linkAndroidLoads(modules, {'fast_cpp'}, tmp.path);
+        expect(f.readAsStringSync(), contains('loadLibrary("fast_cpp")'), reason: file);
+        src.deleteSync();
+      }
+      expect(androidEagerLibs(modules, {'fast_cpp'}, baseDir: tmp.path), ['core', 'extra']);
+    });
+
+    test('JNI code in vendored examples, tests or build outputs does not count', () {
+      for (final file in ['src/third_party/whisper/examples/android/jni/jni.c', 'src/vendor/example/jni.cpp', 'src/tests/jni_test.cpp', 'android/.cxx/x/jni.c', 'android/build/gen/jni.c']) {
+        File(p.join(tmp.path, file))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('JNIEXPORT void JNICALL Java_x_y(JNIEnv*, jclass) {}');
+      }
+      expect(androidEagerLibs(modules, {'fast_cpp'}, baseDir: tmp.path), ['core', 'extra']);
+    });
+
+    test('a call on its own line goes with its line and its comment', () {
+      final f = plugin('''
+class TestPlugin {
+    companion object {
+        init {
+            System.loadLibrary("core")
+            // fast_cpp is pure C++ — loading triggers its auto-registration.
+            System.loadLibrary("fast_cpp")
+            System.loadLibrary("extra")
+        }
+    }
+}
+''');
+      linkAndroidLoads(modules, {'fast_cpp'}, tmp.path);
+      expect(f.readAsStringSync(), '''
+class TestPlugin {
+    companion object {
+        init {
+            System.loadLibrary("core")
+            System.loadLibrary("extra")
+        }
+    }
+}
+''');
+    });
+
+    test('a module not on Android is not loaded at startup', () {
+      final f = plugin(eagerAll);
+      linkAndroidLoads(modules, {'fast_cpp', 'extra'}, tmp.path);
+      final out = f.readAsStringSync();
+      expect(out, contains('loadLibrary("core")'));
+      expect(out, isNot(contains('loadLibrary("extra")')));
+    });
+  });
+
+  group('linkKotlinPlugin Activity forwarding', () {
+    File plugin(String body) {
+      final dir = Directory(p.join(tmp.path, 'android', 'src', 'main', 'kotlin', 'dev', 'test'))..createSync(recursive: true);
+      return File(p.join(dir.path, 'TestPlugin.kt'))..writeAsStringSync(body);
+    }
+
+    final mods = [
+      {'module': 'Core', 'lib': 'core'},
+      {'module': 'Extra', 'lib': 'extra'},
+      {'module': 'More', 'lib': 'more'},
+    ];
+
+    test('the scaffold ActivityWatcher forwards to every Kotlin module, once', () {
+      final f = plugin('''
+package dev.test
+import nitro.core_module.CoreJniBridge
+class TestPlugin : FlutterPlugin {
+    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        CoreJniBridge.registerFactory({ CoreImpl() }, binding.applicationContext)
+    }
+}
+private object ActivityWatcher : Application.ActivityLifecycleCallbacks {
+    private fun attach(activity: Activity) {
+        this.activity = activity
+        CoreJniBridge.onActivityAttached(activity)
+    }
+    override fun onActivityDestroyed(activity: Activity) {
+        this.activity = null
+        CoreJniBridge.onActivityDetached()
+    }
+}
+''');
+      for (var run = 0; run < 2; run++) {
+        linkKotlinPlugin('test', mods, baseDir: tmp.path);
+        final out = f.readAsStringSync();
+        for (final m in ['Core', 'Extra', 'More']) {
+          expect('${m}JniBridge.onActivityAttached(activity)'.allMatches(out), hasLength(1), reason: '$m run $run');
+          expect('${m}JniBridge.onActivityDetached()'.allMatches(out), hasLength(1), reason: '$m run $run');
+          expect('${m}JniBridge.registerFactory('.allMatches(out), hasLength(1), reason: '$m run $run');
+        }
+        expect(out, contains('        CoreJniBridge.onActivityAttached(activity)\n        ExtraJniBridge.onActivityAttached(activity)\n        MoreJniBridge.onActivityAttached(activity)\n'));
+      }
+    });
+
+    test('an ActivityAware plugin gets the new module in both attach places', () {
+      final f = plugin('''
+package dev.test
+class TestPlugin : FlutterPlugin, ActivityAware {
+    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        CoreJniBridge.registerFactory({ CoreImpl() }, binding.applicationContext)
+    }
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        CoreJniBridge.onActivityAttached(binding.activity)
+    }
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+        CoreJniBridge.onActivityAttached(binding.activity)
+    }
+}
+''');
+      linkKotlinPlugin('test', mods.take(2).toList(), baseDir: tmp.path);
+      final out = f.readAsStringSync();
+      expect('ExtraJniBridge.onActivityAttached(binding.activity)'.allMatches(out), hasLength(2));
+      expect(out, isNot(contains('onActivityDetached')));
+    });
+
+    test('a plugin that already forwards to the module is left alone', () {
+      const body = '''
+package dev.test
+class TestPlugin : FlutterPlugin {
+    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        CoreJniBridge.registerFactory({ CoreImpl() }, binding.applicationContext)
+        ExtraJniBridge.registerFactory({ ExtraImpl() }, binding.applicationContext)
+    }
+    fun a(activity: Activity) {
+        ExtraJniBridge.onActivityAttached(activity)
+        CoreJniBridge.onActivityAttached(activity)
+    }
+}
+''';
+      final f = plugin(body);
+      linkKotlinPlugin('test', mods.take(2).toList(), baseDir: tmp.path);
+      final out = f.readAsStringSync();
+      expect('ExtraJniBridge.onActivityAttached(activity)'.allMatches(out), hasLength(1));
+      expect('CoreJniBridge.onActivityAttached(activity)'.allMatches(out), hasLength(1));
+    });
+  });
+
+  group('duplicateSpecTypes', () {
+    test('a type declared in two specs is reported with both files', () {
+      final lib = _libDir(tmp);
+      _writeSpec(lib, 'a.native.dart', '@HybridStruct()\nclass Point { final int x; }\n@NitroModule(ios: NativeImpl.swift)\nabstract class A extends HybridObject {}\n');
+      _writeSpec(lib, 'b.native.dart', '@HybridStruct(packed: true)\nfinal class Point { final int x; }\n@HybridEnum()\nenum Mode { a }\n@NitroModule(android: NativeImpl.kotlin)\nabstract class B extends HybridObject {}\n');
+      _writeSpec(lib, 'c.native.dart', '@NitroVariant()\nsealed class Mode {}\n// @HybridRecord() class Point — a comment is no declaration\n@NitroModule(ios: NativeImpl.cpp)\nabstract class C extends HybridObject {}\n');
+      final dups = duplicateSpecTypes(Directory(p.join(tmp.path, 'lib')));
+      expect(dups.keys.toSet(), {'Point', 'Mode'});
+      expect(describeDuplicateSpecTypes(dups, tmp.path), [
+        'Point is declared in lib/src/a.native.dart and lib/src/b.native.dart',
+        'Mode is declared in lib/src/b.native.dart and lib/src/c.native.dart',
+      ]);
+    });
+
+    test('a type-only file imported by two specs is not a duplicate', () {
+      final lib = _libDir(tmp);
+      _writeSpec(lib, 'shared.native.dart', '@HybridStruct()\nclass Point { final int x; }\n');
+      _writeSpec(lib, 'a.native.dart', "import 'shared.native.dart';\n@NitroModule(ios: NativeImpl.swift)\nabstract class A extends HybridObject { Point p(); }\n");
+      _writeSpec(lib, 'b.native.dart', "import 'shared.native.dart';\n@NitroModule(android: NativeImpl.cpp)\nabstract class B extends HybridObject { Point p(); }\n");
+      expect(duplicateSpecTypes(Directory(p.join(tmp.path, 'lib'))), isEmpty);
+    });
+  });
+
   // ── linkPodspec — NativeImpl.cpp impl file wiring ───────────────────────────
 
   // Builds the minimum directory/file layout that linkPodspec needs to run

@@ -3,23 +3,93 @@ part of '../link_command.dart';
 // Android linking: Kotlin plugin, JNI load libraries, Gradle/consumer rules.
 // Part of the link_command library.
 
-/// Ensures `System.loadLibrary("lib")` is present in the Kotlin plugin's
-/// companion object init block for each cpp module lib.
-/// cpp modules use `__attribute__((constructor))` for auto-registration, so
-/// no JniBridge.register call is needed — just loading the .so is enough.
-void linkKotlinLoadLibraries(List<String> libs, {String baseDir = '.'}) {
-  final kotlinDir = Directory(
-    p.join(baseDir, 'android', 'src', 'main', 'kotlin'),
-  );
-  if (!kotlinDir.existsSync()) return;
-  final pluginFiles = kotlinDir
+/// The libraries the Kotlin plugin loads when the app starts: Kotlin modules
+/// (their JniBridge needs the library's JNI exports). An Android C++ module is
+/// left to Dart's `DynamicLibrary.open` on first use, which also runs its
+/// static constructors (where the impl registers), so the app does not pay
+/// ~0.8 ms per library before its first frame. ART resolves `external`
+/// functions only in libraries `System.loadLibrary` loaded, so a plugin whose
+/// own C/C++ sources define JNI entry points keeps every library eager.
+List<String> androidEagerLibs(List<ModuleInfo> modules, Set<String> androidCppLibs, {String baseDir = '.'}) {
+  if (_pluginDefinesJni(baseDir)) return [for (final m in modules) m.lib];
+  return [for (final m in modules) if (!androidCppLibs.contains(m.lib)) m.lib];
+}
+
+bool _pluginDefinesJni(String baseDir) {
+  final jni = RegExp(r'\bJNI_OnLoad\b|\bJNIEXPORT\b|\bRegisterNatives\b');
+  for (final dir in ['src', 'android']) {
+    final d = Directory(p.join(baseDir, dir));
+    if (!d.existsSync()) continue;
+    for (final f in d.listSync(recursive: true, followLinks: false).whereType<File>()) {
+      final path = f.path;
+      if (!RegExp(r'\.(c|cc|cpp|cxx|h|hpp)$').hasMatch(path)) continue;
+      // Build outputs, and example/test code a plugin vendors but never compiles
+      // (third-party demo apps ship their own jni.c).
+      final parts = p.split(p.relative(path, from: baseDir));
+      if (parts.any((d) => const {'build', '.cxx', 'example', 'examples', 'test', 'tests'}.contains(d))) continue;
+      if (jni.hasMatch(f.readAsStringSync())) return true;
+    }
+  }
+  return false;
+}
+
+/// The Kotlin plugin's side of every module: JniBridge registration and
+/// Activity forwarding for Kotlin modules, the libraries loaded at start, and
+/// no registration left for a module that is C++ on Android (or not there).
+/// [androidCppLibs]: the modules with no Kotlin side on Android.
+/// Returns the Kotlin modules.
+List<Map<String, String>> linkAndroidModules(String pluginName, List<ModuleInfo> modules, Set<String> androidCppLibs, String baseDir) {
+  final kotlinModules = [for (final m in modules) if (!androidCppLibs.contains(m.lib)) m.toMap()];
+  if (kotlinModules.isNotEmpty) linkKotlinPlugin(pluginName, kotlinModules, baseDir: baseDir);
+  linkAndroidLoads(modules, androidCppLibs, baseDir);
+  purgeStaleCppKotlinRegistrations([for (final m in modules) if (androidCppLibs.contains(m.lib)) m], baseDir: baseDir);
+  return kotlinModules;
+}
+
+/// Loads Kotlin modules' libraries when the app starts and drops the eager
+/// load of the others (see [androidEagerLibs]).
+void linkAndroidLoads(List<ModuleInfo> modules, Set<String> androidCppLibs, String baseDir) {
+  final eager = androidEagerLibs(modules, androidCppLibs, baseDir: baseDir);
+  linkKotlinLoadLibraries(eager, baseDir: baseDir);
+  unlinkKotlinLoadLibraries([for (final m in modules) if (!eager.contains(m.lib)) m.lib], baseDir: baseDir);
+}
+
+/// Removes `System.loadLibrary("lib")` for [libs] from the Kotlin plugin: an
+/// earlier link loaded every module eagerly (see [androidEagerLibs]).
+void unlinkKotlinLoadLibraries(List<String> libs, {String baseDir = '.'}) {
+  if (libs.isEmpty) return;
+  final pluginFile = _kotlinPluginFile(baseDir);
+  if (pluginFile == null) return;
+  final content = pluginFile.readAsStringSync();
+  var next = content;
+  for (final lib in libs) {
+    final call = r'System\.loadLibrary\("' + RegExp.escape(lib) + r'"\)';
+    final name = RegExp.escape(lib);
+    // A call on its own line goes with its line and a comment right above it
+    // that names the library; one sharing a line (`init { … }`) goes alone.
+    next = next
+        .replaceAll(RegExp(r'^[ \t]*//[^\n]*\b' + name + r'\b[^\n]*\r?\n(?=[ \t]*' + call + r'[ \t]*\r?\n)', multiLine: true), '')
+        .replaceAll(RegExp(r'^[ \t]*' + call + r'[ \t]*\r?\n', multiLine: true), '')
+        .replaceAll(RegExp(call + r'[ \t]*(\r?\n[ \t]*)?'), '');
+  }
+  if (next != content) pluginFile.writeAsStringSync(next);
+}
+
+File? _kotlinPluginFile(String baseDir) {
+  final kotlinDir = Directory(p.join(baseDir, 'android', 'src', 'main', 'kotlin'));
+  if (!kotlinDir.existsSync()) return null;
+  return kotlinDir
       .listSync(recursive: true, followLinks: false)
       .whereType<File>()
-      .where((f) => !f.path.contains('.symlinks'))
-      .where((f) => f.path.endsWith('Plugin.kt'))
-      .toList();
-  if (pluginFiles.isEmpty) return;
-  final pluginFile = pluginFiles.first;
+      .where((f) => !f.path.contains('.symlinks') && f.path.endsWith('Plugin.kt'))
+      .firstOrNull;
+}
+
+/// Ensures `System.loadLibrary("lib")` is present in the Kotlin plugin's
+/// companion object init block for each lib in [libs].
+void linkKotlinLoadLibraries(List<String> libs, {String baseDir = '.'}) {
+  final pluginFile = _kotlinPluginFile(baseDir);
+  if (pluginFile == null) return;
   var content = pluginFile.readAsStringSync();
   bool modified = false;
   for (final lib in libs) {
@@ -164,8 +234,34 @@ void linkKotlinPlugin(
       }
       modified = true;
     }
+
+    // ── 3. Forward the Activity to this module too ───────────────────────────
+    // The plugin tells one module's JniBridge about the Activity (the scaffold's
+    // ActivityWatcher, or an ActivityAware plugin); every other module saw
+    // `activity == null`. Mirror each forwarding line for this module.
+    final next = _mirrorActivityForwarding(content, reg);
+    if (next != content) {
+      content = next;
+      modified = true;
+    }
   }
   if (modified) pluginFile.writeAsStringSync(content);
+}
+
+/// Adds `<reg>.onActivityAttached(x)` / `<reg>.onActivityDetached()` after each
+/// run of lines forwarding the Activity to other modules, unless [reg] already
+/// has them.
+String _mirrorActivityForwarding(String content, String reg) {
+  for (final (call, args) in [('onActivityAttached', r'\(([^()\n]*)\)'), ('onActivityDetached', r'\(()\)')]) {
+    if (content.contains('$reg.$call(')) continue;
+    content = content.replaceAllMapped(
+      // The last line of each run, so a run gets one copy (ActivityAware
+      // plugins forward in two places: attach and re-attach).
+      RegExp(r'^([ \t]*)\w+JniBridge\.' + call + args + r'[ \t]*$(?!\r?\n[ \t]*\w+JniBridge\.' + call + r'\()', multiLine: true),
+      (m) => '${m[0]}\n${m[1]}$reg.$call(${m[2]})',
+    );
+  }
+  return content;
 }
 
 /// Inspects the impl Kotlin file for [implClass] to decide what argument to

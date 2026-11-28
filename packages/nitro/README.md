@@ -44,7 +44,7 @@ In your plugin's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  nitro: ^0.9.1
+  nitro: ^0.9.2
 ```
 
 Then run `flutter pub get`, or `dart pub get` in a Dart-only project.

@@ -141,7 +141,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   // the sync/@nitroAsync path, where AnyMap has always decoded correctly).
   if (func.returnType.isAnyMap) {
     final decodeExpr = _decodeRecordExpr(func.returnType, 'rawPtr', spec);
-    return '(raw) { if (raw == null) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return $decodeExpr; } finally { _nitroFree(rawPtr); } }';
+    return '(raw) { if (raw == null || raw == 0) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return $decodeExpr; } finally { _nitroFree(rawPtr); } }';
   }
 
   // @HybridRecord  — native posts kInt64 (pointer to binary buffer)
@@ -155,9 +155,9 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
       return '(raw) { if (raw == null) return null; final rawPtr = Pointer<Uint8>.fromAddress(raw as int); if (rawPtr == nullptr) return null; try { return $decodeExpr; } finally { _nitroFree(rawPtr); } }';
     }
     if (isLazy) {
-      return '(raw) { if (raw == null) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); return $decodeExpr; }';
+      return '(raw) { if (raw == null || raw == 0) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); return $decodeExpr; }';
     }
-    return '(raw) { if (raw == null) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return $decodeExpr; } finally { _nitroFree(rawPtr); } }';
+    return '(raw) { if (raw == null || raw == 0) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return $decodeExpr; } finally { _nitroFree(rawPtr); } }';
   }
 
   // Bare @NitroVariant  — native posts kInt64 (pointer to [4B len][1B tag][fields]).
@@ -166,7 +166,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
   // generic `raw as $rt` cast below, which throws (raw is the pointer address,
   // not a TcEvent instance).
   if (spec.isVariantName(rtBase)) {
-    return '(raw) { if (raw == null) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return ${_variantDecodeExtName(spec, rtBase)}.fromNative(rawPtr); } finally { _nitroFree(rawPtr); } }';
+    return '(raw) { if (raw == null || raw == 0) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return ${_variantDecodeExtName(spec, rtBase)}.fromNative(rawPtr); } finally { _nitroFree(rawPtr); } }';
   }
 
   // @HybridStruct  — native posts kInt64 (pointer to heap struct)
@@ -174,7 +174,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
     if (isNullable) {
       return '(raw) { if (raw == null) return null; final ptr = Pointer<${rtBase}Ffi>.fromAddress(raw as int); if (ptr == nullptr) return null; try { return ptr.ref.toDart(); } finally { ptr.ref.freeFields(_nitroFree); _nitroFree(ptr); } }';
     }
-    return '(raw) { if (raw == null) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final ptr = Pointer<${rtBase}Ffi>.fromAddress(raw as int); try { return ptr.ref.toDart(); } finally { ptr.ref.freeFields(_nitroFree); _nitroFree(ptr); } }';
+    return '(raw) { if (raw == null || raw == 0) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final ptr = Pointer<${rtBase}Ffi>.fromAddress(raw as int); try { return ptr.ref.toDart(); } finally { ptr.ref.freeFields(_nitroFree); _nitroFree(ptr); } }';
   }
 
   // @HybridEnum  — native posts kInt64 rawValue
@@ -244,7 +244,7 @@ String _nativeAsyncUnpack(BridgeFunction func, BridgeSpec spec) {
     if (isNullable) {
       return '(raw) { if (raw == null) return null; final rawPtr = Pointer<Uint8>.fromAddress(raw as int); if (rawPtr == nullptr) return null; try { return const ${ct.codecClass}().decode(rawPtr); } finally { _nitroFree(rawPtr); } }';
     }
-    return '(raw) { if (raw == null) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return const ${ct.codecClass}().decode(rawPtr)!; } finally { _nitroFree(rawPtr); } }';
+    return '(raw) { if (raw == null || raw == 0) { throw StateError("${func.dartName} (native-async): native posted null for a non-nullable $rt result — post the encoded value, or make the return type nullable"); } final rawPtr = Pointer<Uint8>.fromAddress(raw as int); try { return const ${ct.codecClass}().decode(rawPtr)!; } finally { _nitroFree(rawPtr); } }';
   }
 
   // Fallthrough: unknown type — cast directly (should not normally occur).
@@ -295,6 +295,10 @@ void _emitReturnDecode(
       final isNullableRecord = returnType.isNullable || returnType.name.endsWith('?');
       if (isNullableRecord) {
         writer.line('${indent}if ($resVar == nullptr) return null;');
+      } else {
+        // A bridge that could not run the method (an unregistered Swift
+        // impl) returns null with no error; decoding it reads address 0.
+        writer.line('${indent}if ($resVar == nullptr) throw StateError(\'${dartName ?? rt} returned null\');');
       }
       if (isLazy) {
         writer.line('${indent}return $decodeExpr;');

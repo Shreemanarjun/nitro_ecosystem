@@ -165,7 +165,7 @@ void _emitNativeAsyncUnpack(CodeWriter w, BridgeSpec spec, BridgeFunction func, 
     if (isNullable) {
       w.line('${indent}if (raw == null || raw == 0) return null;');
     } else {
-      w.line("${indent}if (raw == null) { throw StateError('${func.dartName} (native-async): native posted null for a non-nullable $rt result'); }");
+      w.line("${indent}if (raw == null || raw == 0) { throw StateError('${func.dartName} (native-async): native posted null for a non-nullable $rt result'); }");
     }
   }
 

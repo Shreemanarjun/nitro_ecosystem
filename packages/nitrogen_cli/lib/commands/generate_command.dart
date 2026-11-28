@@ -10,6 +10,10 @@ import '../utils.dart' show cleanEphemeralSymlinkCycles, dedupeSharedSwiftDecls,
 import 'link_command.dart'
     show
         cleanRedundantIncludes,
+        linkAndroidModules,
+        describeDuplicateSpecTypes,
+        duplicateSpecTypes,
+        duplicateSpecTypesHint,
         linkDesktopPubspecFfiOnly,
         linkBuildYamlSourcesExcludes,
         createSharedHeaders,
@@ -26,9 +30,6 @@ import 'link_command.dart'
         linkSwiftPlugin,
         linkMacosSwiftPlugin,
         purgeStaleCppSwiftRegistrations,
-        linkKotlinPlugin,
-        linkKotlinLoadLibraries,
-        purgeStaleCppKotlinRegistrations,
         linkAndroid,
         linkAndroidConsumerRules,
         linkWindows,
@@ -151,6 +152,14 @@ class GenerateCommand extends Command {
 
     final totalStart = DateTime.now();
     final specFiles = _discoverNativeSpecFiles(projectDir.path);
+    final dups = duplicateSpecTypes(Directory(p.join(projectDir.path, 'lib')));
+    if (dups.isNotEmpty) {
+      for (final line in describeDuplicateSpecTypes(dups, projectDir.path)) {
+        _logError(line);
+      }
+      _logError(duplicateSpecTypesHint);
+      return 1;
+    }
     final incrementalCache = IncrementalGenerationCache(projectDir.path);
     final incrementalPlan = incrementalCache.plan(
       specs: specFiles,
@@ -433,12 +442,7 @@ class GenerateCommand extends Command {
       // JniBridge on Android; one that is C++ on Android, or not on Android at
       // all (macOS-only, desktop-only), has none to register.
       final androidCppLibs = moduleInfos.where((m) => !isAndroidKotlinModule(File(p.join(projectRoot, 'lib', 'src', '${m.lib}.native.dart')))).map((m) => m.lib).toSet();
-      final kotlinModules = moduleInfos.where((m) => !androidCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
-      if (kotlinModules.isNotEmpty) {
-        linkKotlinPlugin(pluginName, kotlinModules, baseDir: projectRoot);
-      }
-      linkKotlinLoadLibraries(moduleInfos.map((m) => m.lib).toList(), baseDir: projectRoot);
-      purgeStaleCppKotlinRegistrations(moduleInfos.where((m) => androidCppLibs.contains(m.lib)).toList(), baseDir: projectRoot);
+      final kotlinModules = linkAndroidModules(pluginName, moduleInfos, androidCppLibs, projectRoot);
       linkAndroid(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: projectRoot, moduleInfos: moduleInfos);
       linkAndroidConsumerRules(kotlinModules, baseDir: projectRoot);
     }

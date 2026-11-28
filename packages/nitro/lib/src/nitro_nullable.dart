@@ -100,19 +100,19 @@ extension NitroOptBoolDecode on NitroOptBool {
 // ── Pointer decode extensions (for async / NativeAsync pointer returns) ───────
 
 extension NitroOptInt64Pointer on Pointer<NitroOptInt64> {
-  /// Unwraps the struct to a Dart `int?`. `.decoded` is the canonical name;
-  /// `.nullable` is kept for backward compatibility.
-  int? get decoded => ref.hasValue != 0 ? ref.value : null;
+  /// Unwraps the struct to a Dart `int?`; a null pointer is null. `.decoded`
+  /// is the canonical name; `.nullable` is kept for backward compatibility.
+  int? get decoded => address == 0 ? null : ref.decoded;
   int? get nullable => decoded;
 }
 
 extension NitroOptFloat64Pointer on Pointer<NitroOptFloat64> {
-  double? get decoded => ref.hasValue != 0 ? ref.value : null;
+  double? get decoded => address == 0 ? null : ref.decoded;
   double? get nullable => decoded;
 }
 
 extension NitroOptBoolPointer on Pointer<NitroOptBool> {
-  bool? get decoded => ref.hasValue != 0 ? ref.value != 0 : null;
+  bool? get decoded => address == 0 ? null : ref.decoded;
   bool? get nullable => decoded;
 }
 

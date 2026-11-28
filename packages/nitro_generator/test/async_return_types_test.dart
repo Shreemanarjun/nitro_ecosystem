@@ -124,7 +124,26 @@ void main() {
 
     test('Future<String> stub copies result via _nitroStringToCString (byte-exact, no BOM strip)', () {
       final out = SwiftGenerator.generate(_asyncSpec('String'));
-      expect(out, contains('_nitroStringToCString(result)'));
+      expect(out, contains('_nitroStringToCString(result ?? "")'));
+    });
+
+    // Issue #66: `try?` dropped the error, so a throw resolved to 0 / "" or
+    // posted a null struct pointer that crashed Dart.
+    for (final t in ['void', 'int', 'int?', 'double', 'double?', 'bool', 'bool?', 'String', 'String?', 'DateTime', 'DateTime?']) {
+      test('Future<$t> stub raises what the impl threw', () {
+        final out = SwiftGenerator.generate(_asyncSpec(t));
+        expect(out, isNot(contains('try?')));
+        expect(out, contains('catch { _thrownError = error }'));
+        expect(out, contains('if let _e = _thrownError {'));
+      });
+    }
+
+    test('Future<@HybridStruct> stub raises what the impl threw', () {
+      final out = SwiftGenerator.generate(_asyncStructSpec('Sensor'));
+      expect(out, isNot(contains('try?')));
+      expect(out, contains('do { result = try await impl.'));
+      expect(out, contains('if let _e = _thrownError {'));
+      expect(out, contains('var result: Sensor? = nil'));
     });
 
     test('Future<@HybridStruct> stub allocates C shadow pointer', () {

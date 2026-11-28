@@ -112,7 +112,7 @@ extension _PlatformRules on _Rules {
           message: '${spec.dartClassName}: iOS/macOS is targeted but Android is not.',
           hint:
               'Add `android: NativeImpl.kotlin` (or `.cpp`) to target Android. '
-              'If Android is intentionally excluded, add @NitroModule(android: null) or suppress this warning.',
+              'If Android is intentionally excluded, ignore this warning: it is advisory only.',
         ),
       );
     }
@@ -124,7 +124,7 @@ extension _PlatformRules on _Rules {
           message: '${spec.dartClassName}: Android is targeted but iOS/macOS is not.',
           hint:
               'Add `ios: NativeImpl.swift` (or `.cpp`) to target Apple platforms. '
-              'If iOS is intentionally excluded, add @NitroModule(ios: null) or suppress this warning.',
+              'If iOS is intentionally excluded, ignore this warning: it is advisory only.',
         ),
       );
     }

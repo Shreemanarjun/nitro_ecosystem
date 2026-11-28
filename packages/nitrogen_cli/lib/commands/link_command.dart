@@ -619,30 +619,7 @@ class _LinkViewState extends State<LinkView> {
         return extractLibNameFromSpec(f) ?? stem;
       }).toSet();
 
-      // Modules that need JniBridge.register = everything else.
-      final kotlinModules = moduleInfos.where((m) => !androidCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
-      // Modules that should have JniBridge.register REMOVED (no Kotlin there).
-      final androidCppModuleInfos = moduleInfos.where((m) => androidCppLibs.contains(m.lib)).toList();
-
-      if (kotlinModules.isNotEmpty) {
-        linkKotlinPlugin(
-          pluginName,
-          kotlinModules,
-          baseDir: Directory.current.path,
-        );
-      }
-      // Every module builds its own .so with a JNI bridge: System.loadLibrary
-      // runs JNI_OnLoad (Kotlin modules) and __attribute__((constructor)) (C++).
-      linkKotlinLoadLibraries(
-        moduleInfos.map((m) => m.lib).toList(),
-        baseDir: Directory.current.path,
-      );
-      // Purge stale JniBridge.register() only for modules that are actually
-      // Android/Linux C++ — not for mixed modules like android:kotlin + windows:cpp.
-      purgeStaleCppKotlinRegistrations(
-        androidCppModuleInfos,
-        baseDir: Directory.current.path,
-      );
+      final kotlinModules = linkAndroidModules(pluginName, moduleInfos, androidCppLibs, Directory.current.path);
       await _setDone(
         5,
         detail: kotlinModules.isNotEmpty ? null : 'cpp: loadLibrary only (no JniBridge)',
@@ -1304,11 +1281,7 @@ class LinkCommand extends Command {
       log('wiring Android Kotlin plugin...');
       // Modules with no Kotlin side on Android: C++ there, or not on Android at all.
       final androidCppLibs = specFiles.where((f) => !isAndroidKotlinModule(f)).map(libFrom).toSet();
-      final kotlinModules = moduleInfos.where((m) => !androidCppLibs.contains(m.lib)).map((m) => m.toMap()).toList();
-      final androidCppModuleInfos = moduleInfos.where((m) => androidCppLibs.contains(m.lib)).toList();
-      if (kotlinModules.isNotEmpty) linkKotlinPlugin(pluginName, kotlinModules, baseDir: baseDir);
-      linkKotlinLoadLibraries(moduleInfos.map((m) => m.lib).toList(), baseDir: baseDir);
-      purgeStaleCppKotlinRegistrations(androidCppModuleInfos, baseDir: baseDir);
+      final kotlinModules = linkAndroidModules(pluginName, moduleInfos, androidCppLibs, baseDir);
       linkAndroid(pluginName, moduleInfos.map((m) => m.lib).toList(), baseDir: baseDir, moduleInfos: moduleInfos);
       linkAndroidConsumerRules(kotlinModules, baseDir: baseDir);
     } else {
