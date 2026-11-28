@@ -602,6 +602,25 @@ class TestPlugin {
 ''');
     });
 
+    test('a comment that also describes another library stays', () {
+      final f = plugin('''
+class TestPlugin {
+    companion object {
+        init {
+            // Load fast_cpp and core early.
+            System.loadLibrary("fast_cpp")
+            System.loadLibrary("core")
+            System.loadLibrary("extra")
+        }
+    }
+}
+''');
+      linkAndroidLoads(modules, {'fast_cpp'}, tmp.path);
+      final out = f.readAsStringSync();
+      expect(out, contains('// Load fast_cpp and core early.\n            System.loadLibrary("core")'));
+      expect(out, isNot(contains('loadLibrary("fast_cpp")')));
+    });
+
     test('a module not on Android is not loaded at startup', () {
       final f = plugin(eagerAll);
       linkAndroidLoads(modules, {'fast_cpp', 'extra'}, tmp.path);
@@ -697,6 +716,24 @@ class TestPlugin : FlutterPlugin, ActivityAware {
       final out = f.readAsStringSync();
       expect('ExtraJniBridge.onActivityAttached(binding.activity)'.allMatches(out), hasLength(2));
       expect(out, contains('    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {\n        CoreJniBridge.onActivityAttached(binding.activity)\n        ExtraJniBridge.onActivityAttached(binding.activity)\n    }'));
+    });
+
+    test('a module whose name is a suffix of another still gets forwarded', () {
+      final f = plugin('''
+package dev.test
+class TestPlugin : FlutterPlugin {
+    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        WebgpuPresentJniBridge.registerFactory({ WebgpuPresentImpl() }, binding.applicationContext)
+    }
+    fun a(activity: Activity) {
+        WebgpuPresentJniBridge.onActivityAttached(activity)
+    }
+}
+''');
+      linkKotlinPlugin('test', [{'module': 'WebgpuPresent', 'lib': 'webgpu_present'}, {'module': 'Present', 'lib': 'present'}], baseDir: tmp.path);
+      final out = f.readAsStringSync();
+      expect(RegExp(r'(?<![A-Za-z])PresentJniBridge\.onActivityAttached\(activity\)').allMatches(out), hasLength(1));
+      expect('WebgpuPresentJniBridge.onActivityAttached(activity)'.allMatches(out), hasLength(1));
     });
 
     test('a plugin that already forwards to the module is left alone', () {

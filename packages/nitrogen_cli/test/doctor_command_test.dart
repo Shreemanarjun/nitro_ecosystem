@@ -2793,6 +2793,15 @@ void _falsePositives() {
       expect(_errors(_run(root)).where((e) => e.startsWith('android pluginClass') || e.startsWith('android package')), isEmpty);
     });
 
+    test('top-level platforms: entries alone do not trigger the macOS and desktop checks', () {
+      final root = _scaffold(withIos: false, specs: [(name: 'demo', isCpp: false)]);
+      addTearDown(() => root.deleteSync(recursive: true));
+      final pubspec = File(p.join(root.path, 'pubspec.yaml'));
+      pubspec.writeAsStringSync('platforms:\n  android:\n  macos:\n  windows:\n  linux:\n\n${pubspec.readAsStringSync()}');
+      final labels = [for (final s in _run(root).sections) for (final c in s.checks) c.label];
+      expect(labels.where((l) => l.startsWith('macos ') || l.startsWith('windows ') || l.startsWith('linux ')), isEmpty, reason: '$labels');
+    });
+
     test('a Kotlin module still requires the android pluginClass', () {
       final root = _scaffold(withIos: false, specs: [(name: 'demo', isCpp: false)]);
       addTearDown(() => root.deleteSync(recursive: true));

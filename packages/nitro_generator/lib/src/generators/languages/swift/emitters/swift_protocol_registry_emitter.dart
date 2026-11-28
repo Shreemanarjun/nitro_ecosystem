@@ -117,7 +117,7 @@ void _emitSwiftRegistry(CodeWriter writer, BridgeSpec spec) {
   writer.line('            (cls as? ${name}ImplementationProvider.Type)?.register${name}Implementation()');
   writer.line('            if _impl != nil { return }');
   writer.line('        }');
-  writer.line('        NSLog("$name: no implementation is registered, so calls throw. Adopt ${name}ImplementationProvider on the plugin class or call ${name}Registry.register(_:).")');
+  writer.line('        NSLog("$name: no implementation is registered, so method calls throw and properties and streams return defaults. Adopt ${name}ImplementationProvider on the plugin class or call ${name}Registry.register(_:).")');
   writer.line('    }()');
 
   for (final stream in spec.streams) {

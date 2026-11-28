@@ -127,6 +127,12 @@ void main() {
       expect(out, contains('_nitroStringToCString(result ?? "")'));
     });
 
+    test('Future<String?> stub returns a null pointer for nil, not an empty string', () {
+      final out = SwiftGenerator.generate(_asyncSpec('String?'));
+      expect(out, contains('return result.map { _nitroStringToCString(\$0) }'));
+      expect(out, isNot(contains('_nitroStringToCString(result ?? "")')));
+    });
+
     // Issue #66: `try?` dropped the error, so a throw resolved to 0 / "" or
     // posted a null struct pointer that crashed Dart.
     for (final t in ['void', 'int', 'int?', 'double', 'double?', 'bool', 'bool?', 'String', 'String?', 'DateTime', 'DateTime?']) {

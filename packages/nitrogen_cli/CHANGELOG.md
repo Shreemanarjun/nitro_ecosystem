@@ -2,6 +2,7 @@
 
 - **Perf (Android):** `nitrogen link` no longer loads an Android C++ module's library when the app starts (median 0.7 ms per library on an emulator, before the first frame). Dart opens it on first use, which also runs its static constructors, so the impl still registers first. A plugin whose own C/C++ sources define `JNI_OnLoad`, `JNIEXPORT` or `RegisterNatives` keeps every library loaded at start, since ART only resolves native methods in libraries `System.loadLibrary` loaded. Re-run `nitrogen link`.
 - **Fix (Android):** with several Kotlin modules, only the first one saw the Activity (`activity` was null in the others). `nitrogen link` now forwards `onActivityAttached` / `onActivityDetached` to every Kotlin module, in the scaffold's `ActivityWatcher` and in `ActivityAware` plugins. Re-run `nitrogen link`.
+- **Fix:** `nitrogen doctor` no longer checks macOS, Windows or Linux plugin entries for a platform that appears only in the top-level pub.dev `platforms:` list.
 - **New:** `nitrogen generate` stops, and `nitrogen doctor` reports an error, when two specs declare a `@HybridStruct`, `@HybridRecord`, `@HybridEnum`, `@NitroVariant` or `@NitroCustomType` of the same name. The build used to fail later with an "ambiguous" Dart export and Swift type. Declare a shared type once, in a type-only `.native.dart`.
 
 ## 0.9.1

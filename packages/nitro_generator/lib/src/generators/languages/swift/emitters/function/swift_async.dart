@@ -3,6 +3,12 @@ part of '../swift_function_emitter.dart';
 // The `@_cdecl` stub body of a `@nitroAsync` method: run the `async throws`
 // implementation on a detached task, wait for it, raise what it threw.
 
+/// `guard let impl` for a method stub: with no implementation registered the
+/// call raises NotRegistered (the Obj-C++ shim reports it to Dart); [ret] is
+/// the placeholder the stub returns after the raise, empty for void.
+String _implGuard(BridgeSpec spec, String ret) =>
+    '    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return${ret.isEmpty ? '' : ' $ret'} }';
+
 /// Surfaces `_thrownError`, caught inside the Task, to Dart: the Obj-C++
 /// shim around this stub catches the NSException and reports it.
 void _emitRethrow(CodeWriter writer) {
@@ -56,7 +62,7 @@ void _emitAsync(
 }) {
   // @NitroOwned async: allocate on a background thread, return the raw ptr.
   if (func.returnType.isNativeHandle) {
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
+    writer.line(_implGuard(spec, 'nil'));
     writer.line('    let sema = DispatchSemaphore(value: 0)');
     writer.line('    var _ownedPtr: UnsafeMutableRawPointer? = nil');
     _emitTask(writer, func, callArgs, '_ownedPtr = ');
@@ -91,7 +97,7 @@ void _emitAsync(
   // A map or any-map: run the impl on a background thread, encode the result.
   if (isMap || isAnyMap) {
     final swiftRetType = mapper.swiftType(func.returnType.name, bridgeType: func.returnType);
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
+    writer.line(_implGuard(spec, 'nil'));
     writer.line('    let sema = DispatchSemaphore(value: 0)');
     writer.line('    var _mapResult: Optional<$swiftRetType> = nil');
     _emitTask(writer, func, callArgs, '_mapResult = ');
@@ -104,7 +110,7 @@ void _emitAsync(
   final isVariantRet = spec.isVariantName(bareTypeName(func.returnType.name));
   if (isVariantRet) {
     final variantName = bareTypeName(func.returnType.name);
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
+    writer.line(_implGuard(spec, 'nil'));
     writer.line('    let sema = DispatchSemaphore(value: 0)');
     writer.line('    var _vResult: $variantName? = nil');
     _emitTask(writer, func, callArgs, '_vResult = ');
@@ -117,7 +123,7 @@ void _emitAsync(
 
   if (isStruct) {
     final retStructName = bareTypeName(func.returnType.name);
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
+    writer.line(_implGuard(spec, 'nil'));
     writer.line('    let sema = DispatchSemaphore(value: 0)');
     // The bare type: a nullable return assigns into the same optional, and
     // nil then means "null". `Point??` did not compile.
@@ -128,17 +134,18 @@ void _emitAsync(
     writer.line('    ptr.initialize(to: _${retStructName}C.fromSwift(r))');
     writer.line('    return UnsafeMutableRawPointer(ptr)');
   } else if (isVoid) {
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return }');
+    writer.line(_implGuard(spec, ''));
     writer.line('    let sema = DispatchSemaphore(value: 0)');
     _emitTask(writer, func, callArgs, '');
   } else if (isString) {
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return _nitroStringToCString("") }');
+    writer.line(_implGuard(spec, '_nitroStringToCString("")'));
     writer.line('    let sema = DispatchSemaphore(value: 0)');
     writer.line('    var result: String? = nil');
     _emitTask(writer, func, callArgs, 'result = ');
-    writer.line('    return _nitroStringToCString(result ?? "")');
+    // A nullable String's nil is a null pointer, which Dart reads as null.
+    writer.line(func.returnType.isNullable || func.returnType.name.endsWith('?') ? '    return result.map { _nitroStringToCString(\$0) }' : '    return _nitroStringToCString(result ?? "")');
   } else if (isRecord) {
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
+    writer.line(_implGuard(spec, 'nil'));
     writer.line('    let sema = DispatchSemaphore(value: 0)');
     writer.line('    var result: ${bareTypeName(func.returnType.name)}? = nil');
     _emitTask(writer, func, callArgs, 'result = ');
@@ -146,7 +153,7 @@ void _emitAsync(
   } else if (isRecordList) {
     final swiftRetType = mapper.swiftType(func.returnType.name);
     final resultType = swiftRetType.endsWith('?') ? swiftRetType : '$swiftRetType?';
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
+    writer.line(_implGuard(spec, 'nil'));
     writer.line('    let sema = DispatchSemaphore(value: 0)');
     writer.line('    var result: $resultType = nil');
     _emitTask(writer, func, callArgs, 'result = ');
@@ -156,7 +163,7 @@ void _emitAsync(
     // The bare type: a nullable return assigns into the same optional, and
     // nil then means "null" (or an error, which is raised below).
     final swiftRetType = mapper.swiftType(bareTypeName(func.returnType.name));
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
+    writer.line(_implGuard(spec, 'nil'));
     writer.line('    let sema = DispatchSemaphore(value: 0)');
     writer.line('    var result: $swiftRetType? = nil');
     _emitTask(writer, func, callArgs, 'result = ');
@@ -164,7 +171,7 @@ void _emitAsync(
     _emitTypedDataReturn(writer, func);
   } else if (isBool) {
     final boolGuardDefault = func.returnType.isNullable ? '-1' : '0';
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return $boolGuardDefault }');
+    writer.line(_implGuard(spec, boolGuardDefault));
     writer.line('    let sema = DispatchSemaphore(value: 0)');
     writer.line('    var result: Bool? = nil');
     _emitTask(writer, func, callArgs, 'result = ');
@@ -177,7 +184,7 @@ void _emitAsync(
   } else {
     final swiftRetType = mapper.swiftType(func.returnType.name);
     final defaultVal = mapper.defaultCDeclValue(func.returnType.name);
-    writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return $defaultVal }');
+    writer.line(_implGuard(spec, defaultVal));
     writer.line('    let sema = DispatchSemaphore(value: 0)');
     final resultType = switch (func.returnType.name) {
       'int?' => 'Int64?',

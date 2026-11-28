@@ -188,8 +188,9 @@ extension _DoctorToolchainChecks on DoctorCommand {
       ctx.err(pubSec, 'ios pluginClass missing', hint: 'Add pluginClass under flutter.plugin.platforms.ios');
     }
 
-    if (pubspec.contains('  macos:')) {
-      final macos = pubspecBlock(pubspec, 'macos') ?? '';
+    // The plugin's own platform block, not a key of the top-level pub.dev
+    // `platforms:` list (childless entries there are no block).
+    if (pubspecBlock(pubspec, 'macos') case final macos?) {
       if (macos.contains('pluginClass:')) {
         ctx.ok(pubSec, 'macos pluginClass defined');
       } else if (RegExp(r'ffiPlugin:\s*true').hasMatch(macos)) {
@@ -203,9 +204,9 @@ extension _DoctorToolchainChecks on DoctorCommand {
     // ffiPlugin makes Flutter link a nonexistent <plugin>_plugin CMake target
     // ("CMake Error: No target") in every consuming desktop app — issue #10.
     for (final desktop in ['windows', 'linux']) {
-      if (!pubspec.contains('  $desktop:')) continue;
       final flow = RegExp('$desktop:\\s*\\{[^}]*\\}');
-      final entry = pubspecBlock(pubspec, desktop) ?? flow.firstMatch(pubspec)?.group(0) ?? '';
+      final entry = pubspecBlock(pubspec, desktop) ?? flow.firstMatch(pubspec)?.group(0);
+      if (entry == null) continue;
       final hasClass = entry.contains('pluginClass:');
       final hasFfi = RegExp(r'ffiPlugin:\s*true').hasMatch(entry);
       final cls = RegExp(r'pluginClass:\s*(\w+)').firstMatch(entry)?.group(1);

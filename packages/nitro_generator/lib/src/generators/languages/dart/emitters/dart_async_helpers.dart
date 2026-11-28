@@ -296,8 +296,8 @@ void _emitReturnDecode(
       if (isNullableRecord) {
         writer.line('${indent}if ($resVar == nullptr) return null;');
       } else {
-        // A bridge that could not run the method (an unregistered Swift
-        // impl) returns null with no error; decoding it reads address 0.
+        // Backstop: a native side that returns null without reporting an
+        // error (a hand-written C++ impl) must not have address 0 decoded.
         writer.line('${indent}if ($resVar == nullptr) throw StateError(\'${dartName ?? rt} returned null\');');
       }
       if (isLazy) {

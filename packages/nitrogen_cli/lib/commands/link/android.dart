@@ -67,8 +67,14 @@ void unlinkKotlinLoadLibraries(List<String> libs, {String baseDir = '.'}) {
     final name = RegExp.escape(lib);
     // A call on its own line goes with its line and a comment right above it
     // that names the library; one sharing a line (`init { … }`) goes alone.
+    final others = [
+      for (final m in RegExp(r'System\.loadLibrary\("([^"]+)"\)').allMatches(next))
+        if (m[1] != lib) m[1]!,
+    ];
     next = next
-        .replaceAll(RegExp(r'^[ \t]*//[^\n]*\b' + name + r'\b[^\n]*\r?\n(?=[ \t]*' + call + r'[ \t]*\r?\n)', multiLine: true), '')
+        .replaceAllMapped(RegExp(r'^[ \t]*//[^\n]*\b' + name + r'\b[^\n]*\r?\n(?=[ \t]*' + call + r'[ \t]*\r?\n)', multiLine: true),
+            // A comment that also describes another library stays.
+            (c) => others.any((o) => RegExp(r'\b' + RegExp.escape(o) + r'\b').hasMatch(c[0]!)) ? c[0]! : '')
         .replaceAll(RegExp(r'^[ \t]*' + call + r'[ \t]*\r?\n', multiLine: true), '')
         .replaceAll(RegExp(call + r'[ \t]*(\r?\n[ \t]*)?'), '');
   }
@@ -156,18 +162,8 @@ void linkKotlinPlugin(
   List<Map<String, String>> modules, {
   String baseDir = '.',
 }) {
-  final kotlinDir = Directory(
-    p.join(baseDir, 'android', 'src', 'main', 'kotlin'),
-  );
-  if (!kotlinDir.existsSync()) return;
-  final pluginFiles = kotlinDir
-      .listSync(recursive: true, followLinks: false)
-      .whereType<File>()
-      .where((f) => !f.path.contains('.symlinks'))
-      .where((f) => f.path.endsWith('Plugin.kt'))
-      .toList();
-  if (pluginFiles.isEmpty) return;
-  final pluginFile = pluginFiles.first;
+  final pluginFile = _kotlinPluginFile(baseDir);
+  if (pluginFile == null) return;
   var content = pluginFile.readAsStringSync();
   bool modified = false;
   for (final m in modules) {
@@ -256,7 +252,8 @@ String _mirrorActivityForwarding(String content, String reg) {
   for (final (call, args) in [('onActivityAttached', r'\(([^()\n]*)\)'), ('onActivityDetached', r'\(()\)')]) {
     final line = r'[ \t]*\w+JniBridge\.' + call + args + r'[ \t]*';
     content = content.replaceAllMapped(RegExp('^(?:$line\\r?\\n)*$line\$', multiLine: true), (run) {
-      if (run[0]!.contains('$reg.$call(')) return run[0]!;
+      // Not `contains`: `PresentJniBridge` is a suffix of `WebgpuPresentJniBridge`.
+      if (RegExp('(?<![A-Za-z0-9_])${RegExp.escape(reg)}\\.$call\\(').hasMatch(run[0]!)) return run[0]!;
       final last = RegExp('^([ \\t]*)\\w+JniBridge\\.$call$args', multiLine: true).allMatches(run[0]!).last;
       return '${run[0]}\n${last[1]}$reg.$call(${last[2]})';
     });
@@ -297,18 +294,8 @@ void purgeStaleCppKotlinRegistrations(
   String baseDir = '.',
 }) {
   if (cppModules.isEmpty) return;
-  final kotlinDir = Directory(
-    p.join(baseDir, 'android', 'src', 'main', 'kotlin'),
-  );
-  if (!kotlinDir.existsSync()) return;
-  final pluginFiles = kotlinDir
-      .listSync(recursive: true, followLinks: false)
-      .whereType<File>()
-      .where((f) => !f.path.contains('.symlinks'))
-      .where((f) => f.path.endsWith('Plugin.kt'))
-      .toList();
-  if (pluginFiles.isEmpty) return;
-  final pluginFile = pluginFiles.first;
+  final pluginFile = _kotlinPluginFile(baseDir);
+  if (pluginFile == null) return;
   var content = pluginFile.readAsStringSync();
   bool modified = false;
 

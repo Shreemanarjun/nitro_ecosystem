@@ -123,8 +123,10 @@ class NitroWorkerPool {
     bool dropped = false;
     {
       std::unique_lock<std::mutex> lk(mu_);
+      NitroJob evicted;  // the dropped job, kept until the new one is placed
       if (maxQueued > 0 && queue_.size() >= maxQueued) {
         if (dropOldest) {
+          evicted = std::move(queue_.front());
           queue_.pop_front();
           dropped = true;
         } else {
@@ -132,7 +134,12 @@ class NitroWorkerPool {
         }
       }
       queue_.push_back(std::move(job));
-      growLocked();
+      try {
+        growLocked();
+      } catch (...) {
+        if (dropped) queue_.push_front(std::move(evicted));  // nothing was dropped after all
+        throw;
+      }
     }
     cv_.notify_one();
     return !dropped;
@@ -143,7 +150,7 @@ class NitroWorkerPool {
   // Starting all of them on the first call cost a library's first async call
   // ~4 thread creations (and, on Android, as many JVM attaches later).
   void growLocked() {
-    if (started_ >= maxThreads() || idle_ >= queue_.size()) return;
+    if (idle_ >= queue_.size() || started_ >= maxThreads()) return;
     try {
       std::thread([this] { loop(); }).detach();
     } catch (...) {
@@ -154,9 +161,13 @@ class NitroWorkerPool {
     started_++;
   }
 
+  // Computed once: hardware_concurrency() reads /sys on Linux and Android.
   static unsigned maxThreads() {
-    unsigned n = std::thread::hardware_concurrency();
-    return n == 0 ? 2 : (n > 4 ? 4 : n);
+    static const unsigned n = [] {
+      unsigned c = std::thread::hardware_concurrency();
+      return c == 0 ? 2u : (c > 4 ? 4u : c);
+    }();
+    return n;
   }
 
   void loop() {
