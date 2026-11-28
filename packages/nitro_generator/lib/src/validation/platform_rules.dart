@@ -124,7 +124,7 @@ extension _PlatformRules on _Rules {
           message: '${spec.dartClassName}: Android is targeted but iOS/macOS is not.',
           hint:
               'Add `ios: NativeImpl.swift` (or `.cpp`) to target Apple platforms. '
-              'If iOS is intentionally excluded, ignore this warning: it is advisory only.',
+              'If Apple platforms (iOS and macOS) are intentionally excluded, ignore this warning: it is advisory only.',
         ),
       );
     }

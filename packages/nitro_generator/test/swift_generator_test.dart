@@ -407,7 +407,7 @@ void main() {
         expect(out, contains('return UnsafeMutableRawPointer(ptr)'));
       });
 
-      test('non-nullable struct return uses single impl? guard', () {
+      test('non-nullable struct return guards the impl, then takes the value', () {
         final spec = BridgeSpec(
           dartClassName: 'Mod',
           lib: 'mod',
@@ -442,7 +442,8 @@ void main() {
           ],
         );
         final out = SwiftGenerator.generate(spec);
-        expect(out, contains('guard let result = ModRegistry.impl?.getPoint()'));
+        expect(out, contains('guard let impl = ModRegistry.impl else { ModRegistry.raiseNotRegistered(); return nil }'));
+        expect(out, contains('let result = impl.getPoint()'));
         expect(out, isNot(contains('guard let impl = ModRegistry.impl, let result')));
       });
 

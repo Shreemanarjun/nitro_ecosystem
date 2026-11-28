@@ -144,8 +144,14 @@ class NitroWorkerPool {
   // ~4 thread creations (and, on Android, as many JVM attaches later).
   void growLocked() {
     if (started_ >= maxThreads() || idle_ >= queue_.size()) return;
+    try {
+      std::thread([this] { loop(); }).detach();
+    } catch (...) {
+      if (started_ > 0) return;  // a running worker takes the job later
+      queue_.pop_back();         // nothing would ever run it: give it back
+      throw;
+    }
     started_++;
-    std::thread([this] { loop(); }).detach();
   }
 
   static unsigned maxThreads() {

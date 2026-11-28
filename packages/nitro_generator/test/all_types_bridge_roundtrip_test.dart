@@ -112,7 +112,7 @@ void main() {
         hasNot: ['return impl.ping()'],
       ),
       swift: BridgeChecks(
-        has: ['func ping()', '-> Void', 'impl?.ping()'],
+        has: ['func ping()', '-> Void', 'raiseNotRegistered()', 'impl.ping()'],
         hasNot: ['return 0', 'return nil'],
       ),
     );
@@ -182,7 +182,7 @@ void main() {
         ),
         swift: BridgeChecks(
           // bool uses optional-chaining + ?? false fallback, then ternary to Int8
-          has: ['-> Int8', 'impl?.isReady()', '?? false', '? 1 : 0'],
+          has: ['-> Int8', 'raiseNotRegistered()', 'impl.isReady()', '? 1 : 0'],
         ),
       );
     });
@@ -201,7 +201,7 @@ void main() {
           hasNot: ['String?'],
         ),
         swift: BridgeChecks(
-          has: ['-> UnsafeMutablePointer<CChar>', '_nitroStringToCString(', 'impl?.getName()'],
+          has: ['-> UnsafeMutablePointer<CChar>', '_nitroStringToCString(', 'raiseNotRegistered()', 'impl.getName()'],
         ),
       );
     });
@@ -400,7 +400,7 @@ void main() {
         swift: BridgeChecks(
           // Swift returns UnsafeMutableRawPointer? — allocates C-shadow struct
           // guard let result protects against nil impl — so return nil CAN appear
-          has: ['allocate(capacity: 1)', 'fromSwift', 'UnsafeMutableRawPointer', 'guard let result'],
+          has: ['allocate(capacity: 1)', 'fromSwift', 'UnsafeMutableRawPointer', 'let result = impl.'],
         ),
       );
     });

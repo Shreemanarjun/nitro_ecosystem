@@ -124,10 +124,13 @@ Future<void> _run() async {
     final post = await c.postUrl(Uri.parse('http://$_host:8765/result'))..contentLength = body.length;
     post.add(body);
     await (await post.close()).drain<void>();
+  } catch (e, st) {
+    stderr.writeln('NITRO_BENCH failed: $e\n$st');
+    exit(1);
   } finally {
     c.close();
-    exit(0);
   }
+  exit(0);
 }
 
 void main() {

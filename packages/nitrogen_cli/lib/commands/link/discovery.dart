@@ -201,15 +201,19 @@ List<File> typeOnlyBridgeHeaders(String baseDir) {
 /// "ambiguous" error far from the cause.
 Map<String, List<File>> duplicateSpecTypes(Directory libDir) {
   if (!libDir.existsSync()) return {};
+  // The nearest class/enum after the annotation, whatever the annotations in
+  // between carry (strings with parentheses, nested calls).
   final decl = RegExp(
-    r'^\s*@(?:HybridStruct|HybridRecord|HybridEnum|NitroVariant|NitroCustomType)\b(?:\s*\([^)]*\))?\s*(?:@\w+(?:\s*\([^)]*\))?\s*)*(?:(?:sealed|abstract|final|base)\s+)*(?:class|enum)\s+(\w+)',
+    r'^\s*@(?:HybridStruct|HybridRecord|HybridEnum|NitroVariant|NitroCustomType)\b[\s\S]*?\b(?:class|enum)\s+(\w+)',
     multiLine: true,
   );
+  // Comments are no declarations: `/* … */`, then `//` and `///` lines.
+  final comments = RegExp(r'/\*[\s\S]*?\*/|//[^\n]*');
   final byName = <String, List<File>>{};
   final specs = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList()
     ..sort((a, b) => a.path.compareTo(b.path));
   for (final f in specs) {
-    for (final m in decl.allMatches(f.readAsStringSync())) {
+    for (final m in decl.allMatches(f.readAsStringSync().replaceAll(comments, ''))) {
       byName.putIfAbsent(m.group(1)!, () => []).add(f);
     }
   }

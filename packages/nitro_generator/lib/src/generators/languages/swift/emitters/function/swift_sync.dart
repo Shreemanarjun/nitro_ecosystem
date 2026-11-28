@@ -44,14 +44,16 @@ void _emitSync(
       writer.line('    _vResult.writeFields(to: _vw)');
       writer.line('    return _vw.toNative().map { UnsafeMutablePointer(\$0) }');
     case _ when isVoid:
-      writer.line('    ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs)');
+      writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return }');
+      writer.line('    impl.${func.dartName}($callArgs)');
     case _ when isBool:
       if (func.returnType.isNullable) {
         writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return -1 }');
         writer.line('    guard let result = impl.${func.dartName}($callArgs) else { return -1 }');
         writer.line('    return result ? 1 : 0');
       } else {
-        writer.line('    return Int8((${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) ?? false) ? 1 : 0)');
+        writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return 0 }');
+        writer.line('    return impl.${func.dartName}($callArgs) ? 1 : 0');
       }
     case _ when isStruct:
       final sn = bareTypeName(func.returnType.name);
@@ -59,7 +61,8 @@ void _emitSync(
         writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
         writer.line('    guard let result = impl.${func.dartName}($callArgs) else { return nil }');
       } else {
-        writer.line('    guard let result = ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) else { return nil }');
+        writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
+        writer.line('    let result = impl.${func.dartName}($callArgs)');
       }
       writer.line('    let ptr = UnsafeMutablePointer<_${sn}C>.allocate(capacity: 1)');
       writer.line('    ptr.initialize(to: _${sn}C.fromSwift(result))');
@@ -67,10 +70,12 @@ void _emitSync(
     case _ when isString:
       if (func.returnType.isNullable) {
         // String?: nil → return nullptr so Dart sees null, not empty string.
-        writer.line('    guard let _s = ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) else { return nil }');
+        writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
+        writer.line('    guard let _s = impl.${func.dartName}($callArgs) else { return nil }');
         writer.line('    return _nitroStringToCString(_s)');
       } else {
-        writer.line('    return _nitroStringToCString(${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) ?? "")');
+        writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return _nitroStringToCString("") }');
+        writer.line('    return _nitroStringToCString(impl.${func.dartName}($callArgs))');
       }
     // A map or any-map return. Every parameter, maps included, was decoded
     // at the top of the stub, so any parameter list works.
@@ -86,10 +91,12 @@ void _emitSync(
         writer.line('    return impl.${func.dartName}($callArgs).toNative().map { UnsafeMutableRawPointer(\$0) }');
       }
     case _ when isRecordList:
-      writer.line('    guard let r = ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) else { return nil }');
+      writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
+      _emitUnwrapResult(writer, func, callArgs);
       _emitRecordListEncode(writer, func.returnType);
     case _ when isTypedDataReturn:
-      writer.line('    guard let r = ${spec.dartClassName}Registry.impl?.${func.dartName}($callArgs) else { return nil }');
+      writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else { ${spec.dartClassName}Registry.raiseNotRegistered(); return nil }');
+      _emitUnwrapResult(writer, func, callArgs);
       _emitTypedDataReturn(writer, func);
     case _ when func.returnType.isAnyNativeObject:
       // AnyNativeObject: impl returns Int64 instanceId; nullable: -1 = null
@@ -165,4 +172,11 @@ void _emitSync(
         writer.line('    return impl.${func.dartName}($callArgs)');
       }
   }
+}
+
+/// `r` = the impl's result; a nullable return of nil is null.
+void _emitUnwrapResult(CodeWriter writer, BridgeFunction func, String callArgs) {
+  writer.line(func.returnType.isNullable
+      ? '    guard let r = impl.${func.dartName}($callArgs) else { return nil }'
+      : '    let r = impl.${func.dartName}($callArgs)');
 }

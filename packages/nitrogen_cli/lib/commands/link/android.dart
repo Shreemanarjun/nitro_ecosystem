@@ -248,18 +248,18 @@ void linkKotlinPlugin(
   if (modified) pluginFile.writeAsStringSync(content);
 }
 
-/// Adds `<reg>.onActivityAttached(x)` / `<reg>.onActivityDetached()` after each
-/// run of lines forwarding the Activity to other modules, unless [reg] already
-/// has them.
+/// Adds `<reg>.onActivityAttached(x)` / `<reg>.onActivityDetached()` to each
+/// run of lines forwarding the Activity to other modules that lacks [reg] —
+/// per run, since ActivityAware plugins forward in several callbacks (attach,
+/// re-attach, detach) and one may be missing where another has it.
 String _mirrorActivityForwarding(String content, String reg) {
   for (final (call, args) in [('onActivityAttached', r'\(([^()\n]*)\)'), ('onActivityDetached', r'\(()\)')]) {
-    if (content.contains('$reg.$call(')) continue;
-    content = content.replaceAllMapped(
-      // The last line of each run, so a run gets one copy (ActivityAware
-      // plugins forward in two places: attach and re-attach).
-      RegExp(r'^([ \t]*)\w+JniBridge\.' + call + args + r'[ \t]*$(?!\r?\n[ \t]*\w+JniBridge\.' + call + r'\()', multiLine: true),
-      (m) => '${m[0]}\n${m[1]}$reg.$call(${m[2]})',
-    );
+    final line = r'[ \t]*\w+JniBridge\.' + call + args + r'[ \t]*';
+    content = content.replaceAllMapped(RegExp('^(?:$line\\r?\\n)*$line\$', multiLine: true), (run) {
+      if (run[0]!.contains('$reg.$call(')) return run[0]!;
+      final last = RegExp('^([ \\t]*)\\w+JniBridge\\.$call$args', multiLine: true).allMatches(run[0]!).last;
+      return '${run[0]}\n${last[1]}$reg.$call(${last[2]})';
+    });
   }
   return content;
 }

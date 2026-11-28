@@ -676,6 +676,29 @@ class TestPlugin : FlutterPlugin, ActivityAware {
       expect(out, isNot(contains('onActivityDetached')));
     });
 
+    test('a callback missing the module gets it, one that has it is left alone', () {
+      final f = plugin('''
+package dev.test
+class TestPlugin : FlutterPlugin, ActivityAware {
+    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        CoreJniBridge.registerFactory({ CoreImpl() }, binding.applicationContext)
+        ExtraJniBridge.registerFactory({ ExtraImpl() }, binding.applicationContext)
+    }
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        CoreJniBridge.onActivityAttached(binding.activity)
+        ExtraJniBridge.onActivityAttached(binding.activity)
+    }
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+        CoreJniBridge.onActivityAttached(binding.activity)
+    }
+}
+''');
+      linkKotlinPlugin('test', mods.take(2).toList(), baseDir: tmp.path);
+      final out = f.readAsStringSync();
+      expect('ExtraJniBridge.onActivityAttached(binding.activity)'.allMatches(out), hasLength(2));
+      expect(out, contains('    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {\n        CoreJniBridge.onActivityAttached(binding.activity)\n        ExtraJniBridge.onActivityAttached(binding.activity)\n    }'));
+    });
+
     test('a plugin that already forwards to the module is left alone', () {
       const body = '''
 package dev.test
@@ -710,6 +733,16 @@ class TestPlugin : FlutterPlugin {
         'Point is declared in lib/src/a.native.dart and lib/src/b.native.dart',
         'Mode is declared in lib/src/b.native.dart and lib/src/c.native.dart',
       ]);
+    });
+
+    test('annotations with complex arguments still name the type; comments do not count', () {
+      final lib = _libDir(tmp);
+      _writeSpec(lib, 'a.native.dart', "@HybridStruct()\n@Deprecated('use (Point2) instead')\n@Meta(f(g(1)))\nclass Point { final int x; }\n@NitroModule(ios: NativeImpl.swift)\nabstract class A extends HybridObject {}\n");
+      _writeSpec(lib, 'b.native.dart', "/*\n@HybridStruct()\nclass Point { final int x; }\n*/\n/// @HybridEnum() enum Mode { a }\n@HybridStruct()\nclass Point { final int x; }\n@NitroModule(android: NativeImpl.kotlin)\nabstract class B extends HybridObject {}\n");
+      _writeSpec(lib, 'c.native.dart', "/* @HybridEnum()\nenum Mode { a } */\n@NitroModule(ios: NativeImpl.cpp)\nabstract class C extends HybridObject {}\n");
+      final dups = duplicateSpecTypes(Directory(p.join(tmp.path, 'lib')));
+      expect(dups.keys, ['Point']);
+      expect(dups['Point']!.map((f) => p.basename(f.path)), ['a.native.dart', 'b.native.dart']);
     });
 
     test('a type-only file imported by two specs is not a duplicate', () {

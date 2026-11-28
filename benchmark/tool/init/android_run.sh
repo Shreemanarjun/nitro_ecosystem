@@ -14,6 +14,7 @@ for i in $(seq $3); do
   A shell am force-stop $PKG; A logcat -c
   A shell am start -W -n $PKG/.MainActivity | grep TotalTime >> $OUT.amstart.txt
   for t in $(seq 60); do n=$(cat $OUT.jsonl 2>/dev/null | wc -l); [ "$n" -ge "$i" ] && break; sleep 0.5; done
+  if [ "$n" -lt "$i" ]; then echo "launch $i posted no result" >&2; exit 1; fi
   A logcat -d -s NITRO_BENCH:I | grep NITRO_BENCH >> $OUT.logcat.txt
 done
 wc -l < $OUT.jsonl
