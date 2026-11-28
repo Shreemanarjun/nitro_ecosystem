@@ -194,6 +194,41 @@ List<File> typeOnlyBridgeHeaders(String baseDir) {
   ].where((h) => h.existsSync()).toList();
 }
 
+/// Bridge types (`@HybridStruct`, `@HybridRecord`, `@HybridEnum`,
+/// `@NitroVariant`, `@NitroCustomType`) declared in more than one `.native.dart`
+/// under [libDir], with the files declaring each. Both specs compile into one
+/// Dart library export and one Swift module, so the build fails later with an
+/// "ambiguous" error far from the cause.
+Map<String, List<File>> duplicateSpecTypes(Directory libDir) {
+  if (!libDir.existsSync()) return {};
+  // The nearest class/enum after the annotation, whatever the annotations in
+  // between carry (strings with parentheses, nested calls).
+  final decl = RegExp(
+    r'^\s*@(?:HybridStruct|HybridRecord|HybridEnum|NitroVariant|NitroCustomType)\b[\s\S]*?\b(?:class|enum)\s+(\w+)',
+    multiLine: true,
+  );
+  // Comments are no declarations: `/* … */`, then `//` and `///` lines.
+  final comments = RegExp(r'/\*[\s\S]*?\*/|//[^\n]*');
+  final byName = <String, List<File>>{};
+  final specs = libDir.listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.native.dart')).toList()
+    ..sort((a, b) => a.path.compareTo(b.path));
+  for (final f in specs) {
+    for (final m in decl.allMatches(f.readAsStringSync().replaceAll(comments, ''))) {
+      byName.putIfAbsent(m.group(1)!, () => []).add(f);
+    }
+  }
+  return {for (final e in byName.entries) if (e.value.length > 1) e.key: e.value};
+}
+
+/// One line per duplicated type, paths relative to [baseDir].
+List<String> describeDuplicateSpecTypes(Map<String, List<File>> dups, String baseDir) => [
+  for (final e in dups.entries) '${e.key} is declared in ${e.value.map((f) => p.relative(f.path, from: baseDir)).join(' and ')}',
+];
+
+const duplicateSpecTypesHint =
+    'Declare a shared type once, in a type-only .native.dart (no @NitroModule), '
+    'and import that file from every spec that uses it.';
+
 /// The annotation itself, not a mention in a comment ("type-only, no @NitroModule").
 bool declaresNitroModule(String source) => RegExp(r'^\s*@NitroModule\s*\(', multiLine: true).hasMatch(source);
 

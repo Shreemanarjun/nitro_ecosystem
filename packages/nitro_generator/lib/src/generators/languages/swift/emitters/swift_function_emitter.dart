@@ -14,7 +14,7 @@ part 'function/swift_arguments.dart';
 /// Handles all dispatch paths:
 ///   - `@NitroNativeAsync` — Task + Dart_PostCObject_DL
 ///   - `@nitroAsync` — DispatchSemaphore + Task.detached
-///   - sync — direct `Registry.impl?.method(…)` call
+///   - sync — a direct `impl.method(…)` call after the registration guard
 ///
 /// [emit] picks the path; each one lives in `function/`: `swift_sync.dart`,
 /// `swift_async.dart`, `swift_native_async.dart`, with the argument

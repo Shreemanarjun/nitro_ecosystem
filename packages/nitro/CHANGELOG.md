@@ -1,3 +1,8 @@
+## 0.9.2
+
+- **Perf:** the bridge's worker pool starts a thread when queued work finds no idle one (up to the same cap of 4) instead of all of them on the first async call. A module's first async call is 25% faster on macOS and 3× faster on an Android emulator (C++: 495 → 169 µs). Re-run `nitrogen link` to refresh the vendored header.
+- **Fix:** `Pointer<NitroOptInt64/Float64/Bool>.decoded` returns null for a null pointer instead of reading address 0.
+
 ## 0.9.1
 
 - **Fix:** runs from Dart 3.7 / Flutter 3.29 (was 3.11.3 / 3.35). `meta` is `^1.16.0`, which Flutter 3.29–3.35 pin, so those apps can add Nitro. Generating still needs Dart 3.11.

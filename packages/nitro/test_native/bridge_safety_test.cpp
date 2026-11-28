@@ -243,14 +243,34 @@ void test_worker_pool() {
   std::atomic<int> n{0};
   const int N = 500;
   for (int i = 0; i < N; i++)
-    g_pool->enqueue([&] { n.fetch_add(1, std::memory_order_relaxed); });
+    g_pool->enqueue([&] { n.fetch_add(1, std::memory_order_release); });
   for (int i = 0; i < N; i++)
-    g_pool->enqueueBounded([&] { n.fetch_add(1, std::memory_order_relaxed); },
+    g_pool->enqueueBounded([&] { n.fetch_add(1, std::memory_order_release); },
                            /*maxQueued=*/0, /*dropOldest=*/0);
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
   while (n.load() < 2 * N && std::chrono::steady_clock::now() < deadline)
     std::this_thread::yield();
   CHECK(n.load() == 2 * N);
+
+  // Workers start on demand: jobs that wait for each other still all run at
+  // once, since a job that finds no idle worker starts another (up to the cap).
+  NitroWorkerPool* pool = new NitroWorkerPool();  // leaked, as in production
+  unsigned hw = std::thread::hardware_concurrency();
+  const int cap = hw == 0 ? 2 : (hw > 4 ? 4 : (int)hw);
+  std::atomic<int> arrived{0}, done{0};
+  for (int i = 0; i < cap; i++) {
+    pool->enqueue([&] {
+      arrived.fetch_add(1);
+      const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+      while (arrived.load() < cap && std::chrono::steady_clock::now() < until)
+        std::this_thread::yield();
+      if (arrived.load() >= cap) done.fetch_add(1);
+    });
+  }
+  const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+  while (done.load() < cap && std::chrono::steady_clock::now() < until)
+    std::this_thread::yield();
+  CHECK(done.load() == cap);
 }
 
 // ── NitroBgTable: submit → take → emit → complete, and the fail() array ──────

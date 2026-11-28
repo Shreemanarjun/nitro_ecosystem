@@ -91,6 +91,11 @@ void _emitNativeAsync(
       .join(', ');
 
   writer.line('    guard let impl = ${spec.dartClassName}Registry.impl else {');
+  writer.line('        if let _errPtr = _errPtr {');
+  writer.line('            _errPtr.pointee.hasError = 1');
+  writer.line('            _errPtr.pointee.name = UnsafePointer(strdup("NotRegistered"))');
+  writer.line('            _errPtr.pointee.message = UnsafePointer(strdup(${spec.dartClassName}Registry.notRegisteredReason))');
+  writer.line('        }');
   writer.line('        var _null = Dart_CObject()');
   writer.line('        _null.type = Dart_CObject_kNull');
   writer.line('        _ = ${_libStem(spec)}_nitro_post(dartPort, &_null)');

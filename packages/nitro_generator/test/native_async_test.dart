@@ -2725,6 +2725,30 @@ void main() {
       // subtype of int" cast error.
       expect(out, contains('fetch (native-async): native posted null for a non-nullable GpuError result'));
       expect(out, contains('make the return type nullable'));
+      // A null pointer arrives as kInt64 0, not null (issue #66).
+      expect(out, contains('if (raw == null || raw == 0) { throw StateError("fetch (native-async)'));
+      expect(out, isNot(contains('if (raw == null) { throw StateError')));
+    });
+
+    test('sync and @nitroAsync non-nullable record returns guard a null pointer', () {
+      for (final async in [false, true]) {
+        final spec = specWithReturn(BridgeType(name: 'GpuError', isRecord: true));
+        final f = spec.functions.single;
+        final out = DartFfiGenerator.generate(
+          BridgeSpec(
+            dartClassName: spec.dartClassName,
+            lib: spec.lib,
+            namespace: spec.namespace,
+            iosImpl: spec.iosImpl,
+            androidImpl: spec.androidImpl,
+            sourceUri: spec.sourceUri,
+            recordTypes: spec.recordTypes,
+            functions: [BridgeFunction(dartName: f.dartName, cSymbol: f.cSymbol, isAsync: async, returnType: f.returnType, params: [])],
+          ),
+        );
+        // Sync decodes the returned pointer; @nitroAsync decodes the posted address.
+        expect(out, contains(async ? 'if (raw == null || raw == 0) { throw StateError("fetch (native-async)' : "== nullptr) throw StateError('fetch returned null')"), reason: 'isAsync: $async');
+      }
     });
   });
 

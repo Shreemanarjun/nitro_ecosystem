@@ -95,6 +95,15 @@ void _emitSwiftRegistry(CodeWriter writer, BridgeSpec spec) {
   writer.line('        _impl = impl');
   writer.line('    }');
   writer.blankLine();
+  writer.line('    /// Why a call cannot run. The bridge raises it (sync, @nitroAsync) or');
+  writer.line('    /// writes it to the error slot (@nitroNativeAsync), so Dart throws');
+  writer.line('    /// instead of receiving a default value.');
+  writer.line('    static let notRegisteredReason = "$name has no registered implementation. Adopt ${name}ImplementationProvider on the plugin class or call ${name}Registry.register(_:)."');
+  writer.blankLine();
+  writer.line('    static func raiseNotRegistered() {');
+  writer.line('        NSException(name: NSExceptionName("NotRegistered"), reason: notRegisteredReason, userInfo: nil).raise()');
+  writer.line('    }');
+  writer.blankLine();
   writer.line('    /// Runs once. Looks only at the classes of the image this module is linked');
   writer.line('    /// into: asking every class in the process touches ones that cannot be');
   writer.line('    /// messaged.');
@@ -108,7 +117,7 @@ void _emitSwiftRegistry(CodeWriter writer, BridgeSpec spec) {
   writer.line('            (cls as? ${name}ImplementationProvider.Type)?.register${name}Implementation()');
   writer.line('            if _impl != nil { return }');
   writer.line('        }');
-  writer.line('        NSLog("$name: no implementation is registered, so calls return default values. Adopt ${name}ImplementationProvider on the plugin class or call ${name}Registry.register(_:).")');
+  writer.line('        NSLog("$name: no implementation is registered, so method calls throw and properties and streams return defaults. Adopt ${name}ImplementationProvider on the plugin class or call ${name}Registry.register(_:).")');
   writer.line('    }()');
 
   for (final stream in spec.streams) {

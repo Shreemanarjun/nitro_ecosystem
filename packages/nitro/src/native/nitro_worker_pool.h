@@ -14,7 +14,6 @@
 #include <thread>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
 // Move-only type-erased `void()` job with a 64-byte inline buffer and a heap
 // fallback. Replaces std::function for pool jobs: a generated async-dispatch
@@ -103,12 +102,13 @@ class NitroJob {
 
 class NitroWorkerPool {
  public:
-  // Threads start on first use; the process exit tears them down.
+  // Threads start when queued work finds no idle one, up to the cap; the
+  // process exit tears them down.
   void enqueue(NitroJob job) {
     {
       std::lock_guard<std::mutex> lk(mu_);
-      if (threads_.empty()) start();
       queue_.push_back(std::move(job));
+      growLocked();
     }
     cv_.notify_one();
   }
@@ -123,9 +123,10 @@ class NitroWorkerPool {
     bool dropped = false;
     {
       std::unique_lock<std::mutex> lk(mu_);
-      if (threads_.empty()) start();
+      NitroJob evicted;  // the dropped job, kept until the new one is placed
       if (maxQueued > 0 && queue_.size() >= maxQueued) {
         if (dropOldest) {
+          evicted = std::move(queue_.front());
           queue_.pop_front();
           dropped = true;
         } else {
@@ -133,19 +134,40 @@ class NitroWorkerPool {
         }
       }
       queue_.push_back(std::move(job));
+      try {
+        growLocked();
+      } catch (...) {
+        if (dropped) queue_.push_front(std::move(evicted));  // nothing was dropped after all
+        throw;
+      }
     }
     cv_.notify_one();
     return !dropped;
   }
 
  private:
-  void start() {
-    unsigned n = std::thread::hardware_concurrency();
-    n = n == 0 ? 2 : (n > 4 ? 4 : n);
-    for (unsigned i = 0; i < n; i++) {
-      threads_.emplace_back([this] { loop(); });
-      threads_.back().detach();
+  // One more worker when the queue holds more jobs than idle workers can take.
+  // Starting all of them on the first call cost a library's first async call
+  // ~4 thread creations (and, on Android, as many JVM attaches later).
+  void growLocked() {
+    if (idle_ >= queue_.size() || started_ >= maxThreads()) return;
+    try {
+      std::thread([this] { loop(); }).detach();
+    } catch (...) {
+      if (started_ > 0) return;  // a running worker takes the job later
+      queue_.pop_back();         // nothing would ever run it: give it back
+      throw;
     }
+    started_++;
+  }
+
+  // Computed once: hardware_concurrency() reads /sys on Linux and Android.
+  static unsigned maxThreads() {
+    static const unsigned n = [] {
+      unsigned c = std::thread::hardware_concurrency();
+      return c == 0 ? 2u : (c > 4 ? 4u : c);
+    }();
+    return n;
   }
 
   void loop() {
@@ -153,7 +175,9 @@ class NitroWorkerPool {
       NitroJob job;
       {
         std::unique_lock<std::mutex> lk(mu_);
+        idle_++;
         cv_.wait(lk, [this] { return !queue_.empty(); });
+        idle_--;
         job = std::move(queue_.front());
         queue_.pop_front();
       }
@@ -166,7 +190,8 @@ class NitroWorkerPool {
   std::condition_variable cv_;
   std::condition_variable space_;  // signals queue space for enqueueBounded(block)
   std::deque<NitroJob> queue_;
-  std::vector<std::thread> threads_;
+  unsigned started_ = 0;
+  size_t idle_ = 0;  // workers parked in cv_.wait
 };
 #endif  // __cplusplus
 #endif  // NITRO_WORKER_POOL_H_

@@ -2,6 +2,14 @@ part of '../doctor_command.dart';
 
 extension _DoctorGeneratedChecks on DoctorCommand {
   void _checkGeneratedFiles(_DoctorCtx ctx) {
+    final dups = duplicateSpecTypes(Directory(p.join(ctx.root.path, 'lib')));
+    if (dups.isNotEmpty) {
+      final sec = DoctorSection('Spec Types');
+      ctx.sections.add(sec);
+      for (final line in describeDuplicateSpecTypes(dups, ctx.root.path)) {
+        ctx.err(sec, line, hint: duplicateSpecTypesHint);
+      }
+    }
     if (ctx.specs.isNotEmpty) {
       final genSec = DoctorSection('Generated Files');
       ctx.sections.add(genSec);

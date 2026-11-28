@@ -1,3 +1,12 @@
+## 0.9.2
+
+- **Fix (Swift, #66):** a `@nitroAsync` method that throws completes its Future with a `HybridException`. Before, the bridge dropped the error: a `@HybridStruct` return crashed the app (SIGSEGV at 0x0), and scalar, string, enum, record, variant and date returns resolved to a default or null. Regenerate.
+- **Changed (Swift):** with no registered implementation, sync, `@nitroAsync` and `@nitroNativeAsync` calls throw a `HybridException` (`NotRegistered`) naming the fix, where they returned 0, `""`, false or null.
+- **Fix (Swift):** a `@nitroAsync` method returning `String?` that returns nil reaches Dart as null, not `""`.
+- **Fix (Swift):** `@nitroAsync` methods returning a nullable `@HybridStruct` or `@HybridRecord` compile; the bridge declared a double optional.
+- **Fix (Dart, web):** a non-nullable struct, record, variant, map or custom-type async result that arrives as a null pointer throws a `StateError` instead of dereferencing address 0.
+- **Fix (Dart):** a sync non-nullable `@HybridRecord`, map or list return that comes back as a null pointer (an unregistered Swift implementation) throws a `StateError` instead of reading address 0.
+
 ## 0.9.1
 
 - **Changed:** generated code compiles at Dart 3.7, so a plugin can declare `sdk: ^3.7.0` and run on Flutter 3.29. The generator itself still needs Dart 3.11 (`analyzer`).

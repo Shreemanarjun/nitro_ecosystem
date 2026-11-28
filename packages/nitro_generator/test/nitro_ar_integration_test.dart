@@ -254,7 +254,7 @@ void main() {
     });
 
     test('sync bool still uses simple ternary (non-async path unchanged)', () {
-      expect(swiftBridge, contains('Int8((NitroArRegistry.impl?.isDepthSupported() ?? false) ? 1 : 0)'));
+      expect(swiftBridge, contains('return impl.isDepthSupported() ? 1 : 0'));
     });
   });
 

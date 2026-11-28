@@ -162,7 +162,7 @@ extension _DoctorToolchainChecks on DoctorCommand {
     }
 
     // Each platform's own entry only: a sibling's keys must not satisfy it.
-    final android = _yamlBlock(pubspec, 'android') ?? '';
+    final android = pubspecBlock(pubspec, 'android') ?? '';
     // An all-C++ Android plugin is a plain FFI plugin: no Kotlin class, no package.
     final androidFfiOnly = RegExp(r'ffiPlugin:\s*true').hasMatch(android) && ctx.specs.isNotEmpty && ctx.specs.every(isAndroidCppModule);
     if (android.contains('pluginClass:')) {
@@ -179,7 +179,7 @@ extension _DoctorToolchainChecks on DoctorCommand {
       ctx.err(pubSec, 'android package missing', hint: 'Add package under flutter.plugin.platforms.android');
     }
 
-    final ios = _yamlBlock(pubspec, 'ios') ?? '';
+    final ios = pubspecBlock(pubspec, 'ios') ?? '';
     if (ios.contains('pluginClass:')) {
       ctx.ok(pubSec, 'ios pluginClass defined');
     } else if (RegExp(r'ffiPlugin:\s*true').hasMatch(ios)) {
@@ -188,8 +188,9 @@ extension _DoctorToolchainChecks on DoctorCommand {
       ctx.err(pubSec, 'ios pluginClass missing', hint: 'Add pluginClass under flutter.plugin.platforms.ios');
     }
 
-    if (pubspec.contains('  macos:')) {
-      final macos = _yamlBlock(pubspec, 'macos') ?? '';
+    // The plugin's own platform block, not a key of the top-level pub.dev
+    // `platforms:` list (childless entries there are no block).
+    if (pubspecBlock(pubspec, 'macos') case final macos?) {
       if (macos.contains('pluginClass:')) {
         ctx.ok(pubSec, 'macos pluginClass defined');
       } else if (RegExp(r'ffiPlugin:\s*true').hasMatch(macos)) {
@@ -203,9 +204,9 @@ extension _DoctorToolchainChecks on DoctorCommand {
     // ffiPlugin makes Flutter link a nonexistent <plugin>_plugin CMake target
     // ("CMake Error: No target") in every consuming desktop app — issue #10.
     for (final desktop in ['windows', 'linux']) {
-      if (!pubspec.contains('  $desktop:')) continue;
       final flow = RegExp('$desktop:\\s*\\{[^}]*\\}');
-      final entry = _yamlBlock(pubspec, desktop) ?? flow.firstMatch(pubspec)?.group(0) ?? '';
+      final entry = pubspecBlock(pubspec, desktop) ?? flow.firstMatch(pubspec)?.group(0);
+      if (entry == null) continue;
       final hasClass = entry.contains('pluginClass:');
       final hasFfi = RegExp(r'ffiPlugin:\s*true').hasMatch(entry);
       final cls = RegExp(r'pluginClass:\s*(\w+)').firstMatch(entry)?.group(1);
@@ -264,22 +265,4 @@ extension _DoctorToolchainChecks on DoctorCommand {
 
 /// The YAML entry `<key>:` — an inline `{…}` map, or the block plus only its MORE-indented child lines
 /// (a sibling like `web:` with its own `pluginClass:` is not part of it).
-String? _yamlBlock(String yaml, String key) {
-  final lines = yaml.split('\n');
-  for (var i = 0; i < lines.length; i++) {
-    if (RegExp('^\\s*$key:\\s*\\{.*\\}').hasMatch(lines[i])) return lines[i]; // flow map
-    final m = RegExp('^(\\s*)$key:\\s*\$').firstMatch(lines[i]);
-    if (m == null) continue;
-    final indent = m.group(1)!.length;
-    final out = [lines[i]];
-    for (var j = i + 1; j < lines.length; j++) {
-      final l = lines[j];
-      if (l.trim().isEmpty || l.trimLeft().startsWith('#')) continue;
-      if (l.length - l.trimLeft().length <= indent) break;
-      out.add(l);
-    }
-    return out.join('\n');
-  }
-  return null;
-}
 

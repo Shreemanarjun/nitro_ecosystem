@@ -62,14 +62,20 @@ print("first=\(_my_camera_module_call_add(2, 3)) second=\(_my_camera_module_call
       expect(result.stdout, 'first=5.0 second=9.0 asked=1\n');
     });
 
-    test('with no provider the lookup ends without a crash, says so once and calls return defaults', () {
+    test('with no provider the lookup ends without a crash, says so once and the call raises', () {
+      // The Obj-C++ shim catches the raise and hands it to Dart; this bare
+      // harness has no shim, so the uncaught-exception handler reports it.
       final result = run('none', r'''
 import Foundation
 
-print("first=\(_my_camera_module_call_add(2, 3)) second=\(_my_camera_module_call_add(4, 5)) empty=\(MyCameraRegistry.impl == nil)")
+NSSetUncaughtExceptionHandler { e in
+    print("raised=\(e.name.rawValue) empty=\(MyCameraRegistry.impl == nil) reason=\(e.reason ?? "")")
+    exit(0)
+}
+print("value=\(_my_camera_module_call_add(2, 3))")
 ''');
       expect(result.exitCode, 0, reason: 'the lookup must not crash: ${result.stderr}');
-      expect(result.stdout, 'first=0.0 second=0.0 empty=true\n');
+      expect(result.stdout, startsWith('raised=NotRegistered empty=true reason=MyCamera has no registered implementation.'));
       expect('no implementation is registered'.allMatches(result.stderr as String), hasLength(1));
     });
 

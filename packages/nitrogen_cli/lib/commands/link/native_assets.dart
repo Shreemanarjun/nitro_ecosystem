@@ -173,7 +173,7 @@ void _warnDoubleBundle(List<String> libStems, String baseDir) {
 List<String> nativeBuildPlatforms(String pubspecContent) {
   final out = <String>[];
   for (final plat in const ['android', 'ios', 'macos', 'windows', 'linux']) {
-    final block = _pubspecBlock(pubspecContent, plat);
+    final block = pubspecBlock(pubspecContent, plat);
     if (block == null) continue;
     final live = block.split('\n').where((l) => !l.trimLeft().startsWith('#')).join('\n');
     if (RegExp(r'ffiPlugin:\s*true').hasMatch(live) || RegExp(r'pluginClass:\s*\S').hasMatch(live)) {
@@ -219,26 +219,6 @@ List<String> removeStaleNativeAssetsHook(String baseDir) {
   return removed;
 }
 
-/// The `<key>:` flow-map line, or the block header plus only its more-indented
-/// children (mirrors the doctor's `_yamlBlock`; a sibling key is excluded).
-String? _pubspecBlock(String yaml, String key) {
-  final lines = yaml.split('\n');
-  for (var i = 0; i < lines.length; i++) {
-    if (RegExp('^\\s*$key:\\s*\\{.*\\}').hasMatch(lines[i])) return lines[i]; // flow map
-    final m = RegExp('^(\\s*)$key:\\s*\$').firstMatch(lines[i]);
-    if (m == null) continue;
-    final indent = m.group(1)!.length;
-    final out = [lines[i]];
-    for (var j = i + 1; j < lines.length; j++) {
-      final l = lines[j];
-      if (l.trim().isEmpty || l.trimLeft().startsWith('#')) continue;
-      if (l.length - l.trimLeft().length <= indent) break;
-      out.add(l);
-    }
-    return out.join('\n');
-  }
-  return null;
-}
 
 /// Reads the top-level `name:` from `<baseDir>/pubspec.yaml` (the pub package,
 /// which the @Native assetId uses as `package:<name>/<libStem>`). Null if absent.

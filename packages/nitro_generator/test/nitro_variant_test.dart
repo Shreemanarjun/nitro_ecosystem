@@ -685,7 +685,7 @@ void main() {
       );
       final out = SwiftGenerator.generate(spec);
       // The guard must use `return nil` not `return ()`.
-      expect(out, contains('guard let impl = AllocRegistry.impl else { return nil }'));
+      expect(out, contains('guard let impl = AllocRegistry.impl else { AllocRegistry.raiseNotRegistered(); return nil }'));
       expect(out, isNot(contains('else { return () }')));
       // Bridge stub directly delegates to impl.
       expect(out, contains('return impl.acquireBuffer(size: size)'));
@@ -821,7 +821,7 @@ void main() {
       final out = SwiftGenerator.generate(asyncOwnedSpec());
       expect(out, contains('DispatchSemaphore'));
       expect(out, contains('var _ownedPtr: UnsafeMutableRawPointer? = nil'));
-      expect(out, contains('try? await impl.acquireBuffer(size: size)'));
+      expect(out, contains('do { _ownedPtr = try await impl.acquireBuffer(size: size) }'));
       expect(out, contains('return _ownedPtr'));
     });
 
@@ -854,7 +854,7 @@ void main() {
       final out = SwiftGenerator.generate(asyncVariantSpec());
       expect(out, contains('DispatchSemaphore'));
       expect(out, contains('var _vResult: FilterResult? = nil'));
-      expect(out, contains('try? await impl.asyncProcess'));
+      expect(out, contains('do { _vResult = try await impl.asyncProcess'));
       expect(out, contains('guard let _vr = _vResult else { return nil }'));
       expect(out, contains('NitroRecordWriter()'));
       expect(out, contains('_vr.writeFields(to: _vw)'));

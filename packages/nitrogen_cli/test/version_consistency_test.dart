@@ -3,7 +3,7 @@
 // hand (bump a pubspec but forget the version constant, or the CHANGELOG entry,
 // or an intra-repo dependency constraint), so pin them:
 //   1. all package versions are identical (lockstep release)
-//   2. each package's CHANGELOG top heading matches its pubspec version
+//   2. each package's newest CHANGELOG version heading matches its pubspec version
 //   3. the embedded version constants match their package's pubspec version
 //   4. intra-repo caret dependencies point at the current (lockstep) version
 import 'dart:io';
@@ -27,8 +27,10 @@ String _pubspecVersion(String pkgDir) {
   return (m?.group(1)) ?? fail('no version: in $pkgDir/pubspec.yaml');
 }
 
+/// The newest released heading: an `## Unreleased` section above it collects
+/// changes for the next bump and is skipped.
 String _changelogTop(String pkgDir) {
-  final m = RegExp(r'^##\s+(\S+)', multiLine: true).firstMatch(File(p.join(pkgDir, 'CHANGELOG.md')).readAsStringSync());
+  final m = RegExp(r'^##\s+(?!Unreleased\b)(\S+)', multiLine: true).firstMatch(File(p.join(pkgDir, 'CHANGELOG.md')).readAsStringSync());
   return (m?.group(1)) ?? fail('no "## <version>" heading in $pkgDir/CHANGELOG.md');
 }
 

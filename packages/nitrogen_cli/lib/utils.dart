@@ -628,3 +628,26 @@ String? generatedHeaderStaleness(String content, {required String specHash, Stri
   if (generatorVersion != null && version != generatorVersion) return 'generator $version → $generatorVersion';
   return null;
 }
+
+/// The `<key>:` flow-map line, or the first `<key>:` block header that has
+/// more-indented children, plus only those children (a sibling key is
+/// excluded). Childless headers are skipped, so a top-level pub.dev
+/// `platforms: { android: }` list never shadows `flutter.plugin.platforms`.
+String? pubspecBlock(String yaml, String key) {
+  final lines = yaml.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    if (RegExp('^\\s*$key:\\s*\\{.*\\}').hasMatch(lines[i])) return lines[i]; // flow map
+    final m = RegExp('^(\\s*)$key:\\s*\$').firstMatch(lines[i]);
+    if (m == null) continue;
+    final indent = m.group(1)!.length;
+    final out = [lines[i]];
+    for (var j = i + 1; j < lines.length; j++) {
+      final l = lines[j];
+      if (l.trim().isEmpty || l.trimLeft().startsWith('#')) continue;
+      if (l.length - l.trimLeft().length <= indent) break;
+      out.add(l);
+    }
+    if (out.length > 1) return out.join('\n');
+  }
+  return null;
+}

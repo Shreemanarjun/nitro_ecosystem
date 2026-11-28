@@ -1141,7 +1141,7 @@ void main() {
         out,
         // No force-unwrap: a Dart callback that threw returns the exceptional 0,
         // which need not be a case of the enum.
-        contains('ModRegistry.impl?.onStatusTransform(statusCb: { arg0 in { guard let _e = TcStatus(rawValue: statusCb(arg0)) else { _nitroCallbackReturnedNothing("statusCb") }; return _e }() })'),
+        contains('impl.onStatusTransform(statusCb: { arg0 in { guard let _e = TcStatus(rawValue: statusCb(arg0)) else { _nitroCallbackReturnedNothing("statusCb") }; return _e }() })'),
       );
       expect(out, isNot(contains('statusCb: { arg0 in statusCb(arg0) }')));
     });
