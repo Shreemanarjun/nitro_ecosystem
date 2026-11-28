@@ -6,6 +6,8 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+    # The init benchmark app, copied into a generated fixture (doc/init_performance.md).
+    - tool/init/**
 include: package:flutter_lints/flutter.yaml
 
 # Additional information about this file can be found at
